@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=MOKO Terminal
+GenericName=Terminal Emulator
+Comment=Open a command-line session in the MOKO Developer Preview
+Exec=moko-terminal-bootstrap
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;console;command;terminal;
+X-MOKO-AppId=org.moko.Terminal
+X-MOKO-Category=System
+X-MOKO-Glyph=terminal
+X-MOKO-Pinned=true
+X-MOKO-PinOrder=10

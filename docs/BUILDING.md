@@ -48,6 +48,7 @@ Run a repeatable headless QEMU smoke test from macOS or Linux:
 ```bash
 ./scripts/test-iso-docker.sh out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
 MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=terminal MOKO_LAUNCH_APP_ID=org.moko.Terminal ./scripts/test-iso-docker.sh
 ```
 
 Each run waits for the live image's `MOKO_HEALTH` marker, captures the serial
@@ -56,6 +57,16 @@ verifies an ACPI shutdown through the live-media removal prompt. Override the
 boot and framebuffer limits with `MOKO_BOOT_TIMEOUT` and
 `MOKO_SCREENSHOT_TIMEOUT`; defaults are 300 and 180 seconds. The test never
 creates or attaches a writable disk.
+
+The Docker QEMU path defaults to multi-threaded TCG with a 2 GiB translation
+block cache. Override it with `MOKO_QEMU_ACCEL` only when comparing emulator
+configurations; the timeout and health assertions remain unchanged.
+
+The optional launcher variables drive the visible launcher through QEMU keyboard
+input and require its sanitized runtime event to report the selected process as
+running before a second framebuffer capture is accepted. The capture waits 12
+seconds by default for a newly mapped Wayland surface; use
+`MOKO_LAUNCH_SETTLE_SECONDS` when profiling unusually slow emulation.
 
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a

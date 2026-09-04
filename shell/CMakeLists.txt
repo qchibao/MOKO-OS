@@ -12,6 +12,10 @@ if(Qt6_VERSION VERSION_GREATER_EQUAL 6.8)
 endif()
 
 qt_add_executable(moko-shell
+    src/applicationiconprovider.cpp
+    src/applicationiconprovider.h
+    src/applicationregistry.cpp
+    src/applicationregistry.h
     src/main.cpp
 )
 
@@ -41,9 +45,21 @@ install(TARGETS moko-shell
 
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
     add_test(NAME moko-shell-smoke COMMAND moko-shell --smoke-test --windowed)
     set_tests_properties(moko-shell-smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
         TIMEOUT 10
     )
+
+    qt_add_executable(moko-application-registry-tests
+        tests/test_applicationregistry.cpp
+        src/applicationregistry.cpp
+        src/applicationregistry.h
+    )
+    target_include_directories(moko-application-registry-tests PRIVATE src)
+    target_link_libraries(moko-application-registry-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME moko-application-registry-tests COMMAND moko-application-registry-tests)
+    set_tests_properties(moko-application-registry-tests PROPERTIES TIMEOUT 15)
 endif()

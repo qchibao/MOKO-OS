@@ -5,6 +5,8 @@ lb config \
   --distribution trixie \
   --architectures amd64 \
   --binary-images iso-hybrid \
+  --chroot-squashfs-compression-level 5 \
+  --chroot-squashfs-compression-type zstd \
   --archive-areas "main contrib non-free-firmware" \
   --debian-installer none \
   --iso-application "MOKO OS v0.1 Developer Preview" \

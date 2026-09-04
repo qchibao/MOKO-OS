@@ -13,4 +13,5 @@ systemctl disable getty@tty1.service || true
 systemctl mask getty@tty1.service || true
 systemctl enable greetd.service || true
 systemctl enable moko-live-health.service || true
+systemctl enable moko-live-launch-monitor.service || true
 systemctl set-default graphical.target || true

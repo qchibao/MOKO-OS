@@ -1,8 +1,12 @@
+#include "applicationiconprovider.h"
+#include "applicationregistry.h"
+
 #include <QGuiApplication>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFileInfo>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QQmlError>
 #include <QQuickWindow>
 #include <QQuickStyle>
@@ -25,13 +29,28 @@ int main(int argc, char *argv[])
     parser.addOption({"windowed", "Run the developer preview in a window."});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
+    parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
     parser.process(app);
 
     const bool smokeTest = parser.isSet("smoke-test");
     const QString screenshotPath = parser.value("screenshot");
     bool qmlWarningsFound = false;
 
+    ApplicationRegistry applicationRegistry(nullptr, parser.values("application-dir"));
+    ApplicationFilterModel launcherApplications;
+    launcherApplications.setSourceModel(&applicationRegistry);
+    ApplicationFilterModel dockApplications;
+    dockApplications.setPinnedOnly(true);
+    dockApplications.setSourceModel(&applicationRegistry);
+
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("moko-app-icon"), new ApplicationIconProvider);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoApplicationRegistry"),
+                                             &applicationRegistry);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoLauncherApplications"),
+                                             &launcherApplications);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoDockApplications"),
+                                             &dockApplications);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         if (!warnings.isEmpty()) {
             qmlWarningsFound = true;

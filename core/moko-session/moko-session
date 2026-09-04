@@ -4,4 +4,7 @@ export XDG_CURRENT_DESKTOP=MOKO
 export XDG_SESSION_DESKTOP=MOKO
 export QT_QPA_PLATFORM=wayland
 export QT_QUICK_CONTROLS_STYLE=Basic
+if [ -d /run/live ]; then
+  export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/moko-launch-events"
+fi
 exec /usr/local/bin/moko-shell

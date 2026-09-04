@@ -1,0 +1,22 @@
+#!/bin/sh
+# DEV_ONLY: mirrors sanitized shell launch events to serial for QEMU validation.
+set -eu
+
+uid=$(id -u moko)
+runtime_dir="/run/user/$uid"
+events="$runtime_dir/moko-launch-events"
+
+while [ ! -d "$runtime_dir" ]; do
+  sleep 1
+done
+
+tail -n +1 -F "$events" 2>/dev/null | while IFS= read -r event; do
+  case "$event" in
+    MOKO_APP_LAUNCH\ *)
+      echo "$event"
+      if [ -w /dev/ttyS0 ]; then
+        echo "$event" > /dev/ttyS0
+      fi
+      ;;
+  esac
+done

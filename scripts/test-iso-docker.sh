@@ -6,7 +6,12 @@ ISO=${1:-$ROOT/out/MOKO-OS-v0.1-dev-amd64.hybrid.iso}
 RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
+LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
+LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
+LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
 IMAGE=${MOKO_QEMU_IMAGE:-moko-os-debian13-qemu}
+QEMU_ACCEL=${MOKO_QEMU_ACCEL:-tcg,thread=multi,tb-size=2048}
+QEMU_CPU=${MOKO_QEMU_CPU:-max}
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 command -v docker >/dev/null || {
@@ -25,6 +30,20 @@ command -v docker >/dev/null || {
   echo "MOKO_SCREENSHOT_TIMEOUT must be a positive integer." >&2
   exit 1
 }
+if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
+  [[ -n "$LAUNCH_QUERY" && -n "$LAUNCH_APP_ID" ]] || {
+    echo "MOKO_LAUNCH_QUERY and MOKO_LAUNCH_APP_ID must be set together." >&2
+    exit 1
+  }
+  [[ "$LAUNCH_QUERY" =~ ^[a-z0-9]+$ ]] || {
+    echo "MOKO_LAUNCH_QUERY supports lowercase letters and digits." >&2
+    exit 1
+  }
+  [[ "$LAUNCH_SETTLE_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+    echo "MOKO_LAUNCH_SETTLE_SECONDS must be a positive integer." >&2
+    exit 1
+  }
+fi
 
 ISO_DIR=$(cd "$(dirname "$ISO")" && pwd)
 ISO_NAME=$(basename "$ISO")
@@ -73,7 +92,7 @@ docker run --rm --platform linux/amd64 \
       echo "Desktop environment or installer package found in ISO." >&2
       exit 1
     fi
-    if grep -Eiq "^(build-essential|cmake|ninja-build|qt6-base-dev|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)([[:space:]]|$)" /tmp/filesystem.packages; then
+    if grep -Eiq "^(build-essential|cmake|ninja-build|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)([[:space:]]|$)" /tmp/filesystem.packages; then
       echo "Build-only dependency found in ISO." >&2
       exit 1
     fi
@@ -83,9 +102,15 @@ docker run --rm --platform linux/amd64 \
     for path in \
       usr/local/bin/moko-shell \
       usr/local/bin/moko-session \
+      usr/local/bin/moko-terminal-bootstrap \
       usr/local/libexec/moko-live-health-check \
+      usr/local/libexec/moko-live-launch-monitor \
+      usr/local/share/applications/org.moko.Terminal.desktop \
+      usr/local/share/applications/foot-server.desktop \
+      usr/local/share/applications/footclient.desktop \
       etc/greetd/config.toml \
-      etc/systemd/system/moko-live-health.service
+      etc/systemd/system/moko-live-health.service \
+      etc/systemd/system/moko-live-launch-monitor.service
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
     done
@@ -106,8 +131,9 @@ for run in $(seq 1 "$RUNS"); do
     "$IMAGE" \
     qemu-system-x86_64 \
       -name "MOKO OS cold boot $run" \
-      -machine q35,accel=tcg \
-      -cpu max \
+      -machine q35 \
+      -accel "$QEMU_ACCEL" \
+      -cpu "$QEMU_CPU" \
       -smp 4 \
       -m 3072 \
       -device virtio-vga \
@@ -158,6 +184,44 @@ for run in $(seq 1 "$RUNS"); do
     sleep 5
   done
   grep 'MOKO_HEALTH result=pass' "$SERIAL_PATH" | tail -1
+
+  if [[ "$run" == 1 && -n "$LAUNCH_QUERY" ]]; then
+    for ((index = 0; index < ${#LAUNCH_QUERY}; index++)); do
+      monitor "sendkey ${LAUNCH_QUERY:index:1}"
+      sleep 0.1
+    done
+    monitor "sendkey ret"
+
+    launch_deadline=$((SECONDS + 30))
+    while ! grep -E -q "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH"; do
+      if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
+        tail -80 "$SERIAL_PATH" >&2
+        echo "Launcher reported a failed application start." >&2
+        exit 1
+      fi
+      if (( SECONDS >= launch_deadline )); then
+        tail -80 "$SERIAL_PATH" >&2
+        echo "Launcher did not report $LAUNCH_APP_ID running." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+
+    sleep "$LAUNCH_SETTLE_SECONDS"
+    LAUNCH_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-launched.png"
+    monitor "screendump /artifacts/$LAUNCH_SCREENSHOT_NAME -f png"
+    launch_screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$LAUNCH_SCREENSHOT_NAME")
+    (( launch_screenshot_size > 10000 )) || {
+      echo "Launched application framebuffer capture is unexpectedly small." >&2
+      exit 1
+    }
+    if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
+      tail -80 "$SERIAL_PATH" >&2
+      echo "Application exited during launch validation." >&2
+      exit 1
+    fi
+    grep -E "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH" | tail -1
+  fi
 
   monitor system_powerdown
   sleep 30

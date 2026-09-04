@@ -5,7 +5,8 @@ apt-get update
 apt-get install -y --no-install-recommends \
   build-essential cmake libxkbcommon-dev ninja-build \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools
-cmake -S /opt/moko-src/shell -B /tmp/moko-shell-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake -S /opt/moko-src/shell -B /tmp/moko-shell-build -G Ninja \
+  -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
 cmake --build /tmp/moko-shell-build --parallel
 cmake --install /tmp/moko-shell-build
 install -Dm755 /opt/moko-src/core/moko-session/moko-session /usr/local/bin/moko-session

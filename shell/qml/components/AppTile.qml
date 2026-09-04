@@ -5,8 +5,12 @@ Item {
     id: root
     property string title: "App"
     property string kind: "system"
+    property url iconSource
+    property string launchState: "ready"
+    property string launchMessage
     property bool compact: false
     property bool dense: false
+    property bool selected: false
     property int compactExtent: 62
     signal activated()
 
@@ -23,8 +27,8 @@ Item {
             height: width
             radius: root.dense ? 14 : 16
             color: mouse.containsMouse ? Qt.rgba(1,1,1,.94) : Qt.rgba(.97,.99,1,.80)
-            border.width: 1
-            border.color: Qt.rgba(1,1,1,.86)
+            border.width: root.selected ? 2 : 1
+            border.color: root.selected ? "#3F7CFF" : Qt.rgba(1,1,1,.86)
             scale: mouse.pressed ? .94 : (mouse.containsMouse ? 1.05 : 1.0)
 
             Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
@@ -33,6 +37,30 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 9
                 kind: root.kind
+                visible: appIcon.status !== Image.Ready
+            }
+
+            Image {
+                id: appIcon
+                anchors.fill: parent
+                anchors.margins: 8
+                source: root.iconSource
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                smooth: true
+            }
+
+            Rectangle {
+                visible: root.launchState !== "ready"
+                width: root.compact ? 9 : 11
+                height: width
+                radius: width / 2
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                color: root.launchState === "running" ? "#26A66A"
+                      : root.launchState === "failed" ? "#D94A57" : "#E8A326"
+                border.width: 2
+                border.color: "white"
             }
 
             MouseArea {
@@ -42,6 +70,9 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.activated()
             }
+
+            ToolTip.visible: root.compact && mouse.containsMouse
+            ToolTip.text: root.title
         }
 
         Text {
@@ -54,4 +85,8 @@ Item {
             font.pixelSize: root.dense ? 10 : 11
         }
     }
+
+    Accessible.role: Accessible.Button
+    Accessible.name: title
+    Accessible.description: launchMessage
 }

@@ -58,9 +58,10 @@ ApplicationWindow {
         anchors.top: topBar.bottom
         anchors.topMargin: 24
         visible: launcherVisible
+        applicationModel: mokoLauncherApplications
         opacity: visible ? 1 : 0
         z: 4
-        onAppRequested: (appId) => toast.show(appId + " is a Developer Preview tile")
+        onAppRequested: (appId) => mokoApplicationRegistry.launch(appId)
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
 
@@ -105,12 +106,27 @@ ApplicationWindow {
     }
 
     Dock {
+        applicationModel: mokoDockApplications
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         z: 7
         onLauncherRequested: window.launcherVisible = !window.launcherVisible
         onAiRequested: window.aiVisible = !window.aiVisible
+        onAppRequested: (appId) => mokoApplicationRegistry.launch(appId)
+    }
+
+    Connections {
+        target: mokoApplicationRegistry
+        function onApplicationLaunching(appId, displayName) {
+            toast.show("Launching " + displayName + "...")
+        }
+        function onApplicationRunning(appId, displayName) {
+            toast.show(displayName + " is running")
+        }
+        function onApplicationFailed(appId, displayName, message) {
+            toast.show("Could not launch " + displayName + ": " + message)
+        }
     }
 
     Rectangle {
