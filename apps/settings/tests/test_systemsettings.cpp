@@ -16,11 +16,12 @@ void SystemSettingsTest::exposesAllRequiredSections()
 {
     SystemSettings settings;
     const QStringList sections = settings.sectionIds();
-    QCOMPARE(sections.size(), 9);
+    QCOMPARE(sections.size(), 10);
     for (const QString &expected : {QStringLiteral("about"), QStringLiteral("display"),
                                     QStringLiteral("appearance"), QStringLiteral("sound"),
                                     QStringLiteral("network"), QStringLiteral("bluetooth"),
                                     QStringLiteral("power"), QStringLiteral("storage"),
+                                    QStringLiteral("hardware"),
                                     QStringLiteral("system")}) {
         QVERIFY2(sections.contains(expected), qPrintable(expected));
     }

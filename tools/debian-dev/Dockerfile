@@ -9,10 +9,12 @@ RUN apt-get update \
         cage \
         cmake \
         dbus \
+        ethtool \
         libgl1-mesa-dri \
         libvterm-dev \
         libxkbcommon-dev \
         ninja-build \
+        pciutils \
         pkg-config \
         qml6-module-qtquick \
         qml6-module-qtquick-controls \
@@ -21,6 +23,7 @@ RUN apt-get update \
         qt6-declarative-dev \
         qt6-declarative-dev-tools \
         qt6-wayland \
+        usbutils \
         weston \
     && rm -rf /var/lib/apt/lists/*
 

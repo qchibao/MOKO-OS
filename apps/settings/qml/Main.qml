@@ -235,6 +235,26 @@ ApplicationWindow {
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 }
 
+                Button {
+                    visible: window.selectedSection === "hardware"
+                    Layout.fillWidth: true
+                    implicitHeight: 42
+                    text: "Open Hardware Diagnostics"
+                    onClicked: mokoSettings.openHardwareDiagnostics()
+                    background: Rectangle {
+                        radius: 7
+                        color: parent.down ? "#2F68D7" : parent.hovered ? "#4D85F5" : "#3978F6"
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#FFFFFF"
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 38

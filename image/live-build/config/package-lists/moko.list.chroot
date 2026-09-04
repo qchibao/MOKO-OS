@@ -5,6 +5,9 @@ sudo
 network-manager
 iproute2
 iputils-ping
+ethtool
+pciutils
+usbutils
 pipewire
 wireplumber
 bluez

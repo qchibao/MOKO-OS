@@ -53,6 +53,11 @@ AiIntent LocalStubProvider::interpret(const QString &prompt) const
             return action(QStringLiteral("open_application"),
                           {{QStringLiteral("appId"), QStringLiteral("org.moko.Terminal")}},
                           QStringLiteral("Opening MOKO Terminal."));
+        if (containsAny(normalized, {QStringLiteral("hardware diagnostics"),
+                                     QStringLiteral("diagnostics")}))
+            return action(QStringLiteral("open_application"),
+                          {{QStringLiteral("appId"), QStringLiteral("org.moko.HardwareDiagnostics")}},
+                          QStringLiteral("Opening MOKO Hardware Diagnostics."));
     }
 
     if (containsAny(normalized,

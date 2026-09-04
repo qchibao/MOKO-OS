@@ -25,6 +25,9 @@ void AiTests::providerProducesOnlyKnownActions()
     LocalStubProvider provider;
     QCOMPARE(provider.interpret(QStringLiteral("open moko files")).action,
              QStringLiteral("open_application"));
+    QCOMPARE(provider.interpret(QStringLiteral("open hardware diagnostics"))
+                 .parameters.value(QStringLiteral("appId")).toString(),
+             QStringLiteral("org.moko.HardwareDiagnostics"));
     QCOMPARE(provider.interpret(QStringLiteral("system overview")).action,
              QStringLiteral("system_summary"));
     QCOMPARE(provider.interpret(QStringLiteral("find report")).action,

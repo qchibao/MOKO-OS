@@ -67,6 +67,20 @@ status reads NetworkManager D-Bus, `/proc`, `/sys` and mounted-filesystem APIs.
 There is no shell-command action and model/provider output cannot create a
 process directly.
 
+## Hardware diagnostics boundary
+`moko-hardware-diagnostics` is an unprivileged Qt 6/QML app backed by a
+MOKO-owned C++ probe. It reads procfs/sysfs, system D-Bus and fixed inspection
+utilities for CPU, memory, graphics, storage, network, Bluetooth, audio, input,
+power and Intel Mac evidence. Compatibility states remain `UNKNOWN` when the
+available evidence is insufficient; the app never claims hardware support from
+device identity alone.
+
+The probe is read-only and does not mount, partition or format storage. JSON and
+text exports omit serial numbers, UUIDs, MAC addresses, host names and personal
+file content. Settings launches the app through the Shell-owned
+`org.moko.Applications1` registry, and MOKO AI can request the same allowlisted
+application ID without gaining a general process or shell capability.
+
 ## Architecture targets
 - v0.1: amd64 only.
 - Later: arm64 feasibility track after desktop APIs stabilize.

@@ -1,16 +1,19 @@
 #include "systemsettings.h"
+#include "livemarker.h"
 
 #include <QDateTime>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusInterface>
 #include <QDBusMessage>
+#include <QDBusReply>
 #include <QDBusObjectPath>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QScreen>
 #include <QStorageInfo>
 #include <QSysInfo>
@@ -75,7 +78,7 @@ QStringList SystemSettings::sectionIds() const
             QStringLiteral("appearance"), QStringLiteral("sound"),
             QStringLiteral("network"),    QStringLiteral("bluetooth"),
             QStringLiteral("power"),      QStringLiteral("storage"),
-            QStringLiteral("system")};
+            QStringLiteral("hardware"),   QStringLiteral("system")};
 }
 
 QString SystemSettings::sectionTitle(const QString &sectionId) const
@@ -89,6 +92,7 @@ QString SystemSettings::sectionTitle(const QString &sectionId) const
         {QStringLiteral("bluetooth"), QStringLiteral("Bluetooth")},
         {QStringLiteral("power"), QStringLiteral("Power")},
         {QStringLiteral("storage"), QStringLiteral("Storage")},
+        {QStringLiteral("hardware"), QStringLiteral("Hardware Diagnostics")},
         {QStringLiteral("system"), QStringLiteral("System Information")},
     };
     return titles.value(sectionId, sectionId);
@@ -105,6 +109,7 @@ QString SystemSettings::sectionDescription(const QString &sectionId) const
         {QStringLiteral("bluetooth"), QStringLiteral("BlueZ controller service")},
         {QStringLiteral("power"), QStringLiteral("Battery and suspend capability")},
         {QStringLiteral("storage"), QStringLiteral("Mounted filesystems and free space")},
+        {QStringLiteral("hardware"), QStringLiteral("Read-only compatibility report and export")},
         {QStringLiteral("system"), QStringLiteral("Kernel, architecture and runtime details")},
     };
     return descriptions.value(sectionId);
@@ -126,10 +131,31 @@ void SystemSettings::refresh()
     collectBluetooth();
     collectPower();
     collectStorage();
+    collectHardwareDiagnostics();
     collectSystem();
     m_refreshedAt = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     m_statusMessage = QStringLiteral("Live system data refreshed");
     emit dataChanged();
+}
+
+bool SystemSettings::openHardwareDiagnostics()
+{
+    QDBusInterface applications(QStringLiteral("org.moko.Applications1"),
+                                QStringLiteral("/org/moko/Applications1"),
+                                QStringLiteral("org.moko.Applications1"),
+                                QDBusConnection::sessionBus());
+    const QDBusReply<QVariantMap> reply = applications.call(
+        QStringLiteral("openApplication"), QStringLiteral("org.moko.HardwareDiagnostics"));
+    const bool launched = reply.isValid() && reply.value().value(QStringLiteral("ok")).toBool();
+    m_statusMessage = launched ? QStringLiteral("Opening MOKO Hardware Diagnostics")
+        : reply.isValid() ? reply.value().value(QStringLiteral("message")).toString()
+                          : QStringLiteral("MOKO application service is unavailable");
+    if (launched) {
+        writeMokoLiveEvent(QStringLiteral("MOKO_SETTINGS_ACTION action=open_hardware_diagnostics state=accepted uid=%1")
+                               .arg(geteuid()));
+    }
+    emit dataChanged();
+    return launched;
 }
 
 QVariantMap SystemSettings::row(const QString &label,
@@ -373,6 +399,22 @@ void SystemSettings::collectStorage()
     if (result.isEmpty())
         result.append(row(QStringLiteral("Mounted storage"), QStringLiteral("Unavailable"), {}, false));
     m_rows.insert(QStringLiteral("storage"), result);
+}
+
+void SystemSettings::collectHardwareDiagnostics()
+{
+    const QString program = QStandardPaths::findExecutable(QStringLiteral("moko-hardware-diagnostics"));
+    const bool available = !program.isEmpty();
+    m_rows.insert(QStringLiteral("hardware"),
+                  {row(QStringLiteral("Compatibility scanner"),
+                       available ? QStringLiteral("Installed") : QStringLiteral("Unavailable"),
+                       available ? program : QStringLiteral("moko-hardware-diagnostics was not found"),
+                       available),
+                   row(QStringLiteral("Operations"), QStringLiteral("Read-only"),
+                       QStringLiteral("No mounting, partitioning, formatting or firmware changes")),
+                   row(QStringLiteral("Exports"),
+                       QStringLiteral("moko-hardware-report.json / .txt"),
+                       QStringLiteral("Serial numbers, MAC addresses, host names and personal files are excluded"))});
 }
 
 void SystemSettings::collectSystem()

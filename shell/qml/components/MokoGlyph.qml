@@ -62,6 +62,10 @@ Item {
                 stroke("#53637A",w*.085); ctx.beginPath(); ctx.arc(cx,cy,w*.25,0,Math.PI*2); ctx.stroke()
                 stroke(primary,w*.055); ctx.beginPath(); ctx.arc(cx,cy,w*.11,0,Math.PI*2); ctx.stroke()
                 for (let i=0;i<6;i++) { const a=i*Math.PI/3; stroke("#53637A",w*.055); ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*w*.28,cy+Math.sin(a)*w*.28); ctx.lineTo(cx+Math.cos(a)*w*.37,cy+Math.sin(a)*w*.37); ctx.stroke() }
+            } else if (kind === "diagnostics") {
+                stroke("#52647B",w*.045); roundRect(w*.19,h*.20,w*.62,h*.60,w*.08); ctx.stroke()
+                stroke(primary,w*.055); ctx.beginPath(); ctx.moveTo(w*.28,h*.54); ctx.lineTo(w*.39,h*.54); ctx.lineTo(w*.46,h*.37); ctx.lineTo(w*.55,h*.66); ctx.lineTo(w*.63,h*.47); ctx.lineTo(w*.73,h*.47); ctx.stroke()
+                fill(secondary); ctx.beginPath(); ctx.arc(w*.29,h*.32,w*.045,0,Math.PI*2); ctx.fill()
             } else if (kind === "store") {
                 const g = ctx.createLinearGradient(0,h*.2,w,h*.8); g.addColorStop(0,"#40E0D0"); g.addColorStop(1,"#4B75FF"); fill(g); roundRect(w*.20,h*.30,w*.60,h*.48,w*.09); ctx.fill()
                 stroke("#FFFFFF",w*.045); ctx.beginPath(); ctx.arc(cx,h*.34,w*.17,Math.PI,0); ctx.stroke()

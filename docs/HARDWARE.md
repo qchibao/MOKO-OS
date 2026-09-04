@@ -34,3 +34,18 @@ CPU instruction compatibility is usually not the hard part; graphics, Wi-Fi, aud
 4. Internal dual boot only after hardware diagnostics and backups.
 
 T2-equipped Intel Macs require a separate compatibility track. Do not claim support until storage, input, Wi-Fi, audio, suspend and boot have been tested on the exact model.
+
+## MOKO Hardware Diagnostics
+Launch `MOKO Hardware Diagnostics` from the Launcher, Dock, MOKO Settings or the
+allowlisted MOKO AI action. The scan is read-only and reports four evidence
+levels: `SUPPORTED`, `PARTIAL`, `UNKNOWN` and `UNSUPPORTED`. `UNKNOWN` is the
+required result when the running system cannot provide enough evidence.
+
+The app can explicitly export `moko-hardware-report.json` and
+`moko-hardware-report.txt` to the current user's home directory. Reports include
+the kernel version, loaded modules and relevant PCI/USB IDs, but exclude serial
+numbers, UUIDs, MAC addresses, host names and personal file content.
+
+QEMU is a validation target, not a hardware support claim. Physical PC and
+Intel Mac results must be collected from a non-destructive Live USB session and
+reviewed per model before changing a compatibility status.

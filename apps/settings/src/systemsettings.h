@@ -20,6 +20,7 @@ public:
     Q_INVOKABLE QString sectionDescription(const QString &sectionId) const;
     Q_INVOKABLE QVariantList rows(const QString &sectionId) const;
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE bool openHardwareDiagnostics();
 
 signals:
     void dataChanged();
@@ -48,6 +49,7 @@ private:
     void collectPower();
     void collectStorage();
     void collectSystem();
+    void collectHardwareDiagnostics();
 
     QHash<QString, Rows> m_rows;
     QString m_refreshedAt;

@@ -14,5 +14,6 @@ endif()
 include(CTest)
 
 add_subdirectory(files)
+add_subdirectory(hardware)
 add_subdirectory(settings)
 add_subdirectory(terminal)

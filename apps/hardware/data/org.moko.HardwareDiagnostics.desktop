@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=MOKO Hardware Diagnostics
+GenericName=Hardware Compatibility
+Comment=Inspect hardware compatibility and export a privacy-safe report
+Exec=moko-hardware-diagnostics
+Icon=computer
+Terminal=false
+Categories=System;Settings;
+Keywords=hardware;diagnostics;compatibility;drivers;firmware;gpu;wifi;audio;mac;
+X-MOKO-AppId=org.moko.HardwareDiagnostics
+X-MOKO-Category=System
+X-MOKO-Glyph=diagnostics
+X-MOKO-Pinned=true
+X-MOKO-PinOrder=40

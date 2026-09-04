@@ -52,6 +52,15 @@ MOKO_LAUNCH_QUERY=terminal MOKO_LAUNCH_APP_ID=org.moko.Terminal ./scripts/test-i
 MOKO_AI_PROMPT="system overview" MOKO_AI_EXPECT_ACTION=system_summary ./scripts/test-iso-docker.sh
 MOKO_AI_PROMPT="open files" MOKO_AI_EXPECT_ACTION=open_application \
   MOKO_AI_EXPECT_APP_ID=org.moko.Files ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=diagnostics \
+  MOKO_LAUNCH_APP_ID=org.moko.HardwareDiagnostics \
+  MOKO_REQUIRE_APP_READY=1 MOKO_EXPECT_HARDWARE_REPORT=1 \
+  ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=appearance MOKO_LAUNCH_APP_ID=org.moko.Settings \
+  MOKO_REQUIRE_APP_READY=1 MOKO_SETTINGS_OPEN_HARDWARE=1 \
+  ./scripts/test-iso-docker.sh
+MOKO_AI_PROMPT="open hardware diagnostics" MOKO_AI_EXPECT_ACTION=open_application \
+  MOKO_AI_EXPECT_APP_ID=org.moko.HardwareDiagnostics ./scripts/test-iso-docker.sh
 ```
 
 Each run waits for the live image's `MOKO_HEALTH` marker, captures the serial
@@ -72,6 +81,11 @@ seconds by default for a newly mapped Wayland surface; use
 `MOKO_LAUNCH_SETTLE_SECONDS` when profiling unusually slow emulation.
 Set `MOKO_REQUIRE_APP_READY=1` for native MOKO apps; the test then requires an
 in-process readiness marker in addition to the Shell's process-start marker.
+The hardware mode additionally checks the read-only QEMU inventory, clicks the
+visible JSON/text export controls through the emulated USB tablet and requires
+both reports to be written by UID 1000. The Settings mode clicks its Hardware
+Diagnostics entry and verifies that the launch returns through the shared MOKO
+application registry.
 
 The optional AI variables drive the real Shell panel through QEMU keyboard
 input. They require an unprivileged daemon connection, the expected D-Bus

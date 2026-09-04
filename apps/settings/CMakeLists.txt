@@ -26,7 +26,7 @@ if(BUILD_TESTING)
         src/systemsettings.cpp
         src/systemsettings.h
     )
-    target_include_directories(moko-settings-tests PRIVATE src)
+    target_include_directories(moko-settings-tests PRIVATE src ../common)
     target_link_libraries(moko-settings-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Gui Qt6::Test)
     add_test(NAME moko-settings-tests COMMAND moko-settings-tests)
     set_tests_properties(moko-settings-tests PROPERTIES

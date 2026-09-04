@@ -51,4 +51,9 @@ docker run --rm --platform linux/amd64 \
         --screenshot "/artifacts/moko-$app-preview.png"
       test -s "/artifacts/moko-$app-preview.png"
     done
+    WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
+      /tmp/moko-apps-build/hardware/moko-hardware-diagnostics \
+      --screenshot /artifacts/moko-hardware-diagnostics-preview.png \
+      --export-directory /artifacts
+    test -s /artifacts/moko-hardware-diagnostics-preview.png
   '

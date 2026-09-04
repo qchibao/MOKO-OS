@@ -10,6 +10,8 @@ LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
 LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
 LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
 REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
+EXPECT_HARDWARE_REPORT=${MOKO_EXPECT_HARDWARE_REPORT:-0}
+SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
@@ -51,6 +53,14 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
     echo "MOKO_REQUIRE_APP_READY must be 0 or 1." >&2
     exit 1
   }
+  [[ "$EXPECT_HARDWARE_REPORT" == 0 || "$EXPECT_HARDWARE_REPORT" == 1 ]] || {
+    echo "MOKO_EXPECT_HARDWARE_REPORT must be 0 or 1." >&2
+    exit 1
+  }
+  [[ "$SETTINGS_OPEN_HARDWARE" == 0 || "$SETTINGS_OPEN_HARDWARE" == 1 ]] || {
+    echo "MOKO_SETTINGS_OPEN_HARDWARE must be 0 or 1." >&2
+    exit 1
+  }
 fi
 if [[ -n "$AI_PROMPT" || -n "$AI_EXPECT_ACTION" || -n "$AI_EXPECT_APP_ID" ]]; then
   [[ -n "$AI_PROMPT" && -n "$AI_EXPECT_ACTION" ]] || {
@@ -83,6 +93,29 @@ monitor() {
   local command=$1
   printf '%s\n' "$command" | docker exec -i "$CONTAINER" \
     socat - UNIX-CONNECT:/tmp/qemu-monitor.sock >/dev/null
+}
+
+qmp() {
+  local command=$1
+  local response
+  response=$(printf '%s\n%s\n' '{"execute":"qmp_capabilities"}' "$command" | docker exec -i "$CONTAINER" \
+    socat - UNIX-CONNECT:/tmp/qemu-qmp.sock)
+  if grep -Fq '"error"' <<<"$response"; then
+    printf '%s\n' "$response" >&2
+    return 1
+  fi
+}
+
+pointer_click() {
+  local x=$1
+  local y=$2
+  local absolute_x=$((x * 32767 / 1279))
+  local absolute_y=$((y * 32767 / 799))
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$absolute_x}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$absolute_y}}]}}"
+  sleep 1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
+  sleep 1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
 }
 
 wait_for_monitor() {
@@ -127,12 +160,14 @@ docker run --rm --platform linux/amd64 \
       usr/local/bin/moko-files \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
+      usr/local/bin/moko-hardware-diagnostics \
       usr/local/bin/moko-ai-daemon \
       usr/local/libexec/moko-live-health-check \
       usr/local/libexec/moko-live-launch-monitor \
       usr/local/share/applications/org.moko.Files.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
+      usr/local/share/applications/org.moko.HardwareDiagnostics.desktop \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       usr/local/share/dbus-1/services/org.moko.AI1.service \
       etc/greetd/config.toml \
@@ -167,6 +202,7 @@ for run in $(seq 1 "$RUNS"); do
       -display none \
       -vnc :0 \
       -monitor unix:/tmp/qemu-monitor.sock,server=on,wait=off \
+      -qmp unix:/tmp/qemu-qmp.sock,server=on,wait=off \
       -serial "file:/artifacts/$SERIAL_NAME" \
       -D "/artifacts/$DEBUG_NAME" \
       -d guest_errors \
@@ -243,7 +279,7 @@ for run in $(seq 1 "$RUNS"); do
         key=spc
       fi
       monitor "sendkey $key"
-      sleep 0.1
+      sleep 0.2
     done
     monitor "sendkey ret"
 
@@ -346,6 +382,39 @@ for run in $(seq 1 "$RUNS"); do
       grep -F "MOKO_APP_READY app_id=$LAUNCH_APP_ID state=ready" "$SERIAL_PATH" | tail -1
     fi
 
+    if [[ "$EXPECT_HARDWARE_REPORT" == 1 ]]; then
+      [[ "$LAUNCH_APP_ID" == "org.moko.HardwareDiagnostics" ]] || {
+        echo "MOKO_EXPECT_HARDWARE_REPORT requires org.moko.HardwareDiagnostics." >&2
+        exit 1
+      }
+      hardware_deadline=$((SECONDS + 45))
+      while ! grep -E -q "MOKO_HW_REPORT state=ready overall=(SUPPORTED|PARTIAL|UNKNOWN) manufacturer=QEMU .* architecture=x86_64 .* writable_disk_detected=0" "$SERIAL_PATH"; do
+        if (( SECONDS >= hardware_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "Hardware Diagnostics did not report the expected read-only QEMU inventory." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      sleep 3
+      HARDWARE_READY_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-hardware-ready.png"
+      monitor "screendump /artifacts/$HARDWARE_READY_SCREENSHOT_NAME -f png"
+      pointer_click 1050 69
+      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-hardware-click.png -f png"
+      pointer_click 1162 69
+      for format in json txt; do
+        while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
+          if (( SECONDS >= hardware_deadline )); then
+            tail -120 "$SERIAL_PATH" >&2
+            echo "Hardware Diagnostics did not export the $format report." >&2
+            exit 1
+          fi
+          sleep 1
+        done
+      done
+      grep -E "MOKO_HW_REPORT state=ready|MOKO_HW_EXPORT" "$SERIAL_PATH" | tail -3
+    fi
+
     surface_deadline=$((SECONDS + 30))
     while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
       if (( SECONDS >= surface_deadline )); then
@@ -358,6 +427,35 @@ for run in $(seq 1 "$RUNS"); do
     grep -F "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
 
     sleep "$LAUNCH_SETTLE_SECONDS"
+    if [[ "$SETTINGS_OPEN_HARDWARE" == 1 ]]; then
+      [[ "$LAUNCH_APP_ID" == "org.moko.Settings" ]] || {
+        echo "MOKO_SETTINGS_OPEN_HARDWARE requires org.moko.Settings." >&2
+        exit 1
+      }
+      pointer_click 100 481
+      sleep 2
+      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-settings-hardware.png -f png"
+      pointer_click 770 695
+      settings_deadline=$((SECONDS + 45))
+      while ! grep -Fq "MOKO_SETTINGS_ACTION action=open_hardware_diagnostics state=accepted uid=1000" "$SERIAL_PATH"; do
+        if (( SECONDS >= settings_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO Settings did not launch Hardware Diagnostics." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      while ! grep -Fq "MOKO_APP_READY app_id=org.moko.HardwareDiagnostics state=ready" "$SERIAL_PATH"; do
+        if (( SECONDS >= settings_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "Hardware Diagnostics did not become ready after the Settings action." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      sleep 3
+      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-settings-launched-hardware.png -f png"
+    fi
     LAUNCH_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-launched.png"
     monitor "screendump /artifacts/$LAUNCH_SCREENSHOT_NAME -f png"
     launch_screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$LAUNCH_SCREENSHOT_NAME")
@@ -373,6 +471,10 @@ for run in $(seq 1 "$RUNS"); do
 
     if [[ "$REQUIRE_APP_READY" == 1 ]]; then
       monitor "sendkey ctrl-q"
+      if [[ "$SETTINGS_OPEN_HARDWARE" == 1 ]]; then
+        sleep 3
+        monitor "sendkey ctrl-q"
+      fi
       return_deadline=$((SECONDS + 30))
       while ! grep -Fq "MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
         if (( SECONDS >= return_deadline )); then

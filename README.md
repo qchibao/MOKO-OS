@@ -10,16 +10,17 @@ This repository already contains:
 - a MOKO-specific shell component structure (top bar, launcher, AI panel, dock, original programmatic glyphs);
 - native Qt 6/QML **MOKO Files, MOKO Settings and MOKO Terminal** applications integrated through the shared MOKO application registry;
 - an unprivileged **MOKO AI daemon**, MOKO-owned D-Bus API, allowlisted action layer and provider-backed Shell panel for safe local actions;
+- native **MOKO Hardware Diagnostics** with evidence-based compatibility states and privacy-safe JSON/text reports;
 - Debian 13 (trixie) live-build scaffolding for an **amd64/x86_64** developer ISO;
 - a temporary Wayland developer session using Cage while `moko-compositor` is still being built;
 - architecture, design language, hardware target, security principles and roadmap documents;
 - Codex-oriented task files and `AGENTS.md`.
 
 The ISO is intentionally labeled **Developer Preview**. The shell, launcher and
-first native applications and AI system actions have been built on Debian 13 and
+first native applications, AI system actions and hardware diagnostics have been built on Debian 13 and
 validated in the real QEMU graphical session, including three cold boots with
 network/input detection and clean shutdown. It remains a non-installing preview;
-hardware diagnostics and non-destructive Live USB testing come next.
+non-destructive Live USB readiness and physical hardware testing come next.
 
 ## First target
 
