@@ -640,6 +640,7 @@ bool ApplicationRegistry::launch(const QString &appId)
                 }
                 if (m_processes.value(appId) == process)
                     m_processes.remove(appId);
+                emit applicationStopped(appId, name, exitCode);
                 process->deleteLater();
             });
 

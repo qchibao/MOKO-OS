@@ -1,4 +1,0 @@
-#!/bin/sh
-# DEV_ONLY: temporary real launch target until the native MOKO Terminal milestone.
-set -eu
-exec foot

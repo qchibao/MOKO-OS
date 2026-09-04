@@ -1,2 +1,5 @@
 # MOKO Settings
-Placeholder for the native MOKO system application. Implementation starts after the shell and core service contracts are validated.
+
+Native Qt 6/QML system-information surface. It reads live state through Qt,
+D-Bus, `/proc`, `/sys`, mount information and PipeWire tools. v0.1 exposes
+unsupported controls as read-only rather than simulating successful changes.

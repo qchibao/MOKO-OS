@@ -1,2 +1,6 @@
 # MOKO Files
-Placeholder for the native MOKO system application. Implementation starts after the shell and core service contracts are validated.
+
+Native Qt 6/QML file manager backed by `FileModel`. File operations use Qt
+filesystem APIs, never shell command construction. Deletion requires an
+explicit one-time confirmation token and the application refuses normal use as
+root.

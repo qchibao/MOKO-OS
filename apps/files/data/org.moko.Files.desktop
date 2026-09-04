@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=MOKO Files
+GenericName=File Manager
+Comment=Browse and manage files with MOKO Files
+Exec=moko-files
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileManager;Utility;
+Keywords=files;folders;documents;storage;home;copy;move;
+MimeType=inode/directory;
+X-MOKO-AppId=org.moko.Files
+X-MOKO-Category=System
+X-MOKO-Glyph=files
+X-MOKO-Pinned=true
+X-MOKO-PinOrder=10

@@ -19,7 +19,7 @@ SOURCE_STAGING="$LB/config/includes.chroot/opt/moko-src"
 trap 'rm -rf "$SOURCE_STAGING"' EXIT
 mkdir -p "$SOURCE_STAGING"
 rsync -a --delete --exclude build --exclude out --exclude .git \
-  "$ROOT/shell" "$ROOT/core" "$ROOT/assets" \
+  "$ROOT/shell" "$ROOT/apps" "$ROOT/core" "$ROOT/assets" \
   "$SOURCE_STAGING/"
 
 lb build

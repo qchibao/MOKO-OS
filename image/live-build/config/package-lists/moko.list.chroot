@@ -8,7 +8,6 @@ iputils-ping
 pipewire
 wireplumber
 bluez
-foot
 cage
 greetd
 xwayland
@@ -19,6 +18,8 @@ qml6-module-qtquick
 qml6-module-qtquick-controls
 qml6-module-qtquick-layouts
 fonts-dejavu-core
+libvterm0
+xdg-utils
 firmware-linux
 firmware-misc-nonfree
 firmware-iwlwifi

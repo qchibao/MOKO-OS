@@ -3,16 +3,20 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  build-essential cmake libxkbcommon-dev ninja-build \
+  build-essential cmake libvterm-dev libxkbcommon-dev ninja-build pkg-config \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools
 cmake -S /opt/moko-src/shell -B /tmp/moko-shell-build -G Ninja \
   -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
 cmake --build /tmp/moko-shell-build --parallel
 cmake --install /tmp/moko-shell-build
+cmake -S /opt/moko-src/apps -B /tmp/moko-apps-build -G Ninja \
+  -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake --build /tmp/moko-apps-build --parallel
+cmake --install /tmp/moko-apps-build
 install -Dm755 /opt/moko-src/core/moko-session/moko-session /usr/local/bin/moko-session
-rm -rf /tmp/moko-shell-build /opt/moko-src
+rm -rf /tmp/moko-shell-build /tmp/moko-apps-build /opt/moko-src
 apt-get purge -y \
-  build-essential cmake libxkbcommon-dev ninja-build \
+  build-essential cmake libvterm-dev libxkbcommon-dev ninja-build pkg-config \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools || true
 apt-get autoremove -y || true
 apt-get clean

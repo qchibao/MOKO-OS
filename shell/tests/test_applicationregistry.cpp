@@ -91,9 +91,12 @@ Exec=/usr/bin/touch "%1"
 
     ApplicationRegistry registry(nullptr, {directory.path()});
     QSignalSpy runningSpy(&registry, &ApplicationRegistry::applicationRunning);
+    QSignalSpy stoppedSpy(&registry, &ApplicationRegistry::applicationStopped);
     QVERIFY(registry.launch(QStringLiteral("safe")));
     QTRY_VERIFY_WITH_TIMEOUT(runningSpy.count() > 0, 3000);
     QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(marker), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(stoppedSpy.count(), 1, 3000);
+    QCOMPARE(stoppedSpy.constFirst().at(2).toInt(), 0);
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("still-one-argument"))));
 }
 

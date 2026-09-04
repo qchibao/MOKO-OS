@@ -10,6 +10,7 @@ RUN apt-get update \
         cmake \
         dbus \
         libgl1-mesa-dri \
+        libvterm-dev \
         libxkbcommon-dev \
         ninja-build \
         pkg-config \

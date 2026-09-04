@@ -1,6 +1,6 @@
 # MOKO OS v0.1 status
 
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 | Task | State | Notes |
 |---|---|---|
@@ -10,7 +10,7 @@ Updated: 2026-09-04
 | MOKO-004 Live Wayland developer session | DONE (validated) | greetd/Cage reaches MOKO Shell with network/input and zero greetd restarts across 3 cold boots. |
 | MOKO-005 Live ISO validation | DONE (validated) | 3/3 QEMU boots and clean shutdowns pass; SHA-256 `f656f962f4dae9f13dd1049f24425baf53bbf1f3d52109c561cc67e28a5c05e6`. |
 | MOKO-006 Real app launcher | DONE (validated) | MOKO registry/search/shared Dock model launches a real app without shell evaluation; 3/3 cold boots pass on ISO SHA-256 `a9beeb87f1ba7683f073ab03d75e6798686d3ef5ce0143bc8942f6146a694790`. |
-| MOKO-007 MOKO Core D-Bus services | TODO | Define first stable APIs for system status/settings. |
+| MOKO-007 Real MOKO system apps | DONE (validated) | Native Files, Settings and PTY Terminal launch from the shared registry/Dock as UID 1000; 3/3 cold boots pass on ISO SHA-256 `c3c2b42568bf44034fee97cef968bad9649c023b6fed04f7336023e8fa96e155`. |
 | MOKO-008 MOKO AI system action contract | TODO | Permissioned action API; no provider lock-in. |
 | MOKO-009 Hardware diagnostics | TODO | Inventory Wi-Fi/audio/GPU/input/power and export report. |
 | MOKO-010 Intel Mac Live USB | BLOCKED by MOKO-009 | QEMU validation is complete; run hardware diagnostics before non-destructive USB testing. |

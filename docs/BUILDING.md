@@ -67,6 +67,8 @@ input and require its sanitized runtime event to report the selected process as
 running before a second framebuffer capture is accepted. The capture waits 12
 seconds by default for a newly mapped Wayland surface; use
 `MOKO_LAUNCH_SETTLE_SECONDS` when profiling unusually slow emulation.
+Set `MOKO_REQUIRE_APP_READY=1` for native MOKO apps; the test then requires an
+in-process readiness marker in addition to the Shell's process-start marker.
 
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a

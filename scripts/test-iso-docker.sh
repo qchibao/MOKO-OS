@@ -9,6 +9,7 @@ SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
 LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
 LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
 LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
+REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
 IMAGE=${MOKO_QEMU_IMAGE:-moko-os-debian13-qemu}
 QEMU_ACCEL=${MOKO_QEMU_ACCEL:-tcg,thread=multi,tb-size=2048}
 QEMU_CPU=${MOKO_QEMU_CPU:-max}
@@ -41,6 +42,10 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   }
   [[ "$LAUNCH_SETTLE_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
     echo "MOKO_LAUNCH_SETTLE_SECONDS must be a positive integer." >&2
+    exit 1
+  }
+  [[ "$REQUIRE_APP_READY" == 0 || "$REQUIRE_APP_READY" == 1 ]] || {
+    echo "MOKO_REQUIRE_APP_READY must be 0 or 1." >&2
     exit 1
   }
 fi
@@ -92,7 +97,7 @@ docker run --rm --platform linux/amd64 \
       echo "Desktop environment or installer package found in ISO." >&2
       exit 1
     fi
-    if grep -Eiq "^(build-essential|cmake|ninja-build|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)([[:space:]]|$)" /tmp/filesystem.packages; then
+    if grep -Eiq "^(build-essential|cmake|libvterm-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)([[:space:]]|$)" /tmp/filesystem.packages; then
       echo "Build-only dependency found in ISO." >&2
       exit 1
     fi
@@ -102,12 +107,14 @@ docker run --rm --platform linux/amd64 \
     for path in \
       usr/local/bin/moko-shell \
       usr/local/bin/moko-session \
-      usr/local/bin/moko-terminal-bootstrap \
+      usr/local/bin/moko-files \
+      usr/local/bin/moko-settings \
+      usr/local/bin/moko-terminal \
       usr/local/libexec/moko-live-health-check \
       usr/local/libexec/moko-live-launch-monitor \
+      usr/local/share/applications/org.moko.Files.desktop \
+      usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
-      usr/local/share/applications/foot-server.desktop \
-      usr/local/share/applications/footclient.desktop \
       etc/greetd/config.toml \
       etc/systemd/system/moko-live-health.service \
       etc/systemd/system/moko-live-launch-monitor.service
@@ -207,6 +214,32 @@ for run in $(seq 1 "$RUNS"); do
       sleep 1
     done
 
+    grep -E "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH" | tail -1
+
+    if [[ "$REQUIRE_APP_READY" == 1 ]]; then
+      ready_deadline=$((SECONDS + 30))
+      while ! grep -Fq "MOKO_APP_READY app_id=$LAUNCH_APP_ID state=ready" "$SERIAL_PATH"; do
+        if (( SECONDS >= ready_deadline )); then
+          tail -100 "$SERIAL_PATH" >&2
+          echo "$LAUNCH_APP_ID started but did not report ready." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      grep -F "MOKO_APP_READY app_id=$LAUNCH_APP_ID state=ready" "$SERIAL_PATH" | tail -1
+    fi
+
+    surface_deadline=$((SECONDS + 30))
+    while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
+      if (( SECONDS >= surface_deadline )); then
+        tail -100 "$SERIAL_PATH" >&2
+        echo "MOKO Shell did not yield the graphical surface to $LAUNCH_APP_ID." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -F "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+
     sleep "$LAUNCH_SETTLE_SECONDS"
     LAUNCH_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-launched.png"
     monitor "screendump /artifacts/$LAUNCH_SCREENSHOT_NAME -f png"
@@ -220,7 +253,20 @@ for run in $(seq 1 "$RUNS"); do
       echo "Application exited during launch validation." >&2
       exit 1
     fi
-    grep -E "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH" | tail -1
+
+    if [[ "$REQUIRE_APP_READY" == 1 ]]; then
+      monitor "sendkey ctrl-q"
+      return_deadline=$((SECONDS + 30))
+      while ! grep -Fq "MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
+        if (( SECONDS >= return_deadline )); then
+          tail -100 "$SERIAL_PATH" >&2
+          echo "$LAUNCH_APP_ID did not close back to MOKO Shell." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      grep -F "MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+    fi
   fi
 
   monitor system_powerdown

@@ -67,6 +67,7 @@ signals:
     void applicationLaunching(const QString &appId, const QString &displayName);
     void applicationRunning(const QString &appId, const QString &displayName);
     void applicationFailed(const QString &appId, const QString &displayName, const QString &message);
+    void applicationStopped(const QString &appId, const QString &displayName, int exitCode);
 
 private:
     void setLaunchState(const QString &appId, const QString &state, const QString &message = {});
