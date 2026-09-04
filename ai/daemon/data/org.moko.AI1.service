@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.moko.AI1
+Exec=/usr/local/bin/moko-ai-daemon

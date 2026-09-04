@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node>
+  <interface name="org.moko.AI1">
+    <method name="ping"><arg direction="out" type="s" name="reply"/></method>
+    <method name="getSystemSummary"><arg direction="out" type="a{sv}" name="summary"/></method>
+    <method name="searchFiles"><arg direction="in" type="s" name="query"/><arg direction="out" type="as" name="paths"/></method>
+    <method name="openApplication"><arg direction="in" type="s" name="appId"/><arg direction="out" type="a{sv}" name="result"/></method>
+    <method name="openFile"><arg direction="in" type="s" name="path"/><arg direction="out" type="a{sv}" name="result"/></method>
+    <method name="getBatteryStatus"><arg direction="out" type="a{sv}" name="status"/></method>
+    <method name="getNetworkStatus"><arg direction="out" type="a{sv}" name="status"/></method>
+    <method name="getStorageStatus"><arg direction="out" type="a{sv}" name="status"/></method>
+    <method name="request"><arg direction="in" type="s" name="prompt"/><arg direction="out" type="a{sv}" name="response"/></method>
+  </interface>
+</node>

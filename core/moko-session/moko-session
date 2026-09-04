@@ -4,7 +4,32 @@ export XDG_CURRENT_DESKTOP=MOKO
 export XDG_SESSION_DESKTOP=MOKO
 export QT_QPA_PLATFORM=wayland
 export QT_QUICK_CONTROLS_STYLE=Basic
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-}/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "$0" "$@"
+fi
 if [ -d /run/live ]; then
   export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/moko-launch-events"
 fi
-exec /usr/local/bin/moko-shell
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+  dbus-update-activation-environment \
+    XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP QT_QPA_PLATFORM \
+    QT_QUICK_CONTROLS_STYLE WAYLAND_DISPLAY MOKO_LIVE_LAUNCH_EVENTS >/dev/null 2>&1 || true
+fi
+ai_pid=""
+if command -v moko-ai-daemon >/dev/null 2>&1; then
+  moko-ai-daemon >"${XDG_RUNTIME_DIR:-/tmp}/moko-ai-daemon.log" 2>&1 &
+  ai_pid=$!
+fi
+cleanup() {
+  if [ -n "$ai_pid" ]; then
+    kill "$ai_pid" 2>/dev/null || true
+    wait "$ai_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+/usr/local/bin/moko-shell
+status=$?
+exit "$status"

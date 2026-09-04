@@ -52,6 +52,21 @@ Develop `moko-compositor` using wlroots or another well-maintained Wayland compo
 ## Security boundary
 The AI UI is unprivileged. Privileged system actions require a MOKO action broker with explicit capability checks/polkit-style authorization. AI provider credentials belong in the user secret store, never in shell QML or ISO source.
 
+## MOKO AI v0.1 boundary
+`moko-ai-ui` is a Shell-side controller that talks to `moko-ai-daemon` over the
+user session bus at `org.moko.AI1`. The daemon interprets requests through an
+`AiProvider`, then dispatches only named capabilities through `moko-ai-actions`.
+The local provider is deterministic and offline; the remote provider remains an
+interface and must obtain future credentials from user configuration or secret
+storage.
+
+Application actions are restricted to an explicit MOKO allowlist and route back
+through the Shell-owned `org.moko.Applications1` registry API. File actions
+canonicalize existing paths and remain inside the current user's home. System
+status reads NetworkManager D-Bus, `/proc`, `/sys` and mounted-filesystem APIs.
+There is no shell-command action and model/provider output cannot create a
+process directly.
+
 ## Architecture targets
 - v0.1: amd64 only.
 - Later: arm64 feasibility track after desktop APIs stabilize.

@@ -8,3 +8,7 @@
 6. The Live ISO uses a development autologin account only during the bootstrap milestone; production builds must use a real greeter/authentication flow.
 7. Secure Boot signing is a later milestone; do not present unsigned Developer Preview images as Secure Boot-ready.
 8. Every installer milestone requires explicit rollback and recovery testing.
+9. AI providers return intents only. `moko-ai-actions` accepts a fixed capability
+   set and never exposes arbitrary shell execution.
+10. AI application launches use an explicit app-id allowlist; file actions accept
+    only canonical existing paths inside the current user's home directory.

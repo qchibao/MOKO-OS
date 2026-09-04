@@ -74,6 +74,7 @@ ApplicationWindow {
         visible: aiVisible
         opacity: visible ? 1 : 0
         z: 4
+        controller: mokoAiController
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
 
@@ -148,5 +149,12 @@ ApplicationWindow {
 
     Shortcut { sequence: "Meta+Space"; onActivated: launcherVisible = !launcherVisible }
     Shortcut { sequence: "Meta+A"; onActivated: aiVisible = !aiVisible }
+    Shortcut {
+        sequence: "Ctrl+Alt+A"
+        onActivated: {
+            aiVisible = true
+            aiPanel.focusInput()
+        }
+    }
     Shortcut { sequence: "Escape"; onActivated: { launcherVisible = false; aiVisible = false } }
 }

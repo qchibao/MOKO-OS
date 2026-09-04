@@ -20,6 +20,10 @@ docker run --rm --platform linux/amd64 \
     cmake --build /tmp/moko-shell-build --parallel
     ctest --test-dir /tmp/moko-shell-build --output-on-failure
 
+    cmake -S ai -B /tmp/moko-ai-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+    cmake --build /tmp/moko-ai-build --parallel
+    ctest --test-dir /tmp/moko-ai-build --output-on-failure
+
     cmake -S apps -B /tmp/moko-apps-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-apps-build --parallel
     ctest --test-dir /tmp/moko-apps-build --output-on-failure

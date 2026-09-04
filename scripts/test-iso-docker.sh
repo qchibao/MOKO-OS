@@ -10,6 +10,9 @@ LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
 LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
 LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
 REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
+AI_PROMPT=${MOKO_AI_PROMPT:-}
+AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
+AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
 IMAGE=${MOKO_QEMU_IMAGE:-moko-os-debian13-qemu}
 QEMU_ACCEL=${MOKO_QEMU_ACCEL:-tcg,thread=multi,tb-size=2048}
 QEMU_CPU=${MOKO_QEMU_CPU:-max}
@@ -46,6 +49,20 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   }
   [[ "$REQUIRE_APP_READY" == 0 || "$REQUIRE_APP_READY" == 1 ]] || {
     echo "MOKO_REQUIRE_APP_READY must be 0 or 1." >&2
+    exit 1
+  }
+fi
+if [[ -n "$AI_PROMPT" || -n "$AI_EXPECT_ACTION" || -n "$AI_EXPECT_APP_ID" ]]; then
+  [[ -n "$AI_PROMPT" && -n "$AI_EXPECT_ACTION" ]] || {
+    echo "MOKO_AI_PROMPT and MOKO_AI_EXPECT_ACTION must be set together." >&2
+    exit 1
+  }
+  [[ "$AI_PROMPT" =~ ^[a-z0-9\ ]+$ ]] || {
+    echo "MOKO_AI_PROMPT supports lowercase letters, digits and spaces." >&2
+    exit 1
+  }
+  [[ "$AI_EXPECT_ACTION" =~ ^[a-z_]+$ ]] || {
+    echo "MOKO_AI_EXPECT_ACTION must be a lowercase action identifier." >&2
     exit 1
   }
 fi
@@ -110,11 +127,14 @@ docker run --rm --platform linux/amd64 \
       usr/local/bin/moko-files \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
+      usr/local/bin/moko-ai-daemon \
       usr/local/libexec/moko-live-health-check \
       usr/local/libexec/moko-live-launch-monitor \
       usr/local/share/applications/org.moko.Files.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
+      usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
+      usr/local/share/dbus-1/services/org.moko.AI1.service \
       etc/greetd/config.toml \
       etc/systemd/system/moko-live-health.service \
       etc/systemd/system/moko-live-launch-monitor.service
@@ -191,6 +211,103 @@ for run in $(seq 1 "$RUNS"); do
     sleep 5
   done
   grep 'MOKO_HEALTH result=pass' "$SERIAL_PATH" | tail -1
+
+  if [[ "$run" == 1 && -n "$AI_PROMPT" ]]; then
+    ai_daemon_deadline=$((SECONDS + 30))
+    while ! grep -E -q "MOKO_AI_DAEMON state=ready uid=[1-9][0-9]* provider=local-stub" "$SERIAL_PATH"; do
+      if (( SECONDS >= ai_daemon_deadline )); then
+        tail -100 "$SERIAL_PATH" >&2
+        echo "MOKO AI daemon did not report ready as an unprivileged user." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -E "MOKO_AI_DAEMON state=ready uid=[1-9][0-9]* provider=local-stub" "$SERIAL_PATH" | tail -1
+
+    ai_ui_deadline=$((SECONDS + 30))
+    while ! grep -Fq "MOKO_AI_UI state=connected uid=1000" "$SERIAL_PATH"; do
+      if (( SECONDS >= ai_ui_deadline )); then
+        tail -100 "$SERIAL_PATH" >&2
+        echo "MOKO AI UI did not connect to the daemon." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -F "MOKO_AI_UI state=connected uid=1000" "$SERIAL_PATH" | tail -1
+
+    monitor "sendkey ctrl-alt-a"
+    sleep 1
+    for ((index = 0; index < ${#AI_PROMPT}; index++)); do
+      key=${AI_PROMPT:index:1}
+      if [[ "$key" == " " ]]; then
+        key=spc
+      fi
+      monitor "sendkey $key"
+      sleep 0.1
+    done
+    monitor "sendkey ret"
+
+    ai_response_deadline=$((SECONDS + 45))
+    while ! grep -Fq "MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" "$SERIAL_PATH"; do
+      if (( SECONDS >= ai_response_deadline )); then
+        tail -120 "$SERIAL_PATH" >&2
+        echo "MOKO AI UI did not receive the expected successful response." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -F "MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" "$SERIAL_PATH" | tail -1
+
+    if [[ -n "$AI_EXPECT_APP_ID" ]]; then
+      ai_app_deadline=$((SECONDS + 45))
+      while ! grep -E -q "MOKO_APP_LAUNCH app_id=$AI_EXPECT_APP_ID state=running pid=[1-9][0-9]* uid=1000" "$SERIAL_PATH"; do
+        if (( SECONDS >= ai_app_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO AI action did not launch $AI_EXPECT_APP_ID." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      while ! grep -Fq "MOKO_APP_READY app_id=$AI_EXPECT_APP_ID state=ready" "$SERIAL_PATH"; do
+        if (( SECONDS >= ai_app_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO AI launched app did not report application readiness." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
+        if (( SECONDS >= ai_app_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO AI launched app did not receive the Cage surface." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+    fi
+
+    sleep "$LAUNCH_SETTLE_SECONDS"
+    AI_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-ai.png"
+    monitor "screendump /artifacts/$AI_SCREENSHOT_NAME -f png"
+    ai_screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$AI_SCREENSHOT_NAME")
+    (( ai_screenshot_size > 10000 )) || {
+      echo "MOKO AI framebuffer capture is unexpectedly small." >&2
+      exit 1
+    }
+
+    if [[ -n "$AI_EXPECT_APP_ID" ]]; then
+      monitor "sendkey ctrl-q"
+      ai_return_deadline=$((SECONDS + 30))
+      while ! grep -Fq "MOKO_SHELL_SURFACE state=shown app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
+        if (( SECONDS >= ai_return_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO AI launched app did not return to the Shell." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+    fi
+  fi
 
   if [[ "$run" == 1 && -n "$LAUNCH_QUERY" ]]; then
     for ((index = 0; index < ${#LAUNCH_QUERY}; index++)); do

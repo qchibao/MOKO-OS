@@ -1,9 +1,13 @@
 #include "applicationiconprovider.h"
 #include "applicationregistry.h"
+#include "applicationservice.h"
+#include "aicontroller.h"
 
 #include <QGuiApplication>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QDBusConnection>
+#include <QDBusError>
 #include <QFile>
 #include <QFileInfo>
 #include <QQmlApplicationEngine>
@@ -62,6 +66,21 @@ int main(int argc, char *argv[])
     ApplicationFilterModel dockApplications;
     dockApplications.setPinnedOnly(true);
     dockApplications.setSourceModel(&applicationRegistry);
+    ApplicationService applicationService(&applicationRegistry);
+    AiController aiController;
+
+    QDBusConnection sessionBus = QDBusConnection::sessionBus();
+    if (sessionBus.isConnected()) {
+        if (!sessionBus.registerService(QStringLiteral("org.moko.Applications1"))) {
+            qWarning("Could not own org.moko.Applications1: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        } else if (!sessionBus.registerObject(QStringLiteral("/org/moko/Applications1"),
+                                              &applicationService,
+                                              QDBusConnection::ExportAllSlots)) {
+            qWarning("Could not export MOKO application service: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        }
+    }
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("moko-app-icon"), new ApplicationIconProvider);
@@ -71,6 +90,8 @@ int main(int argc, char *argv[])
                                              &launcherApplications);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoDockApplications"),
                                              &dockApplications);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoAiController"),
+                                             &aiController);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         if (!warnings.isEmpty()) {
             qmlWarningsFound = true;

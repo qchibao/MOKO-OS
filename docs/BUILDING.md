@@ -49,6 +49,9 @@ Run a repeatable headless QEMU smoke test from macOS or Linux:
 ./scripts/test-iso-docker.sh out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
 MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=terminal MOKO_LAUNCH_APP_ID=org.moko.Terminal ./scripts/test-iso-docker.sh
+MOKO_AI_PROMPT="system overview" MOKO_AI_EXPECT_ACTION=system_summary ./scripts/test-iso-docker.sh
+MOKO_AI_PROMPT="open files" MOKO_AI_EXPECT_ACTION=open_application \
+  MOKO_AI_EXPECT_APP_ID=org.moko.Files ./scripts/test-iso-docker.sh
 ```
 
 Each run waits for the live image's `MOKO_HEALTH` marker, captures the serial
@@ -69,6 +72,12 @@ seconds by default for a newly mapped Wayland surface; use
 `MOKO_LAUNCH_SETTLE_SECONDS` when profiling unusually slow emulation.
 Set `MOKO_REQUIRE_APP_READY=1` for native MOKO apps; the test then requires an
 in-process readiness marker in addition to the Shell's process-start marker.
+
+The optional AI variables drive the real Shell panel through QEMU keyboard
+input. They require an unprivileged daemon connection, the expected D-Bus
+response, and, for application actions, the registry launch, in-process app
+readiness and Cage surface handoff. The test captures the resulting AI panel or
+application framebuffer as `*-ai.png`.
 
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a
