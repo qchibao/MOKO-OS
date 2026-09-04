@@ -11,15 +11,17 @@ fi
 for cmd in lb rsync sha256sum; do command -v "$cmd" >/dev/null || { echo "Missing $cmd. Run scripts/bootstrap-debian.sh" >&2; exit 1; }; done
 
 mkdir -p "$OUT"
-mkdir -p "$LB/config/includes.chroot/opt/moko-src"
-rm -rf "$LB/config/includes.chroot/opt/moko-src"/*
+cd "$LB"
+lb clean --all || true
+./auto-config.sh
+
+SOURCE_STAGING="$LB/config/includes.chroot/opt/moko-src"
+trap 'rm -rf "$SOURCE_STAGING"' EXIT
+mkdir -p "$SOURCE_STAGING"
 rsync -a --delete --exclude build --exclude out --exclude .git \
   "$ROOT/shell" "$ROOT/core" "$ROOT/assets" \
-  "$LB/config/includes.chroot/opt/moko-src/"
+  "$SOURCE_STAGING/"
 
-cd "$LB"
-lb clean --purge || true
-./auto-config.sh
 lb build
 
 ISO=$(find . -maxdepth 1 -type f \( -name 'live-image-amd64.hybrid.iso' -o -name '*.hybrid.iso' \) | head -n1 || true)

@@ -10,6 +10,8 @@ fi
 apt-get update
 apt-get install -y \
   build-essential cmake ninja-build pkg-config \
+  libxkbcommon-dev \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools \
+  qt6-wayland \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
   live-build debootstrap squashfs-tools xorriso rsync qemu-system-x86 ovmf git

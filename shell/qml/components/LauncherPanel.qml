@@ -4,9 +4,12 @@ import QtQuick.Layouts
 
 GlassPanel {
     id: root
+    readonly property bool condensed: height < 640
+
     width: Math.min(510, parent ? parent.width * .33 : 510)
-    height: Math.min(690, parent ? parent.height - 130 : 690)
+    height: Math.min(690, parent ? parent.height - (parent.height <= 760 ? 164 : 130) : 690)
     glassOpacity: .76
+    clip: true
 
     signal appRequested(string appId)
 
@@ -29,8 +32,8 @@ GlassPanel {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 12
+        anchors.margins: root.condensed ? 16 : 20
+        spacing: root.condensed ? 8 : 12
 
         Rectangle {
             Layout.fillWidth: true
@@ -53,13 +56,13 @@ GlassPanel {
             Text { visible: search.text.length === 0; anchors.left: search.left; anchors.verticalCenter: parent.verticalCenter; text: "Search apps, files, settings…"; color: "#7A8796"; font.pixelSize: 12 }
         }
 
-        Text { text: "APPS"; color: "#4E5B69"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.1 }
+        Text { text: "APPS"; color: "#4E5B69"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0 }
 
         GridLayout {
             Layout.fillWidth: true
             columns: 5
-            rowSpacing: 3
-            columnSpacing: Math.max(2, (width - columns*76)/(columns-1))
+            rowSpacing: root.condensed ? 2 : 3
+            columnSpacing: Math.max(2, (width - columns * (root.condensed ? 68 : 76)) / (columns - 1))
 
             Repeater {
                 model: root.apps
@@ -67,17 +70,18 @@ GlassPanel {
                     required property var modelData
                     title: modelData.title
                     kind: modelData.kind
+                    dense: root.condensed
                     visible: search.text.length === 0 || title.toLowerCase().includes(search.text.toLowerCase())
                     onActivated: root.appRequested(title)
                 }
             }
         }
 
-        Text { text: "RECENT FILES"; color: "#4E5B69"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.1 }
+        Text { text: "RECENT FILES"; color: "#4E5B69"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 0 }
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 5
+            spacing: root.condensed ? 3 : 5
             Repeater {
                 model: [
                     ["MOKO_OS_Press_Kit.pdf", "Documents", "2m ago"],
@@ -89,7 +93,7 @@ GlassPanel {
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 31
+                    Layout.preferredHeight: root.condensed ? 24 : 31
                     radius: 9
                     color: hover.containsMouse ? Qt.rgba(1,1,1,.52) : "transparent"
                     Text { anchors.left: parent.left; anchors.leftMargin: 6; anchors.verticalCenter: parent.verticalCenter; text: "▣"; color: "#5A8DFF"; font.pixelSize: 14 }

@@ -6,10 +6,12 @@ Item {
     property string title: "App"
     property string kind: "system"
     property bool compact: false
+    property bool dense: false
+    property int compactExtent: 62
     signal activated()
 
-    width: compact ? 62 : 76
-    height: compact ? 62 : 96
+    width: compact ? compactExtent : (dense ? 68 : 76)
+    height: compact ? compactExtent : (dense ? 75 : 96)
 
     Column {
         anchors.centerIn: parent
@@ -17,9 +19,9 @@ Item {
 
         Rectangle {
             id: tile
-            width: root.compact ? 56 : 62
+            width: root.compact ? root.compactExtent - 6 : (root.dense ? 52 : 62)
             height: width
-            radius: 16
+            radius: root.dense ? 14 : 16
             color: mouse.containsMouse ? Qt.rgba(1,1,1,.94) : Qt.rgba(.97,.99,1,.80)
             border.width: 1
             border.color: Qt.rgba(1,1,1,.86)
@@ -44,12 +46,12 @@ Item {
 
         Text {
             visible: !root.compact
-            width: 76
+            width: root.dense ? 68 : 76
             text: root.title
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             color: "#263342"
-            font.pixelSize: 11
+            font.pixelSize: root.dense ? 10 : 11
         }
     }
 }

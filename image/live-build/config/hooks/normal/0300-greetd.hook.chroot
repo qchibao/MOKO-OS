@@ -8,5 +8,9 @@ vt = 1
 command = "cage -s -- /usr/local/bin/moko-session"
 user = "moko"
 CFG
+# BOOTSTRAP: reserve VT1 for greetd while keeping serial and other VTs available.
+systemctl disable getty@tty1.service || true
+systemctl mask getty@tty1.service || true
 systemctl enable greetd.service || true
+systemctl enable moko-live-health.service || true
 systemctl set-default graphical.target || true

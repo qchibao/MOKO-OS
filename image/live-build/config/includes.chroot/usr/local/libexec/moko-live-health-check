@@ -1,0 +1,47 @@
+#!/bin/sh
+# DEV_ONLY: emit a machine-readable live-session health marker for ISO testing.
+set -eu
+
+report() {
+  echo "$1"
+  if [ -w /dev/ttyS0 ]; then
+    echo "$1" > /dev/ttyS0
+  fi
+}
+
+attempt=0
+while ! pgrep -x moko-shell >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 120 ]; then
+    report "MOKO_HEALTH result=fail reason=shell-timeout"
+    exit 1
+  fi
+  sleep 1
+done
+
+if ! systemctl is-active --quiet greetd.service; then
+  report "MOKO_HEALTH result=fail reason=greetd-inactive"
+  exit 1
+fi
+
+nic=$(ip -o link show up | awk -F': ' '$2 != "lo" { print $2; exit }')
+if [ -z "$nic" ]; then
+  report "MOKO_HEALTH result=fail reason=no-active-network-interface"
+  exit 1
+fi
+
+input_events=$(find /dev/input -maxdepth 1 -name 'event*' 2>/dev/null | wc -l)
+greetd_restarts=$(systemctl show greetd.service -p NRestarts --value)
+shell_pid=$(pgrep -o -x moko-shell)
+
+if [ "$input_events" -eq 0 ]; then
+  report "MOKO_HEALTH result=fail reason=no-input-events"
+  exit 1
+fi
+
+if [ "$greetd_restarts" -ge 3 ]; then
+  report "MOKO_HEALTH result=fail reason=greetd-restart-loop restarts=$greetd_restarts"
+  exit 1
+fi
+
+report "MOKO_HEALTH result=pass shell_pid=$shell_pid nic=$nic input_events=$input_events greetd_restarts=$greetd_restarts"

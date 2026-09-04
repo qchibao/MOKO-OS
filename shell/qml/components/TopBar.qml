@@ -14,7 +14,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 28
 
-        Text { text: "MOKO"; color: "#11151A"; font.pixelSize: 18; font.bold: true; font.letterSpacing: -0.6 }
+        Text { text: "MOKO"; color: "#11151A"; font.pixelSize: 18; font.bold: true; font.letterSpacing: 0 }
         Repeater {
             model: ["Desktop", "File", "Edit", "View", "Window", "Help"]
             Text { text: modelData; color: "#344151"; font.pixelSize: 13 }

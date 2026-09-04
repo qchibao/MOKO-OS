@@ -13,7 +13,10 @@ This repository already contains:
 - architecture, design language, hardware target, security principles and roadmap documents;
 - Codex-oriented task files and `AGENTS.md`.
 
-The ISO scaffold is intentionally labeled **Developer Preview**. The current environment used to create this bootstrap does not contain Qt or Debian live-build, so the shell/ISO have not yet been compiled here. The next engineering step is to validate them inside Debian 13 and fix any build/runtime issues before booting physical hardware.
+The ISO is intentionally labeled **Developer Preview**. The shell and live image
+have been built on Debian 13 and validated through three QEMU cold boots with
+network/input detection and clean shutdown. It remains a non-installing preview;
+hardware diagnostics and non-destructive Live USB testing come next.
 
 ## First target
 
@@ -44,6 +47,17 @@ Then test it in QEMU:
 ```bash
 ./scripts/qemu-test.sh out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
 ```
+
+On macOS or another Docker host, use the reproducible validation path:
+
+```bash
+./scripts/test-shell-debian.sh
+./scripts/build-iso-docker.sh
+MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
+```
+
+The validated ISO hash is recorded in `out/SHA256SUMS`; see `STATUS.md` and the
+task files for the current evidence and remaining work.
 
 ## Use with Codex
 

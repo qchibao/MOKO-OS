@@ -5,13 +5,16 @@ import "components"
 
 ApplicationWindow {
     id: window
+    readonly property bool previewMode: Qt.application.arguments.indexOf("--windowed") !== -1
+                                        || Qt.application.arguments.indexOf("--screenshot") !== -1
+
     visible: true
     width: 1600
     height: 900
     minimumWidth: 1280
     minimumHeight: 720
     title: "MOKO OS v0.1 Developer Preview"
-    visibility: Window.FullScreen
+    visibility: previewMode ? Window.Windowed : Window.FullScreen
     color: "#E8F4FF"
 
     property bool launcherVisible: true
@@ -28,7 +31,7 @@ ApplicationWindow {
 
     Image {
         anchors.fill: parent
-        source: "qrc:/qt/qml/MokoShell/assets/wallpapers/moko-ice-desktop.png"
+        source: "qrc:/qt/qml/MokoShell/assets/wallpaper-desktop.png"
         fillMode: Image.PreserveAspectCrop
         smooth: true
         mipmap: true
@@ -81,23 +84,23 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "MOKO"
             color: "#0E1116"
-            font.pixelSize: Math.min(138, window.width * .085)
+            font.pixelSize: 118
             font.weight: Font.Black
-            font.letterSpacing: -4
+            font.letterSpacing: 0
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "OS"
             color: "#4C82FF"
             font.pixelSize: 38
-            font.letterSpacing: 7
+            font.letterSpacing: 0
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "v0.1  •  DEVELOPER PREVIEW"
             color: "#657487"
             font.pixelSize: 10
-            font.letterSpacing: 1.4
+            font.letterSpacing: 0
         }
     }
 
