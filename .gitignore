@@ -1,0 +1,10 @@
+build/
+out/
+image/live-build/.build/
+image/live-build/cache/
+image/live-build/chroot/
+image/live-build/binary/
+image/live-build/*.iso
+image/live-build/live-image-*
+*.log
+.DS_Store

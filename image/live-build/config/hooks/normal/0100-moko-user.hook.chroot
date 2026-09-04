@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# DEV_ONLY: fixed autologin account for non-destructive Developer Preview images.
+if ! id moko >/dev/null 2>&1; then
+  useradd -m -s /bin/bash -G audio,video,render,input,plugdev,netdev moko
+fi
+passwd -d moko || true
