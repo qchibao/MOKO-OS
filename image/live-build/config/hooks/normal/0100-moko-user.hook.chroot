@@ -2,6 +2,9 @@
 set -eu
 # DEV_ONLY: fixed autologin account for non-destructive Developer Preview images.
 if ! id moko >/dev/null 2>&1; then
-  useradd -m -s /bin/bash -G audio,video,render,input,plugdev,netdev moko
+  useradd -m -s /bin/bash moko
 fi
+for grp in audio video render input plugdev netdev; do
+  if getent group "$grp" >/dev/null 2>&1; then usermod -aG "$grp" moko; fi
+done
 passwd -d moko || true

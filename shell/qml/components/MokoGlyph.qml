@@ -17,7 +17,8 @@ Item {
             const h = height
             const cx = w / 2
             const cy = h / 2
-            ctx.reset()
+            ctx.resetTransform()
+            ctx.clearRect(0, 0, w, h)
             ctx.lineCap = "round"
             ctx.lineJoin = "round"
 
@@ -36,7 +37,7 @@ Item {
                 fill(secondary); ctx.beginPath(); ctx.moveTo(w*.23,h*.36); ctx.lineTo(w*.58,h*.36); ctx.lineTo(w*.72,h*.50); ctx.lineTo(w*.63,h*.61); ctx.lineTo(w*.28,h*.61); ctx.closePath(); ctx.fill()
             } else if (kind === "browser") {
                 stroke(primary, w*.07); ctx.beginPath(); ctx.arc(cx,cy,w*.27,0,Math.PI*2); ctx.stroke()
-                stroke(secondary,w*.035); ctx.beginPath(); ctx.ellipse(cx,cy,w*.37,w*.14,-.55,0,Math.PI*2); ctx.stroke()
+                stroke(secondary,w*.035); ctx.beginPath(); ctx.moveTo(w*.23,h*.67); ctx.quadraticCurveTo(cx,h*.18,w*.77,h*.34); ctx.stroke()
                 fill(tertiary); ctx.beginPath(); ctx.arc(cx+w*.16,cy-h*.13,w*.055,0,Math.PI*2); ctx.fill()
             } else if (kind === "ai" || kind === "music") {
                 const bars = kind === "ai" ? [0.30,0.55,0.78,0.46,0.68,0.40,0.25] : [0.24,0.42,0.64,0.82,0.62,0.46,0.29]
