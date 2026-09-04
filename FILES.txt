@@ -54,6 +54,7 @@
 ./scripts/qemu-test.sh
 ./scripts/run-shell.sh
 ./shell/CMakeLists.txt
+./shell/assets/wallpaper-desktop.png
 ./shell/qml/Main.qml
 ./shell/src/main.cpp
 ./tasks/MOKO-001-bootstrap.md
