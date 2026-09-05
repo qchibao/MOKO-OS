@@ -843,12 +843,28 @@ static void cursor_frame(struct wl_listener *listener, void *data)
     wlr_seat_pointer_notify_frame(server->seat);
 }
 
+static void request_brightness_step(struct moko_server *server, int32_t delta)
+{
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources)
+        moko_window_manager_v1_send_brightness_step(resource, delta);
+    report_event("MOKO_SYSTEM_KEY action=brightness delta=%d", delta);
+}
+
 static bool handle_keybinding(struct moko_server *server,
                               xkb_keysym_t symbol,
                               uint32_t modifiers)
 {
     const bool alt_or_logo = modifiers & (WLR_MODIFIER_ALT | WLR_MODIFIER_LOGO);
     const bool logo = modifiers & WLR_MODIFIER_LOGO;
+    if (symbol == XKB_KEY_XF86MonBrightnessUp) {
+        request_brightness_step(server, 5);
+        return true;
+    }
+    if (symbol == XKB_KEY_XF86MonBrightnessDown) {
+        request_brightness_step(server, -5);
+        return true;
+    }
     if (alt_or_logo && symbol == XKB_KEY_Tab) {
         cycle_focus(server, modifiers & WLR_MODIFIER_SHIFT);
         return true;

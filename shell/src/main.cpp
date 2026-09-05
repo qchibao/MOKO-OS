@@ -2,6 +2,7 @@
 #include "applicationregistry.h"
 #include "applicationservice.h"
 #include "aicontroller.h"
+#include "systemcontrol.h"
 #include "windowmanager.h"
 
 #include <QGuiApplication>
@@ -53,6 +54,8 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
     parser.addOption({"smoke-test", "Load the shell, fail on QML warnings, then exit."});
     parser.addOption({"windowed", "Run the developer preview in a window."});
+    parser.addOption({"control-center", "Open Control Center for validation."});
+    parser.addOption({"control-center-page", "Open a Control Center page (0-3).", "page", "0"});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
     parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
@@ -70,7 +73,12 @@ int main(int argc, char *argv[])
     dockApplications.setSourceModel(&applicationRegistry);
     ApplicationService applicationService(&applicationRegistry);
     AiController aiController;
+    SystemControl systemControl;
     WindowManager windowManager;
+    QObject::connect(&windowManager,
+                     &WindowManager::brightnessStepRequested,
+                     &systemControl,
+                     &SystemControl::adjustBrightness);
 
     QDBusConnection sessionBus = QDBusConnection::sessionBus();
     if (sessionBus.isConnected()) {
@@ -95,6 +103,8 @@ int main(int argc, char *argv[])
                                              &dockApplications);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoAiController"),
                                              &aiController);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoSystemControl"),
+                                             &systemControl);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoWindowManager"),
                                              &windowManager);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
@@ -118,6 +128,13 @@ int main(int argc, char *argv[])
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window)
         return 1;
+    if (parser.isSet("control-center")) {
+        window->setProperty("controlCenterVisible", true);
+        bool pageOk = false;
+        const int page = parser.value("control-center-page").toInt(&pageOk);
+        if (pageOk && page >= 0 && page <= 3)
+            window->setProperty("controlCenterPage", page);
+    }
 
     // BOOTSTRAP: Cage does not raise independent top-levels above the fullscreen shell.
     QSet<QString> runningApplications;

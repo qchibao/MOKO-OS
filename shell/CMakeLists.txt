@@ -41,6 +41,12 @@ qt_add_executable(moko-shell
     src/applicationservice.cpp
     src/applicationservice.h
     src/main.cpp
+    src/bluetoothagent.cpp
+    src/bluetoothagent.h
+    src/systemcontrol.cpp
+    src/systemcontrol.h
+    src/systemcontrolutils.cpp
+    src/systemcontrolutils.h
     src/windowmanager.cpp
     src/windowmanager.h
     ${MOKO_WINDOW_PROTOCOL_CODE}
@@ -63,9 +69,14 @@ qt_add_qml_module(moko-shell
     QML_FILES
         qml/Main.qml
         qml/components/GlassPanel.qml
+        qml/components/MokoActionButton.qml
         qml/components/MokoGlyph.qml
+        qml/components/MokoSlider.qml
+        qml/components/MokoSwitch.qml
+        qml/components/StatusIcon.qml
         qml/components/AppTile.qml
         qml/components/TopBar.qml
+        qml/components/ControlCenterPanel.qml
         qml/components/LauncherPanel.qml
         qml/components/AiPanel.qml
         qml/components/Dock.qml
@@ -104,4 +115,28 @@ if(BUILD_TESTING)
     target_link_libraries(moko-application-registry-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME moko-application-registry-tests COMMAND moko-application-registry-tests)
     set_tests_properties(moko-application-registry-tests PROPERTIES TIMEOUT 15)
+
+    qt_add_executable(moko-system-control-tests
+        tests/test_systemcontrol.cpp
+        src/systemcontrolutils.cpp
+        src/systemcontrolutils.h
+    )
+    target_include_directories(moko-system-control-tests PRIVATE src)
+    target_link_libraries(moko-system-control-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME moko-system-control-tests COMMAND moko-system-control-tests)
+    set_tests_properties(moko-system-control-tests PROPERTIES TIMEOUT 10)
+
+    qt_add_executable(moko-system-control-backend-tests
+        tests/test_systemcontrol_backend.cpp
+        src/bluetoothagent.cpp
+        src/bluetoothagent.h
+        src/systemcontrol.cpp
+        src/systemcontrol.h
+        src/systemcontrolutils.cpp
+        src/systemcontrolutils.h
+    )
+    target_include_directories(moko-system-control-backend-tests PRIVATE src)
+    target_link_libraries(moko-system-control-backend-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    add_test(NAME moko-system-control-backend-tests COMMAND moko-system-control-backend-tests)
+    set_tests_properties(moko-system-control-backend-tests PROPERTIES TIMEOUT 15)
 endif()

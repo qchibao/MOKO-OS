@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASE 1 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-2 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -78,3 +78,59 @@ input devices, `moko-compositor`, and zero greetd restarts.
 Rollback remains `MOKO_COMPOSITOR=cage`; Safe Graphics selects Cage
 automatically. The installer remains disabled and no storage safety policy was
 weakened.
+
+## Phase 2 architecture - Control Center and top bar
+
+The Shell now owns functional Wi-Fi, Bluetooth, sound, brightness, battery and
+power-mode surfaces through an unprivileged `SystemControl` backend. Network
+and Bluetooth use NetworkManager and BlueZ D-Bus APIs. A MOKO-owned BlueZ agent
+holds delayed pairing replies until the user accepts a styled PIN, passkey or
+authorization dialog.
+
+PipeWire/WirePlumber integration uses `wpctl` with fixed argument vectors for
+volume, mute and endpoint selection. Brightness uses `brightnessctl` or a
+writable kernel backlight attribute, and the compositor forwards bounded XF86
+brightness-key steps through the existing MOKO window protocol. Battery data
+comes from power-supply sysfs; power modes use the standard Power Profiles
+D-Bus interface. Missing or read-only hardware stays unavailable in the UI.
+No UI text is evaluated as a shell command.
+
+## Phase 2 rollback and safety
+
+The Control Center is a Shell component and does not change boot ordering,
+mount policy or disk handling. Removing the new Shell controller/components and
+the two runtime packages returns to the Phase 1 top bar. Cage remains the Safe
+Graphics fallback. The installer, `udisks2`, automounting and writable QEMU
+disks remain absent.
+
+## Phase 2 validation
+
+Validated on 2026-09-05 from a clean Live ISO build. Physical Intel Mac radio,
+backlight, battery and suspend checks remain pending.
+
+- compositor CTest: `3/3` passed;
+- Shell CTest: `4/4` passed, including parser and fixture-backed real-control
+  tests;
+- AI CTest: `3/3` passed;
+- native apps, PTY and diagnostics CTest: `8/8` passed;
+- Qt compositor multi-window integration: passed;
+- Control Center BIOS and UEFI gates: NetworkManager state reported, absent
+  QEMU Bluetooth hardware reported truthfully, virtual HDA discovered through
+  PipeWire, default output mute changed as UID 1000, and rendered capture passed;
+- BIOS desktop cold boots: `3/3` passed; boot 1 also passed the complete Files
+  and Settings multi-window workflow;
+- UEFI desktop cold boots: `3/3` passed; boot 1 also passed the Control Center
+  audio mutation;
+- Safe Graphics: Cage/software path, Files launch/return and shutdown passed;
+- Hardware Diagnostics: QEMU report, `writable_disk_detected=0`, JSON/text
+  exports as UID 1000 and shutdown passed;
+- MOKO AI: connected unprivileged daemon, allowlisted Settings request,
+  application readiness/window map/close and shutdown passed;
+- disk-safety serial-sink regression and ISO preflight passed on every run;
+- installer remained disabled and no writable disk was attached.
+
+Primary artifacts: `out/moko-iso-smoke-20260905T143039Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T144427Z-uefi-desktop-*`,
+`out/moko-iso-smoke-20260905T145847Z-bios-safe-graphics-*`,
+`out/moko-iso-smoke-20260905T150234Z-bios-hardware-diagnostics-*` and
+`out/moko-iso-smoke-20260905T150618Z-bios-desktop-*`.

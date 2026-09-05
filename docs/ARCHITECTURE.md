@@ -94,6 +94,28 @@ file content. Settings launches the app through the Shell-owned
 `org.moko.Applications1` registry, and MOKO AI can request the same allowlisted
 application ID without gaining a general process or shell capability.
 
+## Control Center boundary
+`moko-shell` owns the Control Center UI and exposes consumer-facing state without
+showing raw D-Bus or PipeWire internals. Its unprivileged `SystemControl`
+controller talks directly to the standard system services and kernel interfaces:
+
+- NetworkManager D-Bus for Wi-Fi radio state, scans, access points, connection
+  creation and disconnect;
+- BlueZ D-Bus for adapter power, discovery, pairing, connection and device
+  removal, with a MOKO-owned user confirmation agent;
+- fixed `wpctl` argument vectors for PipeWire/WirePlumber volume, mute and
+  endpoint selection;
+- `brightnessctl` or a writable `/sys/class/backlight` device for display
+  brightness;
+- read-only `/sys/class/power_supply` battery data and the standard Power
+  Profiles D-Bus service where available.
+
+UI text never becomes a command. The only helper processes use fixed executable
+names and structured argument lists, and failures remain visible to the user.
+Hardware that is absent or not writable is reported as unavailable rather than
+simulated. The compositor forwards only bounded brightness-step events for the
+XF86 brightness keys; the same unprivileged controller performs the adjustment.
+
 ## Live USB boot boundary
 The Developer Preview exposes three fixed profiles through both GRUB/UEFI and
 ISOLINUX/legacy BIOS: `desktop`, `hardware-diagnostics` and `safe-graphics`.

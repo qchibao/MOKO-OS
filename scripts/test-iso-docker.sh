@@ -15,6 +15,7 @@ REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
 EXPECT_HARDWARE_REPORT=${MOKO_EXPECT_HARDWARE_REPORT:-0}
 SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
 WINDOW_WORKFLOW=${MOKO_WINDOW_WORKFLOW:-0}
+CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
@@ -57,7 +58,7 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
@@ -278,7 +279,7 @@ docker run --rm --platform linux/amd64 \
 
     for package in \
       live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
-      bluez cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
+      brightnessctl bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
       firmware-amd-graphics firmware-brcm80211
@@ -393,6 +394,9 @@ for run in $(seq 1 "$RUNS"); do
       -smp 4 \
       -m 3072 \
       -device virtio-vga \
+      -audiodev driver=none,id=moko-audio \
+      -device ich9-intel-hda \
+      -device hda-duplex,audiodev=moko-audio \
       -display none \
       -vnc :0 \
       -monitor unix:/tmp/qemu-monitor.sock,server=on,wait=off \
@@ -475,6 +479,34 @@ for run in $(seq 1 "$RUNS"); do
     sleep 5
   done
   grep -E "$health_pattern" "$SERIAL_PATH" | tail -1
+
+  if [[ "$run" == 1 && "$CONTROL_CENTER_TEST" == 1 ]]; then
+    marker=$(serial_line_count)
+    # The normal compositor's server-side decoration occupies the first 30 px.
+    pointer_click 1120 50
+    wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+      "Control Center did not report real NetworkManager and Bluetooth hardware state."
+    pointer_click 1212 112
+    sleep 5
+    marker=$(serial_line_count)
+    pointer_click 1014 158
+    wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=1 brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+      "Control Center did not expose the live PipeWire audio state."
+    CONTROL_CENTER_SOUND_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-sound.png"
+    monitor "screendump /artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME -f png"
+    test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME")" -gt 10000
+    marker=$(serial_line_count)
+    pointer_click 1228 260
+    wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 30 \
+      "Control Center did not change the real PipeWire output mute state."
+    CONTROL_CENTER_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center.png"
+    monitor "screendump /artifacts/$CONTROL_CENTER_SCREENSHOT_NAME -f png"
+    test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SCREENSHOT_NAME")" -gt 10000
+    pointer_click 1120 50
+  fi
 
   if [[ "$BOOT_MODE" == hardware-diagnostics ]]; then
     hardware_deadline=$((SECONDS + 45))

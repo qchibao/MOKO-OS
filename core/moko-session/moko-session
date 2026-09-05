@@ -34,6 +34,10 @@ if command -v dbus-update-activation-environment >/dev/null 2>&1; then
     QT_QUICK_CONTROLS_STYLE WAYLAND_DISPLAY MOKO_BOOT_MODE MOKO_COMPOSITOR MOKO_SAFE_GRAPHICS \
     LIBGL_ALWAYS_SOFTWARE QT_QUICK_BACKEND MOKO_LIVE_LAUNCH_EVENTS >/dev/null 2>&1 || true
 fi
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user --no-block start pipewire.socket pipewire-pulse.socket wireplumber.service \
+    >/dev/null 2>&1 || true
+fi
 
 if [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ]; then
   mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"

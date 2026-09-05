@@ -68,6 +68,14 @@
 
     <event name="done"/>
 
+    <event name="brightness_step">
+      <description summary="request a bounded display brightness adjustment">
+        Sent for compositor-owned hardware brightness key presses. A positive
+        delta raises brightness and a negative delta lowers it.
+      </description>
+      <arg name="delta" type="int"/>
+    </event>
+
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>
       <entry name="maximized" value="2"/>

@@ -68,6 +68,12 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         native->owner->completeUpdate();
     }
+
+    static void managerBrightnessStep(void *data, moko_window_manager_v1 *, int32_t delta)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        emit native->owner->brightnessStepRequested(delta);
+    }
 };
 
 namespace {
@@ -81,6 +87,7 @@ const moko_window_manager_v1_listener managerListener = {
     .window = WindowManagerCallbacks::managerWindow,
     .window_removed = WindowManagerCallbacks::managerWindowRemoved,
     .done = WindowManagerCallbacks::managerDone,
+    .brightness_step = WindowManagerCallbacks::managerBrightnessStep,
 };
 
 } // namespace

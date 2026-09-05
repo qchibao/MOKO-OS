@@ -57,6 +57,11 @@ docker run --rm --platform linux/amd64 \
       --screenshot /tmp/moko-shell-1280x720.png
     test -s /tmp/moko-shell-1280x720.png
 
+    WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
+      /tmp/moko-shell-build/moko-shell --smoke-test --windowed --control-center \
+      --size 1280x720 --screenshot /artifacts/moko-control-center-preview.png
+    test -s /artifacts/moko-control-center-preview.png
+
     for app in files settings terminal; do
       WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
         "/tmp/moko-apps-build/$app/moko-$app" \

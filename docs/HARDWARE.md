@@ -61,3 +61,9 @@ Intel/AMD graphics firmware, Intel/Broadcom Wi-Fi firmware and standard input,
 NVMe and USB kernel support. Presence in the image is not certification for a
 specific machine. Use `docs/LIVE_USB_CHECKLIST.md`, export both diagnostics
 reports, and leave any unverified subsystem `UNKNOWN`.
+
+The v0.1.1 Control Center reads those same real services. QEMU validates service
+discovery and a virtual HDA PipeWire control path, but cannot certify MacBook
+Wi-Fi association, Bluetooth pairing, Apple backlight writes, battery health or
+power-profile authorization. Those controls must be exercised in the next
+non-destructive physical Live USB pass.

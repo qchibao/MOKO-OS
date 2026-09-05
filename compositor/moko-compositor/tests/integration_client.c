@@ -200,10 +200,20 @@ static void manager_done(void *data, struct moko_window_manager_v1 *manager)
     (void)manager;
 }
 
+static void manager_brightness_step(void *data,
+                                    struct moko_window_manager_v1 *manager,
+                                    int32_t delta)
+{
+    (void)data;
+    (void)manager;
+    (void)delta;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
     .done = manager_done,
+    .brightness_step = manager_brightness_step,
 };
 
 static void registry_global(void *data,

@@ -19,6 +19,8 @@ ApplicationWindow {
 
     property bool launcherVisible: true
     property bool aiVisible: true
+    property bool controlCenterVisible: false
+    property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
 
     function openApplication(appId) {
@@ -53,7 +55,25 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         clockText: window.clockText
+        control: mokoSystemControl
         z: 10
+        onControlCenterRequested: (page) => {
+            controlCenter.currentPage = page
+            window.controlCenterVisible = !window.controlCenterVisible
+            if (window.controlCenterVisible)
+                mokoSystemControl.reportControlCenterOpened(page)
+        }
+    }
+
+    ControlCenterPanel {
+        id: controlCenter
+        anchors.right: parent.right
+        anchors.rightMargin: 14
+        anchors.top: topBar.bottom
+        anchors.topMargin: 10
+        visible: window.controlCenterVisible
+        control: mokoSystemControl
+        z: 15
     }
 
     LauncherPanel {
@@ -162,5 +182,12 @@ ApplicationWindow {
             aiPanel.focusInput()
         }
     }
-    Shortcut { sequence: "Escape"; onActivated: { launcherVisible = false; aiVisible = false } }
+    Shortcut {
+        sequence: "Escape"
+        onActivated: {
+            launcherVisible = false
+            aiVisible = false
+            controlCenterVisible = false
+        }
+    }
 }

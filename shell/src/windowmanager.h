@@ -36,6 +36,7 @@ public:
 signals:
     void connectedChanged();
     void windowsChanged();
+    void brightnessStepRequested(int delta);
 
 private:
     friend struct WindowManagerCallbacks;

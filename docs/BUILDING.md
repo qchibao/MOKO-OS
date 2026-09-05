@@ -61,6 +61,7 @@ MOKO_LAUNCH_QUERY=appearance MOKO_LAUNCH_APP_ID=org.moko.Settings \
   ./scripts/test-iso-docker.sh
 MOKO_AI_PROMPT="open hardware diagnostics" MOKO_AI_EXPECT_ACTION=open_application \
   MOKO_AI_EXPECT_APP_ID=org.moko.HardwareDiagnostics ./scripts/test-iso-docker.sh
+MOKO_CONTROL_CENTER_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
   MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
 MOKO_BOOT_RUNS=3 MOKO_BOOT_FIRMWARE=uefi MOKO_BOOT_TIMEOUT=480 \
@@ -108,6 +109,14 @@ input. They require an unprivileged daemon connection, the expected D-Bus
 response, and, for application actions, the registry launch, in-process app
 readiness and Cage surface handoff. The test captures the resulting AI panel or
 application framebuffer as `*-ai.png`.
+
+`MOKO_CONTROL_CENTER_TEST=1` clicks the visible top-bar controls, requires the
+unprivileged backend to report real NetworkManager, Bluetooth-hardware,
+PipeWire, backlight, battery and power-profile availability, then toggles the
+actual default PipeWire sink mute state. QEMU intentionally has no Wi-Fi,
+Bluetooth, backlight or battery device, so zero availability for those devices
+is a valid and required truthful result; the virtual HDA endpoint must still be
+discovered and controlled.
 
 ## Release artifacts
 A successful build writes these files to `out/`:

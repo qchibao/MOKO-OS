@@ -13,6 +13,7 @@ iw
 pipewire
 wireplumber
 alsa-utils
+brightnessctl
 bluez
 cage
 libwlroots-0.18
@@ -24,6 +25,7 @@ libgl1-mesa-dri
 libinput-tools
 v4l-utils
 qt6-wayland
+power-profiles-daemon
 qml6-module-qtquick
 qml6-module-qtquick-controls
 qml6-module-qtquick-layouts
