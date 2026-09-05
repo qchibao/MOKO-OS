@@ -37,6 +37,9 @@ struct test_window {
     void *pixels;
     const char *app_id;
     bool configured;
+    bool fullscreen_configured;
+    int32_t configured_width;
+    int32_t configured_height;
     bool close_requested;
 };
 
@@ -48,6 +51,9 @@ struct test_state {
     struct xdg_wm_base *wm_base;
     struct moko_window_manager_v1 *window_manager;
     struct observed_window observed[4];
+    bool input_config_received;
+    uint32_t input_device_count;
+    uint32_t input_capabilities;
 };
 
 static int create_anonymous_file(size_t size)
@@ -80,11 +86,16 @@ static void toplevel_configure(void *data,
                                int32_t height,
                                struct wl_array *states)
 {
-    (void)data;
     (void)toplevel;
-    (void)width;
-    (void)height;
-    (void)states;
+    struct test_window *window = data;
+    window->configured_width = width;
+    window->configured_height = height;
+    window->fullscreen_configured = false;
+    uint32_t *state;
+    wl_array_for_each(state, states) {
+        if (*state == XDG_TOPLEVEL_STATE_FULLSCREEN)
+            window->fullscreen_configured = true;
+    }
 }
 
 static void toplevel_close(void *data, struct xdg_toplevel *toplevel)
@@ -209,11 +220,28 @@ static void manager_brightness_step(void *data,
     (void)delta;
 }
 
+static void manager_input_config(void *data,
+                                 struct moko_window_manager_v1 *manager,
+                                 uint32_t device_count,
+                                 uint32_t capabilities,
+                                 uint32_t state_flags,
+                                 int32_t pointer_acceleration)
+{
+    (void)manager;
+    (void)state_flags;
+    (void)pointer_acceleration;
+    struct test_state *state = data;
+    state->input_config_received = true;
+    state->input_device_count = device_count;
+    state->input_capabilities = capabilities;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
     .done = manager_done,
     .brightness_step = manager_brightness_step,
+    .input_config = manager_input_config,
 };
 
 static void registry_global(void *data,
@@ -234,7 +262,8 @@ static void registry_global(void *data,
         xdg_wm_base_add_listener(state->wm_base, &wm_base_listener, state);
     } else if (strcmp(interface, moko_window_manager_v1_interface.name) == 0) {
         state->window_manager = wl_registry_bind(registry, name,
-                                                 &moko_window_manager_v1_interface, 1);
+                                                 &moko_window_manager_v1_interface,
+                                                 version < 2 ? version : 2);
         moko_window_manager_v1_add_listener(state->window_manager, &manager_listener, state);
     }
 }
@@ -334,6 +363,7 @@ static bool expect_state(struct test_state *state,
 int main(void)
 {
     struct test_state state = {0};
+    struct test_window shell = {0};
     struct test_window first = {0};
     struct test_window second = {0};
     bool success = false;
@@ -349,6 +379,29 @@ int main(void)
         || state.compositor == NULL || state.shm == NULL
         || state.wm_base == NULL || state.window_manager == NULL) {
         fputs("Required Wayland globals are unavailable.\n", stderr);
+        goto cleanup;
+    }
+    if (!state.input_config_received || state.input_device_count != 0
+        || state.input_capabilities != 0) {
+        fputs("Headless compositor reported unexpected touchpad hardware.\n", stderr);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_natural_scroll(state.window_manager, 0);
+    moko_window_manager_v1_set_pointer_acceleration(state.window_manager, 5000);
+    if (!dispatch_roundtrips(&state, 2) || !state.input_config_received) {
+        fputs("Runtime input configuration requests failed.\n", stderr);
+        goto cleanup;
+    }
+
+    if (!create_test_window(&state, &shell, "org.moko.Shell", 0xffe8f4ff)
+        || !dispatch_roundtrips(&state, 5)
+        || !shell.fullscreen_configured
+        || shell.configured_width <= 0
+        || shell.configured_height <= 0) {
+        fprintf(stderr, "Shell did not receive an output-sized fullscreen configure (%dx%d, fullscreen=%d).\n",
+                shell.configured_width,
+                shell.configured_height,
+                shell.fullscreen_configured);
         goto cleanup;
     }
 
@@ -453,6 +506,7 @@ int main(void)
 cleanup:
     destroy_test_window(&second);
     destroy_test_window(&first);
+    destroy_test_window(&shell);
     if (state.window_manager != NULL)
         moko_window_manager_v1_destroy(state.window_manager);
     if (state.wm_base != NULL)

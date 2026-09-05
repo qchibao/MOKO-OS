@@ -5,6 +5,7 @@ import QtQuick.Layouts
 GlassPanel {
     id: root
     property var control
+    property var windowManager
     property int currentPage: 0
     property string pendingWifiSsid: ""
     property string pendingBluetoothId: ""
@@ -40,6 +41,8 @@ GlassPanel {
     onCurrentPageChanged: {
         if (visible && control)
             control.reportControlCenterOpened(currentPage)
+        if (visible && currentPage === 4 && windowManager)
+            windowManager.reportInputPanelOpened()
     }
 
     component SectionTitle: RowLayout {
@@ -180,7 +183,7 @@ GlassPanel {
             Layout.fillWidth: true
             spacing: 4
             Repeater {
-                model: ["Connections", "Sound", "Display", "Power"]
+                model: ["Connections", "Sound", "Display", "Power", "Input"]
                 delegate: Button {
                     required property int index
                     required property string modelData
@@ -711,6 +714,215 @@ GlassPanel {
                     EmptyState {
                         visible: !root.control || !root.control.powerModeAvailable
                         message: "Power profiles are not available on this hardware."
+                    }
+                }
+            }
+
+            ScrollView {
+                id: inputPage
+                clip: true
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                ColumnLayout {
+                    width: inputPage.availableWidth
+                    spacing: 11
+
+                    SectionTitle {
+                        title: "Trackpad"
+                        detail: !root.windowManager || !root.windowManager.inputProtocolAvailable
+                                ? "Unavailable"
+                                : root.windowManager.touchpadAvailable
+                                  ? root.windowManager.touchpadCount + " detected"
+                                  : "Not detected"
+                    }
+                    EmptyState {
+                        visible: !root.windowManager || !root.windowManager.touchpadAvailable
+                        message: root.windowManager && root.windowManager.inputProtocolAvailable
+                                 ? "No compatible trackpad is connected."
+                                 : "Input settings require the MOKO desktop compositor."
+                    }
+
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Tap to click"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.tapToClickAvailable
+                                  ? (root.windowManager.tapToClickEnabled ? "On" : "Limited")
+                                  : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Two-finger scrolling"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.twoFingerScrollAvailable
+                                  ? (root.windowManager.twoFingerScrollEnabled ? "On" : "Limited")
+                                  : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Secondary click"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.secondaryClickAvailable
+                                  ? (root.windowManager.secondaryClickEnabled ? "Two fingers" : "Limited")
+                                  : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Tap and drag"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.dragAvailable
+                                  ? (root.windowManager.dragEnabled ? "On" : "Limited")
+                                  : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+
+                    Separator { visible: root.windowManager && root.windowManager.touchpadAvailable }
+
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Natural scrolling"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        MokoSwitch {
+                            checked: root.windowManager
+                                     ? root.windowManager.naturalScrollEnabled : false
+                            enabled: root.windowManager
+                                     && root.windowManager.naturalScrollAvailable
+                            onToggled: root.windowManager.setNaturalScrollEnabled(checked)
+                        }
+                    }
+
+                    Text {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        text: "Pointer speed"
+                        color: "#536274"
+                        font.pixelSize: 10
+                        font.bold: true
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: "Slow"
+                            color: "#7B8998"
+                            font.pixelSize: 9
+                        }
+                        MokoSlider {
+                            Layout.fillWidth: true
+                            from: -100
+                            to: 100
+                            stepSize: 5
+                            value: root.windowManager
+                                   ? root.windowManager.pointerAcceleration : 0
+                            enabled: root.windowManager
+                                     && root.windowManager.pointerAccelerationAvailable
+                            onMoved: root.windowManager.setPointerAcceleration(Math.round(value))
+                        }
+                        Text {
+                            text: "Fast"
+                            color: "#7B8998"
+                            font.pixelSize: 9
+                        }
+                    }
+
+                    Separator { visible: root.windowManager && root.windowManager.touchpadAvailable }
+
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Palm rejection"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.palmRejectionManaged
+                                  ? "Automatic" : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "While typing"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.disableWhileTypingAvailable
+                                  ? (root.windowManager.disableWhileTypingEnabled ? "Protected" : "Limited")
+                                  : "Automatic"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Multi-finger gestures"
+                            color: "#556577"
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: root.windowManager && root.windowManager.gesturesAvailable
+                                  ? "Available" : "Not available"
+                            color: "#334252"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
                     }
                 }
             }

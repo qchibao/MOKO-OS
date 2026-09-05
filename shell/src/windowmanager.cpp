@@ -2,9 +2,14 @@
 
 #include "moko-window-control-v1-client-protocol.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QSocketNotifier>
+#include <QtMath>
 
 #include <cerrno>
+#include <unistd.h>
 #include <wayland-client.h>
 
 struct WindowManager::WindowInfo
@@ -34,9 +39,10 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
+        native->owner->m_protocolVersion = qMin(version, 2U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
-                             qMin(version, 1U)));
+                             native->owner->m_protocolVersion));
     }
 
     static void registryGlobalRemove(void *, wl_registry *, uint32_t)
@@ -74,6 +80,20 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         emit native->owner->brightnessStepRequested(delta);
     }
+
+    static void managerInputConfig(void *data,
+                                   moko_window_manager_v1 *,
+                                   uint32_t deviceCount,
+                                   uint32_t capabilities,
+                                   uint32_t state,
+                                   int32_t pointerAcceleration)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->updateInputConfig(deviceCount,
+                                         capabilities,
+                                         state,
+                                         pointerAcceleration);
+    }
 };
 
 namespace {
@@ -88,7 +108,21 @@ const moko_window_manager_v1_listener managerListener = {
     .window_removed = WindowManagerCallbacks::managerWindowRemoved,
     .done = WindowManagerCallbacks::managerDone,
     .brightness_step = WindowManagerCallbacks::managerBrightnessStep,
+    .input_config = WindowManagerCallbacks::managerInputConfig,
 };
+
+void writeLiveInputEvent(const QString &message)
+{
+    const QString path = qEnvironmentVariable("MOKO_LIVE_LAUNCH_EVENTS");
+    if (path.isEmpty())
+        return;
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        return;
+    file.write(message.toUtf8());
+    file.write("\n");
+}
 
 } // namespace
 
@@ -136,6 +170,76 @@ bool WindowManager::connected() const
 int WindowManager::revision() const
 {
     return m_revision;
+}
+
+bool WindowManager::inputProtocolAvailable() const { return m_protocolVersion >= 2; }
+bool WindowManager::touchpadAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TRACKPAD) != 0;
+}
+int WindowManager::touchpadCount() const { return static_cast<int>(m_touchpadCount); }
+bool WindowManager::tapToClickAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TAP) != 0;
+}
+bool WindowManager::tapToClickEnabled() const
+{
+    return (m_inputState & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TAP_ENABLED) != 0;
+}
+bool WindowManager::twoFingerScrollAvailable() const
+{
+    return (m_inputCapabilities
+            & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TWO_FINGER_SCROLL) != 0;
+}
+bool WindowManager::twoFingerScrollEnabled() const
+{
+    return (m_inputState
+            & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TWO_FINGER_SCROLL_ENABLED) != 0;
+}
+bool WindowManager::naturalScrollAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_NATURAL_SCROLL) != 0;
+}
+bool WindowManager::naturalScrollEnabled() const
+{
+    return (m_inputState & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_NATURAL_SCROLL_ENABLED) != 0;
+}
+bool WindowManager::secondaryClickAvailable() const
+{
+    return (m_inputCapabilities
+            & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_SECONDARY_CLICK) != 0;
+}
+bool WindowManager::secondaryClickEnabled() const
+{
+    return (m_inputState & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_SECONDARY_CLICK_ENABLED) != 0;
+}
+bool WindowManager::pointerAccelerationAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_ACCELERATION) != 0;
+}
+int WindowManager::pointerAcceleration() const { return m_pointerAcceleration; }
+bool WindowManager::palmRejectionManaged() const { return touchpadAvailable(); }
+bool WindowManager::disableWhileTypingAvailable() const
+{
+    return (m_inputCapabilities
+            & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DISABLE_WHILE_TYPING) != 0;
+}
+bool WindowManager::disableWhileTypingEnabled() const
+{
+    return (m_inputState
+            & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DISABLE_WHILE_TYPING_ENABLED) != 0;
+}
+bool WindowManager::dragAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DRAG) != 0;
+}
+bool WindowManager::dragEnabled() const
+{
+    return (m_inputState & MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DRAG_ENABLED) != 0;
+}
+bool WindowManager::gesturesAvailable() const
+{
+    return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_GESTURES) != 0;
 }
 
 bool WindowManager::isRunning(const QString &appId) const
@@ -220,6 +324,48 @@ bool WindowManager::closeApplication(const QString &appId)
     });
 }
 
+bool WindowManager::setNaturalScrollEnabled(bool enabled)
+{
+    if (!inputProtocolAvailable() || !naturalScrollAvailable()
+        || m_native->manager == nullptr) {
+        return false;
+    }
+    moko_window_manager_v1_set_natural_scroll(m_native->manager, enabled ? 1 : 0);
+    if (wl_display_flush(m_native->display) < 0 && errno != EAGAIN) {
+        disconnectWayland();
+        return false;
+    }
+    return true;
+}
+
+bool WindowManager::setPointerAcceleration(int speed)
+{
+    if (!inputProtocolAvailable() || !pointerAccelerationAvailable()
+        || m_native->manager == nullptr) {
+        return false;
+    }
+    const int boundedSpeed = qBound(-100, speed, 100);
+    moko_window_manager_v1_set_pointer_acceleration(m_native->manager, boundedSpeed * 10);
+    if (wl_display_flush(m_native->display) < 0 && errno != EAGAIN) {
+        disconnectWayland();
+        return false;
+    }
+    return true;
+}
+
+void WindowManager::reportInputPanelOpened() const
+{
+    writeLiveInputEvent(QStringLiteral(
+                            "MOKO_INPUT_PANEL state=open protocol=%1 touchpads=%2 capabilities=%3 "
+                            "input_state=%4 acceleration=%5 uid=%6")
+                            .arg(inputProtocolAvailable() ? 1 : 0)
+                            .arg(m_touchpadCount)
+                            .arg(m_inputCapabilities)
+                            .arg(m_inputState)
+                            .arg(m_pointerAcceleration)
+                            .arg(static_cast<qulonglong>(geteuid())));
+}
+
 void WindowManager::dispatchWayland()
 {
     if (m_native->display == nullptr)
@@ -252,9 +398,15 @@ void WindowManager::disconnectWayland()
     if (m_connected) {
         m_connected = false;
         m_windows.clear();
+        m_protocolVersion = 0;
+        m_touchpadCount = 0;
+        m_inputCapabilities = 0;
+        m_inputState = 0;
+        m_pointerAcceleration = 0;
         ++m_revision;
         emit connectedChanged();
         emit windowsChanged();
+        emit inputChanged();
     }
 }
 
@@ -283,6 +435,25 @@ void WindowManager::completeUpdate()
 {
     ++m_revision;
     emit windowsChanged();
+}
+
+void WindowManager::updateInputConfig(quint32 deviceCount,
+                                      quint32 capabilities,
+                                      quint32 state,
+                                      qint32 pointerAcceleration)
+{
+    const int speed = qBound(-100, qRound(pointerAcceleration / 10.0), 100);
+    if (m_touchpadCount == deviceCount
+        && m_inputCapabilities == capabilities
+        && m_inputState == state
+        && m_pointerAcceleration == speed) {
+        return;
+    }
+    m_touchpadCount = deviceCount;
+    m_inputCapabilities = capabilities;
+    m_inputState = state;
+    m_pointerAcceleration = speed;
+    emit inputChanged();
 }
 
 const WindowManager::WindowInfo *WindowManager::windowForApplication(const QString &appId) const

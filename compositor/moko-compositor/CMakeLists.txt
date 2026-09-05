@@ -7,6 +7,7 @@ set(CMAKE_C_EXTENSIONS ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WLROOTS REQUIRED IMPORTED_TARGET wlroots-0.18)
+pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_SERVER REQUIRED IMPORTED_TARGET wayland-server)
 pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
@@ -62,6 +63,7 @@ target_include_directories(moko-compositor PRIVATE ${GENERATED_DIR})
 target_link_libraries(moko-compositor PRIVATE
     moko-window-geometry
     PkgConfig::WLROOTS
+    PkgConfig::LIBINPUT
     PkgConfig::WAYLAND_SERVER
     PkgConfig::XKBCOMMON
     m

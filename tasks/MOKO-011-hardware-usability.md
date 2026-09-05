@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-2 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-3 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -134,3 +134,67 @@ Primary artifacts: `out/moko-iso-smoke-20260905T143039Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T145847Z-bios-safe-graphics-*`,
 `out/moko-iso-smoke-20260905T150234Z-bios-hardware-diagnostics-*` and
 `out/moko-iso-smoke-20260905T150618Z-bios-desktop-*`.
+
+## Phase 3 architecture - trackpad and input integration
+
+`moko-compositor` now owns capability-based libinput policy for pointer devices.
+It identifies touchpads from supported libinput features instead of matching a
+device ID, then enables tap-to-click, tap-and-drag, two-finger scrolling,
+clickfinger secondary click, adaptive acceleration and disable-while-typing
+where the hardware exposes each capability. Natural scrolling defaults on and
+pointer acceleration defaults to `0.2`; both can be changed at runtime from the
+Shell Input page.
+
+Version 2 of `moko_window_manager_v1` reports aggregate touchpad capabilities
+and actual applied state to the unprivileged Shell. Version 1 clients remain
+compatible. The protocol exposes only bounded natural-scroll and acceleration
+requests; it does not expose arbitrary libinput mutation or command execution.
+Pointer swipe, pinch and hold events are forwarded through the standard Wayland
+pointer-gestures protocol so applications and future MOKO workspace policy can
+consume supported multi-finger gestures.
+
+The same phase corrected the Shell's normal compositor mapping: the Shell now
+receives an output-sized fullscreen configure before its first buffer and stays
+pinned behind application windows. This removed the QEMU-only `1600x900`
+decorated/cropped surface while preserving Cage as the Safe Graphics fallback.
+
+## Phase 3 rollback and safety
+
+Set `MOKO_COMPOSITOR=cage` or use Safe Graphics to bypass the new compositor
+input path. Unsupported settings remain unavailable and no device node,
+privilege, mount policy or disk-safety behavior changed. Physical MacBook
+validation is still required for tap, scrolling, palm rejection, gestures and
+resume behavior; QEMU truthfully reports that no touchpad is present.
+
+## Phase 3 validation
+
+Validated on 2026-09-06 from a fresh live-build run, Live ISO SHA-256
+`fdb863a4fd24e128f84fb5fcdbb38f6b552afc4c614d6f0e8a9d3abb0b5d7a29`.
+
+- compositor CTest: `3/3` passed, including protocol v2, v1 compatibility,
+  headless no-touchpad state and output-sized fullscreen Shell configuration;
+- Shell CTest: `4/4` passed; AI CTest: `3/3`; apps/PTY/diagnostics: `8/8`;
+- Qt compositor multi-window session: passed;
+- Input ISO gate: compositor and Shell reported the real QEMU no-touchpad
+  state, the Input page rendered, and the Shell mapped fullscreen at
+  `1280x800`;
+- BIOS desktop cold boots: `3/3` passed with `greetd_restarts=0`;
+- UEFI desktop cold boots: `3/3` passed with `greetd_restarts=0`;
+- combined Input and window workflow: simultaneous Files/Settings, move,
+  resize, minimize/restore, maximize/restore, fullscreen, snap, app switching,
+  close and clean shutdown passed;
+- Control Center PipeWire mutation, AI allowlisted Settings launch, Safe
+  Graphics Files launch/return and Hardware Diagnostics JSON/text export all
+  passed;
+- every ISO run passed the serial-sink disk-safety regression and reported
+  `unexpected_block_mounts=0`; no writable disk was attached and the installer
+  remained disabled.
+
+Primary artifacts: `out/moko-iso-smoke-20260905T165932Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T180755Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T172048Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T173215Z-uefi-desktop-*`,
+`out/moko-iso-smoke-20260905T174440Z-bios-safe-graphics-*`,
+`out/moko-iso-smoke-20260905T174820Z-bios-hardware-diagnostics-*`,
+`out/moko-iso-smoke-20260905T175155Z-bios-desktop-*` and
+`out/moko-iso-smoke-20260905T175614Z-bios-desktop-*`.

@@ -17,6 +17,8 @@ This repository already contains:
 - a MOKO-owned wlroots compositor for the normal multi-window desktop, with Cage retained as the Safe Graphics and rollback path;
 - a MOKO Control Center using real NetworkManager, BlueZ, PipeWire/WirePlumber,
   backlight, battery and power-profile state instead of placeholder toggles;
+- capability-based libinput trackpad defaults and runtime natural-scroll /
+  pointer-speed controls exposed through a versioned MOKO compositor protocol;
 - architecture, design language, hardware target, security principles and roadmap documents;
 - Codex-oriented task files and `AGENTS.md`.
 
@@ -66,6 +68,7 @@ MOKO_BOOT_RUNS=3 MOKO_BOOT_FIRMWARE=uefi MOKO_BOOT_TIMEOUT=480 ./scripts/test-is
 MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=safe-graphics ./scripts/test-iso-docker.sh
 MOKO_CONTROL_CENTER_TEST=1 ./scripts/test-iso-docker.sh
+MOKO_INPUT_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
   MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
 ```

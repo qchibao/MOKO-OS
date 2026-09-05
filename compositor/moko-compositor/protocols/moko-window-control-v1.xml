@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="1">
+  <interface name="moko_window_manager_v1" version="2">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -76,6 +76,33 @@
       <arg name="delta" type="int"/>
     </event>
 
+    <request name="set_natural_scroll" since="2">
+      <description summary="change natural scrolling on compatible touchpads">
+        Applies a bounded boolean setting only to compositor-managed libinput
+        touchpads that support two-finger scrolling.
+      </description>
+      <arg name="enabled" type="uint"/>
+    </request>
+
+    <request name="set_pointer_acceleration" since="2">
+      <description summary="change touchpad pointer acceleration">
+        The speed is expressed in thousandths and clamped by the compositor to
+        the libinput range from -1000 to 1000.
+      </description>
+      <arg name="speed" type="int"/>
+    </request>
+
+    <event name="input_config" since="2">
+      <description summary="actual compositor touchpad capabilities and state">
+        Reports aggregate state for detected libinput touchpads. Unsupported
+        features are omitted rather than simulated.
+      </description>
+      <arg name="device_count" type="uint"/>
+      <arg name="capabilities" type="uint" enum="input_capability"/>
+      <arg name="state" type="uint" enum="input_state"/>
+      <arg name="pointer_acceleration" type="int"/>
+    </event>
+
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>
       <entry name="maximized" value="2"/>
@@ -89,6 +116,28 @@
       <entry name="none" value="0"/>
       <entry name="left" value="1"/>
       <entry name="right" value="2"/>
+    </enum>
+
+    <enum name="input_capability" bitfield="true">
+      <entry name="trackpad" value="1"/>
+      <entry name="tap" value="2"/>
+      <entry name="two_finger_scroll" value="4"/>
+      <entry name="natural_scroll" value="8"/>
+      <entry name="secondary_click" value="16"/>
+      <entry name="acceleration" value="32"/>
+      <entry name="disable_while_typing" value="64"/>
+      <entry name="gestures" value="128"/>
+      <entry name="drag" value="256"/>
+    </enum>
+
+    <enum name="input_state" bitfield="true">
+      <entry name="tap_enabled" value="1"/>
+      <entry name="two_finger_scroll_enabled" value="2"/>
+      <entry name="natural_scroll_enabled" value="4"/>
+      <entry name="secondary_click_enabled" value="8"/>
+      <entry name="adaptive_acceleration_enabled" value="16"/>
+      <entry name="disable_while_typing_enabled" value="32"/>
+      <entry name="drag_enabled" value="64"/>
     </enum>
   </interface>
 </protocol>

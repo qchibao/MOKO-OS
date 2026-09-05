@@ -73,6 +73,7 @@ ApplicationWindow {
         anchors.topMargin: 10
         visible: window.controlCenterVisible
         control: mokoSystemControl
+        windowManager: mokoWindowManager
         z: 15
     }
 

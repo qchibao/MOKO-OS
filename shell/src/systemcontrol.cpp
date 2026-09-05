@@ -1136,7 +1136,7 @@ bool SystemControl::setPowerMode(const QString &mode)
 
 void SystemControl::reportControlCenterOpened(int page)
 {
-    if (page < 0 || page > 3)
+    if (page < 0 || page > 4)
         return;
     writeLiveEvent(QStringLiteral(
                        "MOKO_CONTROL_CENTER state=open page=%1 network_manager=%2 wifi_device=%3 "

@@ -116,6 +116,21 @@ Hardware that is absent or not writable is reported as unavailable rather than
 simulated. The compositor forwards only bounded brightness-step events for the
 XF86 brightness keys; the same unprivileged controller performs the adjustment.
 
+## Input boundary
+`moko-compositor` applies desktop input policy directly through libinput. It
+discovers touchpads by capability, not vendor/product ID, and enables supported
+tap, drag, two-finger scroll, clickfinger secondary click, adaptive acceleration
+and disable-while-typing features. Libinput continues to own device-specific
+palm detection and hardware quirks.
+
+The versioned `moko_window_manager_v1` protocol reports aggregate capabilities
+and applied state to the Shell Input page. Its only mutable input requests are a
+bounded natural-scroll boolean and acceleration value; older version 1 clients
+retain the window-management contract. Standard Wayland pointer gesture events
+are forwarded for applications and future MOKO workspace gestures. Cage remains
+the rollback and Safe Graphics input path until physical MacBook validation is
+complete.
+
 ## Live USB boot boundary
 The Developer Preview exposes three fixed profiles through both GRUB/UEFI and
 ISOLINUX/legacy BIOS: `desktop`, `hardware-diagnostics` and `safe-graphics`.

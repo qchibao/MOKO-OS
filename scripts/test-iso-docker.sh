@@ -16,6 +16,7 @@ EXPECT_HARDWARE_REPORT=${MOKO_EXPECT_HARDWARE_REPORT:-0}
 SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
 WINDOW_WORKFLOW=${MOKO_WINDOW_WORKFLOW:-0}
 CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
+INPUT_TEST=${MOKO_INPUT_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
@@ -58,7 +59,7 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
@@ -337,6 +338,9 @@ docker run --rm --platform linux/amd64 \
     unsquashfs -cat /tmp/filesystem.squashfs etc/greetd/config.toml \
       | grep -Fxq "command = \"/usr/local/bin/moko-desktop-session\""
     unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/libexec/moko-live-launch-monitor \
+      | grep -Fq "MOKO_INPUT_*"
+    unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-disk-safety-check \
       > /tmp/moko-live-disk-safety-check
     chmod 0755 /tmp/moko-live-disk-safety-check
@@ -480,17 +484,24 @@ for run in $(seq 1 "$RUNS"); do
   done
   grep -E "$health_pattern" "$SERIAL_PATH" | tail -1
 
+  if [[ "$BOOT_MODE" == desktop ]]; then
+    grep -Fq "MOKO_COMPOSITOR_SHELL state=mapped app_id=org.moko.Shell width=1280 height=800 fullscreen=1" "$SERIAL_PATH" || {
+      tail -100 "$SERIAL_PATH" >&2
+      echo "MOKO Shell was not mapped fullscreen at the QEMU output size." >&2
+      exit 1
+    }
+  fi
+
   if [[ "$run" == 1 && "$CONTROL_CENTER_TEST" == 1 ]]; then
     marker=$(serial_line_count)
-    # The normal compositor's server-side decoration occupies the first 30 px.
-    pointer_click 1120 50
+    pointer_click 1120 20
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
       "Control Center did not report real NetworkManager and Bluetooth hardware state."
-    pointer_click 1212 112
+    pointer_click 1212 82
     sleep 5
     marker=$(serial_line_count)
-    pointer_click 1014 158
+    pointer_click 1014 128
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=1 brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
       "Control Center did not expose the live PipeWire audio state."
@@ -498,14 +509,43 @@ for run in $(seq 1 "$RUNS"); do
     monitor "screendump /artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME")" -gt 10000
     marker=$(serial_line_count)
-    pointer_click 1228 260
+    pointer_click 1228 230
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 30 \
       "Control Center did not change the real PipeWire output mute state."
     CONTROL_CENTER_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center.png"
     monitor "screendump /artifacts/$CONTROL_CENTER_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SCREENSHOT_NAME")" -gt 10000
-    pointer_click 1120 50
+    pointer_click 1120 20
+  fi
+
+  if [[ "$run" == 1 && "$INPUT_TEST" == 1 ]]; then
+    marker=$(serial_line_count)
+    pointer_click 1120 20
+    wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+      "Control Center did not open before selecting the Input page."
+    sleep 5
+    marker=$(serial_line_count)
+    pointer_click 1212 126
+    wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_CENTER state=open page=4 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+      "Control Center did not open the compositor-backed Input page."
+    wait_for_serial_since "$marker" \
+      "MOKO_INPUT_PANEL state=open protocol=1 touchpads=0 capabilities=0 input_state=0 acceleration=20 uid=1000" 30 \
+      "Input page did not report the real QEMU no-trackpad state."
+    grep -Eq "MOKO_INPUT_STATE touchpads=0 capabilities=0 state=0 acceleration=200" "$SERIAL_PATH" || {
+      tail -120 "$SERIAL_PATH" >&2
+      echo "Compositor did not publish its real input state." >&2
+      exit 1
+    }
+    # TCG can acknowledge the QML state change before the next frame is ready.
+    sleep 5
+    INPUT_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-input.png"
+    monitor "screendump /artifacts/$INPUT_SCREENSHOT_NAME -f png"
+    test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$INPUT_SCREENSHOT_NAME")" -gt 10000
+    sleep 5
+    pointer_click 1120 20
   fi
 
   if [[ "$BOOT_MODE" == hardware-diagnostics ]]; then

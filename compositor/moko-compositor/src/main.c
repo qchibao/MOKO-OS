@@ -30,6 +30,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <getopt.h>
+#include <libinput.h>
 #include <linux/input-event-codes.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -42,6 +43,7 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <wlr/backend.h>
+#include <wlr/backend/libinput.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
@@ -52,6 +54,7 @@
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_pointer.h>
+#include <wlr/types/wlr_pointer_gestures_v1.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_subcompositor.h>
@@ -66,6 +69,7 @@
 #define MOKO_TOP_RESERVED 48
 #define MOKO_BOTTOM_RESERVED 112
 #define MOKO_SNAP_DISTANCE 24
+#define MOKO_DEFAULT_POINTER_ACCELERATION 200
 
 enum moko_cursor_mode {
     MOKO_CURSOR_PASSTHROUGH,
@@ -133,6 +137,15 @@ struct moko_keyboard {
     struct wl_listener destroy;
 };
 
+struct moko_pointer_device {
+    struct wl_list link;
+    struct moko_server *server;
+    struct wlr_input_device *wlr_device;
+    struct libinput_device *libinput_device;
+    struct wl_listener destroy;
+    bool is_touchpad;
+};
+
 struct moko_decoration {
     struct wlr_xdg_toplevel_decoration_v1 *decoration;
     struct wl_listener request_mode;
@@ -164,13 +177,26 @@ struct moko_server {
     struct wl_global *window_manager_global;
     struct wl_list window_manager_resources;
 
+    struct wl_list pointer_devices;
+    bool natural_scroll_enabled;
+    int32_t pointer_acceleration;
+
     struct wlr_cursor *cursor;
     struct wlr_xcursor_manager *cursor_manager;
+    struct wlr_pointer_gestures_v1 *pointer_gestures;
     struct wl_listener cursor_motion;
     struct wl_listener cursor_motion_absolute;
     struct wl_listener cursor_button;
     struct wl_listener cursor_axis;
     struct wl_listener cursor_frame;
+    struct wl_listener cursor_swipe_begin;
+    struct wl_listener cursor_swipe_update;
+    struct wl_listener cursor_swipe_end;
+    struct wl_listener cursor_pinch_begin;
+    struct wl_listener cursor_pinch_update;
+    struct wl_listener cursor_pinch_end;
+    struct wl_listener cursor_hold_begin;
+    struct wl_listener cursor_hold_end;
 
     struct wlr_seat *seat;
     struct wl_listener new_input;
@@ -218,6 +244,233 @@ static void report_event(const char *format, ...)
         return;
     fprintf(file, "%s\n", message);
     fclose(file);
+}
+
+struct moko_input_snapshot {
+    uint32_t device_count;
+    uint32_t capabilities;
+    uint32_t state;
+    int32_t pointer_acceleration;
+};
+
+static bool is_touchpad_device(struct libinput_device *device)
+{
+    return libinput_device_config_tap_get_finger_count(device) > 0
+        || (libinput_device_config_scroll_get_methods(device)
+            & LIBINPUT_CONFIG_SCROLL_2FG) != 0
+        || libinput_device_config_dwt_is_available(device) != 0;
+}
+
+static uint32_t touchpad_capabilities(struct libinput_device *device)
+{
+    const int tap_fingers = libinput_device_config_tap_get_finger_count(device);
+    const uint32_t scroll_methods = libinput_device_config_scroll_get_methods(device);
+    const uint32_t click_methods = libinput_device_config_click_get_methods(device);
+    uint32_t capabilities = MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TRACKPAD;
+    if (tap_fingers > 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TAP
+            | MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DRAG;
+    if ((scroll_methods & LIBINPUT_CONFIG_SCROLL_2FG) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TWO_FINGER_SCROLL;
+    if (libinput_device_config_scroll_has_natural_scroll(device) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_NATURAL_SCROLL;
+    if (tap_fingers >= 2 || (click_methods & LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_SECONDARY_CLICK;
+    if (libinput_device_config_accel_is_available(device) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_ACCELERATION;
+    if (libinput_device_config_dwt_is_available(device) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DISABLE_WHILE_TYPING;
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_GESTURE) != 0)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_GESTURES;
+    return capabilities;
+}
+
+static void log_config_failure(const char *setting,
+                               const struct wlr_input_device *device,
+                               enum libinput_config_status status)
+{
+    if (status == LIBINPUT_CONFIG_STATUS_SUCCESS)
+        return;
+    wlr_log(WLR_ERROR,
+            "Could not configure %s on %s: %s",
+            setting,
+            device->name,
+            libinput_config_status_to_str(status));
+}
+
+static void configure_touchpad(struct moko_pointer_device *pointer)
+{
+    struct libinput_device *device = pointer->libinput_device;
+    const int tap_fingers = libinput_device_config_tap_get_finger_count(device);
+    const uint32_t scroll_methods = libinput_device_config_scroll_get_methods(device);
+    const uint32_t click_methods = libinput_device_config_click_get_methods(device);
+
+    if (tap_fingers > 0) {
+        log_config_failure("tap-to-click", pointer->wlr_device,
+                           libinput_device_config_tap_set_enabled(
+                               device, LIBINPUT_CONFIG_TAP_ENABLED));
+        log_config_failure("tap button mapping", pointer->wlr_device,
+                           libinput_device_config_tap_set_button_map(
+                               device, LIBINPUT_CONFIG_TAP_MAP_LRM));
+        log_config_failure("tap-and-drag", pointer->wlr_device,
+                           libinput_device_config_tap_set_drag_enabled(
+                               device, LIBINPUT_CONFIG_DRAG_ENABLED));
+    }
+    if ((scroll_methods & LIBINPUT_CONFIG_SCROLL_2FG) != 0) {
+        log_config_failure("two-finger scrolling", pointer->wlr_device,
+                           libinput_device_config_scroll_set_method(
+                               device, LIBINPUT_CONFIG_SCROLL_2FG));
+    }
+    if (libinput_device_config_scroll_has_natural_scroll(device) != 0) {
+        log_config_failure("natural scrolling", pointer->wlr_device,
+                           libinput_device_config_scroll_set_natural_scroll_enabled(
+                               device, pointer->server->natural_scroll_enabled));
+    }
+    if ((click_methods & LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER) != 0) {
+        log_config_failure("clickfinger secondary click", pointer->wlr_device,
+                           libinput_device_config_click_set_method(
+                               device, LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER));
+        log_config_failure("clickfinger button mapping", pointer->wlr_device,
+                           libinput_device_config_click_set_clickfinger_button_map(
+                               device, LIBINPUT_CONFIG_CLICKFINGER_MAP_LRM));
+    }
+    if (libinput_device_config_accel_is_available(device) != 0) {
+        const uint32_t profiles = libinput_device_config_accel_get_profiles(device);
+        if ((profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE) != 0) {
+            log_config_failure("adaptive acceleration", pointer->wlr_device,
+                               libinput_device_config_accel_set_profile(
+                                   device, LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE));
+        }
+        log_config_failure("pointer acceleration", pointer->wlr_device,
+                           libinput_device_config_accel_set_speed(
+                               device, pointer->server->pointer_acceleration / 1000.0));
+    }
+    if (libinput_device_config_dwt_is_available(device) != 0) {
+        log_config_failure("disable-while-typing", pointer->wlr_device,
+                           libinput_device_config_dwt_set_enabled(
+                               device, LIBINPUT_CONFIG_DWT_ENABLED));
+    }
+}
+
+static struct moko_input_snapshot input_snapshot(struct moko_server *server)
+{
+    struct moko_input_snapshot snapshot = {
+        .pointer_acceleration = server->pointer_acceleration,
+    };
+    uint32_t disabled_state = 0;
+    double acceleration_total = 0.0;
+    uint32_t acceleration_devices = 0;
+    struct moko_pointer_device *pointer;
+    wl_list_for_each(pointer, &server->pointer_devices, link) {
+        if (!pointer->is_touchpad)
+            continue;
+        ++snapshot.device_count;
+        struct libinput_device *device = pointer->libinput_device;
+        const uint32_t capabilities = touchpad_capabilities(device);
+        snapshot.capabilities |= capabilities;
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TAP) != 0
+            && libinput_device_config_tap_get_enabled(device) == LIBINPUT_CONFIG_TAP_ENABLED) {
+            snapshot.state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TAP_ENABLED;
+        } else if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TAP) != 0) {
+            disabled_state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TAP_ENABLED;
+        }
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TWO_FINGER_SCROLL) != 0
+            && (libinput_device_config_scroll_get_method(device)
+                & LIBINPUT_CONFIG_SCROLL_2FG) != 0) {
+            snapshot.state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TWO_FINGER_SCROLL_ENABLED;
+        } else if ((capabilities
+                    & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_TWO_FINGER_SCROLL) != 0) {
+            disabled_state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_TWO_FINGER_SCROLL_ENABLED;
+        }
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_NATURAL_SCROLL) != 0
+            && libinput_device_config_scroll_get_natural_scroll_enabled(device) != 0) {
+            snapshot.state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_NATURAL_SCROLL_ENABLED;
+        } else if ((capabilities
+                    & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_NATURAL_SCROLL) != 0) {
+            disabled_state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_NATURAL_SCROLL_ENABLED;
+        }
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_SECONDARY_CLICK) != 0) {
+            const bool secondary_click =
+                (libinput_device_config_click_get_method(device)
+                 & LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER) != 0
+                || (libinput_device_config_tap_get_finger_count(device) >= 2
+                    && libinput_device_config_tap_get_enabled(device)
+                        == LIBINPUT_CONFIG_TAP_ENABLED);
+            if (secondary_click)
+                snapshot.state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_SECONDARY_CLICK_ENABLED;
+            else
+                disabled_state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_SECONDARY_CLICK_ENABLED;
+        }
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_ACCELERATION) != 0) {
+            if ((libinput_device_config_accel_get_profile(device)
+                 & LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE) != 0) {
+                snapshot.state |=
+                    MOKO_WINDOW_MANAGER_V1_INPUT_STATE_ADAPTIVE_ACCELERATION_ENABLED;
+            } else {
+                disabled_state |=
+                    MOKO_WINDOW_MANAGER_V1_INPUT_STATE_ADAPTIVE_ACCELERATION_ENABLED;
+            }
+            acceleration_total += libinput_device_config_accel_get_speed(device);
+            ++acceleration_devices;
+        }
+        if ((capabilities
+             & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DISABLE_WHILE_TYPING) != 0) {
+            if (libinput_device_config_dwt_get_enabled(device) == LIBINPUT_CONFIG_DWT_ENABLED)
+                snapshot.state |=
+                    MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DISABLE_WHILE_TYPING_ENABLED;
+            else
+                disabled_state |=
+                    MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DISABLE_WHILE_TYPING_ENABLED;
+        }
+        if ((capabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_DRAG) != 0) {
+            if (libinput_device_config_tap_get_drag_enabled(device)
+                == LIBINPUT_CONFIG_DRAG_ENABLED) {
+                snapshot.state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DRAG_ENABLED;
+            } else {
+                disabled_state |= MOKO_WINDOW_MANAGER_V1_INPUT_STATE_DRAG_ENABLED;
+            }
+        }
+    }
+    snapshot.state &= ~disabled_state;
+    if (acceleration_devices > 0) {
+        snapshot.pointer_acceleration = (int32_t)(
+            acceleration_total * 1000.0 / acceleration_devices);
+    }
+    return snapshot;
+}
+
+static void send_input_config_to_resource(struct moko_server *server,
+                                          struct wl_resource *resource)
+{
+    if (wl_resource_get_version(resource) < 2)
+        return;
+    const struct moko_input_snapshot snapshot = input_snapshot(server);
+    moko_window_manager_v1_send_input_config(resource,
+                                             snapshot.device_count,
+                                             snapshot.capabilities,
+                                             snapshot.state,
+                                             snapshot.pointer_acceleration);
+}
+
+static void broadcast_input_config(struct moko_server *server)
+{
+    const struct moko_input_snapshot snapshot = input_snapshot(server);
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources) {
+        if (wl_resource_get_version(resource) < 2)
+            continue;
+        moko_window_manager_v1_send_input_config(resource,
+                                                 snapshot.device_count,
+                                                 snapshot.capabilities,
+                                                 snapshot.state,
+                                                 snapshot.pointer_acceleration);
+        moko_window_manager_v1_send_done(resource);
+    }
+    report_event("MOKO_INPUT_STATE touchpads=%u capabilities=%u state=%u acceleration=%d",
+                 snapshot.device_count,
+                 snapshot.capabilities,
+                 snapshot.state,
+                 snapshot.pointer_acceleration);
 }
 
 static const char *toplevel_app_id(const struct moko_toplevel *toplevel)
@@ -843,6 +1096,75 @@ static void cursor_frame(struct wl_listener *listener, void *data)
     wlr_seat_pointer_notify_frame(server->seat);
 }
 
+static void cursor_swipe_begin(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_swipe_begin);
+    struct wlr_pointer_swipe_begin_event *event = data;
+    wlr_pointer_gestures_v1_send_swipe_begin(
+        server->pointer_gestures, server->seat, event->time_msec, event->fingers);
+}
+
+static void cursor_swipe_update(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_swipe_update);
+    struct wlr_pointer_swipe_update_event *event = data;
+    wlr_pointer_gestures_v1_send_swipe_update(
+        server->pointer_gestures, server->seat, event->time_msec, event->dx, event->dy);
+}
+
+static void cursor_swipe_end(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_swipe_end);
+    struct wlr_pointer_swipe_end_event *event = data;
+    wlr_pointer_gestures_v1_send_swipe_end(
+        server->pointer_gestures, server->seat, event->time_msec, event->cancelled);
+}
+
+static void cursor_pinch_begin(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_pinch_begin);
+    struct wlr_pointer_pinch_begin_event *event = data;
+    wlr_pointer_gestures_v1_send_pinch_begin(
+        server->pointer_gestures, server->seat, event->time_msec, event->fingers);
+}
+
+static void cursor_pinch_update(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_pinch_update);
+    struct wlr_pointer_pinch_update_event *event = data;
+    wlr_pointer_gestures_v1_send_pinch_update(server->pointer_gestures,
+                                              server->seat,
+                                              event->time_msec,
+                                              event->dx,
+                                              event->dy,
+                                              event->scale,
+                                              event->rotation);
+}
+
+static void cursor_pinch_end(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_pinch_end);
+    struct wlr_pointer_pinch_end_event *event = data;
+    wlr_pointer_gestures_v1_send_pinch_end(
+        server->pointer_gestures, server->seat, event->time_msec, event->cancelled);
+}
+
+static void cursor_hold_begin(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_hold_begin);
+    struct wlr_pointer_hold_begin_event *event = data;
+    wlr_pointer_gestures_v1_send_hold_begin(
+        server->pointer_gestures, server->seat, event->time_msec, event->fingers);
+}
+
+static void cursor_hold_end(struct wl_listener *listener, void *data)
+{
+    struct moko_server *server = wl_container_of(listener, server, cursor_hold_end);
+    struct wlr_pointer_hold_end_event *event = data;
+    wlr_pointer_gestures_v1_send_hold_end(
+        server->pointer_gestures, server->seat, event->time_msec, event->cancelled);
+}
+
 static void request_brightness_step(struct moko_server *server, int32_t delta)
 {
     struct wl_resource *resource;
@@ -975,6 +1297,43 @@ static void add_keyboard(struct moko_server *server, struct wlr_input_device *de
     wlr_seat_set_keyboard(server->seat, wlr_keyboard);
 }
 
+static void pointer_device_destroy(struct wl_listener *listener, void *data)
+{
+    (void)data;
+    struct moko_pointer_device *pointer = wl_container_of(listener, pointer, destroy);
+    struct moko_server *server = pointer->server;
+    wl_list_remove(&pointer->destroy.link);
+    wl_list_remove(&pointer->link);
+    free(pointer);
+    broadcast_input_config(server);
+}
+
+static void add_pointer_device(struct moko_server *server, struct wlr_input_device *device)
+{
+    wlr_cursor_attach_input_device(server->cursor, device);
+    if (!wlr_input_device_is_libinput(device))
+        return;
+
+    struct moko_pointer_device *pointer = calloc(1, sizeof(*pointer));
+    if (pointer == NULL)
+        return;
+    pointer->server = server;
+    pointer->wlr_device = device;
+    pointer->libinput_device = wlr_libinput_get_device_handle(device);
+    pointer->is_touchpad = is_touchpad_device(pointer->libinput_device);
+    pointer->destroy.notify = pointer_device_destroy;
+    wl_signal_add(&device->events.destroy, &pointer->destroy);
+    wl_list_insert(&server->pointer_devices, &pointer->link);
+
+    if (pointer->is_touchpad) {
+        configure_touchpad(pointer);
+        report_event("MOKO_INPUT_DEVICE state=configured name=%s capabilities=%u",
+                     device->name,
+                     touchpad_capabilities(pointer->libinput_device));
+    }
+    broadcast_input_config(server);
+}
+
 static void new_input(struct wl_listener *listener, void *data)
 {
     struct moko_server *server = wl_container_of(listener, server, new_input);
@@ -984,7 +1343,7 @@ static void new_input(struct wl_listener *listener, void *data)
         add_keyboard(server, device);
         break;
     case WLR_INPUT_DEVICE_POINTER:
-        wlr_cursor_attach_input_device(server->cursor, device);
+        add_pointer_device(server, device);
         break;
     default:
         break;
@@ -1037,6 +1396,8 @@ static void position_shell(struct moko_server *server)
 {
     if (server->shell_toplevel == NULL || !server->shell_toplevel->mapped)
         return;
+    server->shell_toplevel->fullscreen = true;
+    wlr_xdg_toplevel_set_fullscreen(server->shell_toplevel->xdg_toplevel, true);
     apply_geometry(server->shell_toplevel, output_box(server, NULL));
     wlr_scene_node_lower_to_bottom(&server->shell_toplevel->scene_tree->node);
 }
@@ -1116,7 +1477,12 @@ static void toplevel_map(struct wl_listener *listener, void *data)
         position_shell(toplevel->server);
         if (toplevel->server->active_toplevel == NULL)
             focus_toplevel(toplevel);
-        report_event("MOKO_COMPOSITOR_SHELL state=mapped app_id=%s", toplevel_app_id(toplevel));
+        const struct moko_rect geometry = current_geometry(toplevel);
+        report_event("MOKO_COMPOSITOR_SHELL state=mapped app_id=%s width=%d height=%d fullscreen=%d",
+                     toplevel_app_id(toplevel),
+                     geometry.width,
+                     geometry.height,
+                     toplevel->fullscreen);
         return;
     }
 
@@ -1188,7 +1554,17 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
             >= XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION) {
             wlr_xdg_toplevel_set_wm_capabilities(toplevel->xdg_toplevel, capabilities);
         }
-        wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+        if (toplevel->is_shell) {
+            const struct moko_rect geometry = output_box(toplevel->server, NULL);
+            toplevel->fullscreen = true;
+            wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, true);
+            if (moko_rect_valid(geometry))
+                wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel,
+                                          geometry.width,
+                                          geometry.height);
+        } else {
+            wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+        }
     }
 }
 
@@ -1456,6 +1832,52 @@ static void manager_close(struct wl_client *client,
         wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
 }
 
+static void manager_set_natural_scroll(struct wl_client *client,
+                                       struct wl_resource *resource,
+                                       uint32_t enabled)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    server->natural_scroll_enabled = enabled != 0;
+    struct moko_pointer_device *pointer;
+    wl_list_for_each(pointer, &server->pointer_devices, link) {
+        if (!pointer->is_touchpad
+            || libinput_device_config_scroll_has_natural_scroll(
+                   pointer->libinput_device) == 0) {
+            continue;
+        }
+        log_config_failure("natural scrolling", pointer->wlr_device,
+                           libinput_device_config_scroll_set_natural_scroll_enabled(
+                               pointer->libinput_device,
+                               server->natural_scroll_enabled));
+    }
+    broadcast_input_config(server);
+}
+
+static void manager_set_pointer_acceleration(struct wl_client *client,
+                                             struct wl_resource *resource,
+                                             int32_t speed)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    if (speed < -1000)
+        speed = -1000;
+    if (speed > 1000)
+        speed = 1000;
+    server->pointer_acceleration = speed;
+    struct moko_pointer_device *pointer;
+    wl_list_for_each(pointer, &server->pointer_devices, link) {
+        if (!pointer->is_touchpad
+            || libinput_device_config_accel_is_available(pointer->libinput_device) == 0) {
+            continue;
+        }
+        log_config_failure("pointer acceleration", pointer->wlr_device,
+                           libinput_device_config_accel_set_speed(
+                               pointer->libinput_device, speed / 1000.0));
+    }
+    broadcast_input_config(server);
+}
+
 static const struct moko_window_manager_v1_interface window_manager_implementation = {
     .destroy = manager_destroy,
     .activate = manager_activate,
@@ -1464,6 +1886,8 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .set_fullscreen = manager_set_fullscreen,
     .snap = manager_snap,
     .close = manager_close,
+    .set_natural_scroll = manager_set_natural_scroll,
+    .set_pointer_acceleration = manager_set_pointer_acceleration,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
@@ -1491,6 +1915,7 @@ static void bind_window_manager(struct wl_client *client,
     struct moko_toplevel *toplevel;
     wl_list_for_each(toplevel, &server->toplevels, link)
         send_toplevel_to_resource(resource, toplevel);
+    send_input_config_to_resource(server, resource);
     moko_window_manager_v1_send_done(resource);
 }
 
@@ -1541,9 +1966,12 @@ int main(int argc, char **argv)
     wlr_log_init(debug ? WLR_DEBUG : WLR_INFO, NULL);
     struct moko_server server = {0};
     server.next_window_id = 100;
+    server.natural_scroll_enabled = true;
+    server.pointer_acceleration = MOKO_DEFAULT_POINTER_ACCELERATION;
     wl_list_init(&server.outputs);
     wl_list_init(&server.toplevels);
     wl_list_init(&server.keyboards);
+    wl_list_init(&server.pointer_devices);
     wl_list_init(&server.window_manager_resources);
 
     server.display = wl_display_create();
@@ -1598,7 +2026,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    1,
+                                                    2,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {
@@ -1609,6 +2037,11 @@ int main(int argc, char **argv)
     server.cursor = wlr_cursor_create();
     wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
     server.cursor_manager = wlr_xcursor_manager_create(NULL, 24);
+    server.pointer_gestures = wlr_pointer_gestures_v1_create(server.display);
+    if (server.pointer_gestures == NULL) {
+        wlr_log(WLR_ERROR, "Failed to create pointer gesture protocol");
+        return 1;
+    }
     server.cursor_mode = MOKO_CURSOR_PASSTHROUGH;
     server.cursor_motion.notify = cursor_motion;
     wl_signal_add(&server.cursor->events.motion, &server.cursor_motion);
@@ -1620,6 +2053,22 @@ int main(int argc, char **argv)
     wl_signal_add(&server.cursor->events.axis, &server.cursor_axis);
     server.cursor_frame.notify = cursor_frame;
     wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
+    server.cursor_swipe_begin.notify = cursor_swipe_begin;
+    wl_signal_add(&server.cursor->events.swipe_begin, &server.cursor_swipe_begin);
+    server.cursor_swipe_update.notify = cursor_swipe_update;
+    wl_signal_add(&server.cursor->events.swipe_update, &server.cursor_swipe_update);
+    server.cursor_swipe_end.notify = cursor_swipe_end;
+    wl_signal_add(&server.cursor->events.swipe_end, &server.cursor_swipe_end);
+    server.cursor_pinch_begin.notify = cursor_pinch_begin;
+    wl_signal_add(&server.cursor->events.pinch_begin, &server.cursor_pinch_begin);
+    server.cursor_pinch_update.notify = cursor_pinch_update;
+    wl_signal_add(&server.cursor->events.pinch_update, &server.cursor_pinch_update);
+    server.cursor_pinch_end.notify = cursor_pinch_end;
+    wl_signal_add(&server.cursor->events.pinch_end, &server.cursor_pinch_end);
+    server.cursor_hold_begin.notify = cursor_hold_begin;
+    wl_signal_add(&server.cursor->events.hold_begin, &server.cursor_hold_begin);
+    server.cursor_hold_end.notify = cursor_hold_end;
+    wl_signal_add(&server.cursor->events.hold_end, &server.cursor_hold_end);
 
     server.seat = wlr_seat_create(server.display, "seat0");
     server.new_input.notify = new_input;

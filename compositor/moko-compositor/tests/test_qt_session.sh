@@ -77,7 +77,7 @@ sleep 1
 kill -0 "$shell_pid"
 kill -0 "$compositor_pid"
 
-grep -q 'MOKO_COMPOSITOR_SHELL state=mapped app_id=org.moko.Shell' "$events"
+grep -Eq 'MOKO_COMPOSITOR_SHELL state=mapped app_id=org.moko.Shell width=[1-9][0-9]* height=[1-9][0-9]* fullscreen=1' "$events"
 grep -q 'MOKO_COMPOSITOR_WINDOW state=mapped .*app_id=org.moko.Files' "$events"
 grep -q 'MOKO_COMPOSITOR_WINDOW state=mapped .*app_id=org.moko.Settings' "$events"
 if grep -q 'MOKO_SHELL_SURFACE state=hidden' "$events"; then

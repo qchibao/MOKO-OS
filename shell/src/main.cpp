@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
     parser.addOption({"smoke-test", "Load the shell, fail on QML warnings, then exit."});
     parser.addOption({"windowed", "Run the developer preview in a window."});
     parser.addOption({"control-center", "Open Control Center for validation."});
-    parser.addOption({"control-center-page", "Open a Control Center page (0-3).", "page", "0"});
+    parser.addOption({"control-center-page", "Open a Control Center page (0-4).", "page", "0"});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
     parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
         window->setProperty("controlCenterVisible", true);
         bool pageOk = false;
         const int page = parser.value("control-center-page").toInt(&pageOk);
-        if (pageOk && page >= 0 && page <= 3)
+        if (pageOk && page >= 0 && page <= 4)
             window->setProperty("controlCenterPage", page);
     }
 

@@ -46,5 +46,6 @@ done
 
 "$client"
 grep -q '^MOKO_COMPOSITOR_READY ' "$events"
+grep -Eq 'MOKO_COMPOSITOR_SHELL state=mapped app_id=org.moko.Shell width=[1-9][0-9]* height=[1-9][0-9]* fullscreen=1' "$events"
 grep -q 'MOKO_COMPOSITOR_WINDOW state=mapped .*app_id=org.moko.TestOne' "$events"
 grep -q 'MOKO_COMPOSITOR_WINDOW state=mapped .*app_id=org.moko.TestTwo' "$events"
