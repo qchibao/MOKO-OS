@@ -9,15 +9,34 @@
 
 #include <memory>
 
+namespace {
+
+class UnavailableProvider final : public AiProvider
+{
+public:
+    QString name() const override { return QStringLiteral("unavailable-test"); }
+    bool isAvailable() const override { return false; }
+    QString unavailableMessage() const override
+    {
+        return QStringLiteral("Test provider is not configured.");
+    }
+    AiIntent interpret(const QString &) const override { return {}; }
+};
+
+} // namespace
+
 class AiTests final : public QObject
 {
     Q_OBJECT
 
 private slots:
     void providerProducesOnlyKnownActions();
+    void providerRecognizesRequiredIntents_data();
+    void providerRecognizesRequiredIntents();
     void actionLayerEnforcesApplicationAllowlist();
     void fileSearchAndOpenStayInsideHome();
     void daemonDispatchesSafeRequests();
+    void daemonReportsUnavailableProvider();
 };
 
 void AiTests::providerProducesOnlyKnownActions()
@@ -34,6 +53,46 @@ void AiTests::providerProducesOnlyKnownActions()
              QStringLiteral("search_files"));
     QCOMPARE(provider.interpret(QStringLiteral("execute shell rm -rf / ")).action,
              QStringLiteral("refuse"));
+}
+
+void AiTests::providerRecognizesRequiredIntents_data()
+{
+    QTest::addColumn<QString>("prompt");
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("appId");
+
+    QTest::newRow("files") << QStringLiteral("please open MOKO Files")
+                            << QStringLiteral("open_application")
+                            << QStringLiteral("org.moko.Files");
+    QTest::newRow("settings") << QStringLiteral("launch settings")
+                               << QStringLiteral("open_application")
+                               << QStringLiteral("org.moko.Settings");
+    QTest::newRow("terminal") << QStringLiteral("start the terminal")
+                               << QStringLiteral("open_application")
+                               << QStringLiteral("org.moko.Terminal");
+    QTest::newRow("battery") << QStringLiteral("what is my battery status")
+                              << QStringLiteral("battery_status") << QString();
+    QTest::newRow("network") << QStringLiteral("show network status")
+                              << QStringLiteral("network_status") << QString();
+    QTest::newRow("storage") << QStringLiteral("how much free space is available")
+                              << QStringLiteral("storage_status") << QString();
+    QTest::newRow("system") << QStringLiteral("show computer info")
+                             << QStringLiteral("system_summary") << QString();
+}
+
+void AiTests::providerRecognizesRequiredIntents()
+{
+    QFETCH(QString, prompt);
+    QFETCH(QString, action);
+    QFETCH(QString, appId);
+
+    LocalStubProvider provider;
+    const AiIntent intent = provider.interpret(prompt);
+    QVERIFY(intent.valid);
+    QCOMPARE(intent.action, action);
+    if (!appId.isEmpty()) {
+        QCOMPARE(intent.parameters.value(QStringLiteral("appId")).toString(), appId);
+    }
 }
 
 void AiTests::actionLayerEnforcesApplicationAllowlist()
@@ -81,15 +140,37 @@ void AiTests::fileSearchAndOpenStayInsideHome()
 void AiTests::daemonDispatchesSafeRequests()
 {
     AiActions actions({}, [](const QString &appId) {
-        return QVariantMap{{QStringLiteral("ok"), appId == QStringLiteral("org.moko.Files")},
+        return QVariantMap{{QStringLiteral("ok"), appId.startsWith(QStringLiteral("org.moko."))},
                            {QStringLiteral("message"), QStringLiteral("accepted")}};
     });
     AiDaemon daemon(&actions, std::make_unique<LocalStubProvider>());
     QCOMPARE(daemon.ping(), QStringLiteral("pong"));
+    QVERIFY(daemon.providerStatus().value(QStringLiteral("available")).toBool());
     QVERIFY(daemon.request(QStringLiteral("open files")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("launch settings")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("start terminal")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("battery status")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("network status")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("storage status")).value(QStringLiteral("ok")).toBool());
+    QVERIFY(daemon.request(QStringLiteral("system information")).value(QStringLiteral("ok")).toBool());
     QVERIFY(!daemon.request(QStringLiteral("run shell command"))
                  .value(QStringLiteral("ok")).toBool());
     QVERIFY(!daemon.getSystemSummary().value(QStringLiteral("kernel")).toString().isEmpty());
+}
+
+void AiTests::daemonReportsUnavailableProvider()
+{
+    AiActions actions;
+    AiDaemon daemon(&actions, std::make_unique<UnavailableProvider>());
+    const QVariantMap status = daemon.providerStatus();
+    QCOMPARE(status.value(QStringLiteral("name")).toString(),
+             QStringLiteral("unavailable-test"));
+    QVERIFY(!status.value(QStringLiteral("available")).toBool());
+
+    const QVariantMap response = daemon.request(QStringLiteral("system information"));
+    QVERIFY(!response.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(response.value(QStringLiteral("action")).toString(),
+             QStringLiteral("provider_unavailable"));
 }
 
 QTEST_GUILESS_MAIN(AiTests)

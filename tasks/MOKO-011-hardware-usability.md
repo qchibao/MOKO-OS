@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-3 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-4 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -198,3 +198,54 @@ Primary artifacts: `out/moko-iso-smoke-20260905T165932Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T174820Z-bios-hardware-diagnostics-*`,
 `out/moko-iso-smoke-20260905T175155Z-bios-desktop-*` and
 `out/moko-iso-smoke-20260905T175614Z-bios-desktop-*`.
+
+## Phase 4 architecture - usable MOKO AI requests
+
+The existing unprivileged `moko-ai-daemon` remains the only request dispatcher.
+Its provider contract now reports availability explicitly, and the D-Bus API
+exposes `providerStatus` so the Shell can distinguish a connected daemon from a
+provider that cannot serve requests. `moko-ai-ui` presents the required Ready,
+Processing, Response, Failed and Provider unavailable states. Generation guards
+discard stale asynchronous D-Bus replies across refreshes and daemon restarts.
+
+The deterministic local provider recognizes natural requests to open MOKO
+Files, Settings and Terminal, or report actual battery, NetworkManager, mounted
+storage and system information. Application requests still pass through the
+existing `moko-ai-actions` allowlist and `org.moko.Applications1`; status replies
+come from the same Linux interfaces used by the direct daemon methods. Provider
+output cannot execute a process or shell command, and no secret or remote API
+credential is embedded.
+
+## Phase 4 rollback and safety
+
+The phase changes only the user-session AI provider/controller contract and
+Shell panel state. Reverting it returns to the v0.1 request API without changing
+boot, compositor, permissions, mount policy or disk safety. The daemon and
+launched applications remain UID 1000, arbitrary shell requests remain refused,
+and the installer remains absent.
+
+## Phase 4 validation
+
+Validated on 2026-09-06 from a fresh live-build run, Live ISO SHA-256
+`a6242fff65d7e45e5ab7dcb72a487e7002d9ffac433686912f3f13be607cfcc6`.
+
+- compositor CTest: `3/3` passed; Shell CTest: `4/4` passed;
+- AI CTest: `3/3` passed, including required intent coverage, controller state
+  transitions and daemon disconnect/reconnect handling;
+- native apps, PTY and diagnostics CTest: `8/8` passed;
+- Qt compositor multi-window session: passed;
+- BIOS desktop: `open settings` produced Ready -> Processing -> Response,
+  invoked allowlisted `open_application` for `org.moko.Settings`, passed health
+  with `greetd_restarts=0`, and shut down cleanly;
+- UEFI desktop: `system information` returned the real `system_summary`, passed
+  health with `greetd_restarts=0`, and shut down cleanly;
+- Safe Graphics: Cage/software path and clean shutdown passed;
+- Hardware Diagnostics: QEMU report plus JSON/text exports as UID 1000 passed,
+  with `writable_disk_detected=0`;
+- the serial-sink disk-safety regression and ISO preflight passed on every run;
+  no writable disk was attached and the installer remained disabled.
+
+Primary artifacts: `out/moko-iso-smoke-20260905T183829Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T184309Z-uefi-desktop-*`,
+`out/moko-iso-smoke-20260905T184801Z-bios-safe-graphics-*` and
+`out/moko-iso-smoke-20260905T185113Z-bios-hardware-diagnostics-*`.

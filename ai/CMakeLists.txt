@@ -73,7 +73,12 @@ if(BUILD_TESTING)
     set_tests_properties(moko-ai-daemon-smoke PROPERTIES TIMEOUT 10)
 
     qt_add_executable(moko-ai-dbus-tests tests/test_dbus.cpp)
-    target_link_libraries(moko-ai-dbus-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    target_link_libraries(moko-ai-dbus-tests PRIVATE
+        Qt6::Core
+        Qt6::DBus
+        Qt6::Test
+        moko-ai-ui
+    )
     add_test(NAME moko-ai-dbus-tests
         COMMAND ${CMAKE_COMMAND} -E env
                 MOKO_AI_DAEMON_PATH=$<TARGET_FILE:moko-ai-daemon>

@@ -341,6 +341,9 @@ docker run --rm --platform linux/amd64 \
       usr/local/libexec/moko-live-launch-monitor \
       | grep -Fq "MOKO_INPUT_*"
     unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
+      | grep -Fq "method name=\"providerStatus\""
+    unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-disk-safety-check \
       > /tmp/moko-live-disk-safety-check
     chmod 0755 /tmp/moko-live-disk-safety-check
@@ -597,6 +600,17 @@ for run in $(seq 1 "$RUNS"); do
     done
     grep -F "MOKO_AI_UI state=connected uid=1000" "$SERIAL_PATH" | tail -1
 
+    ai_ready_deadline=$((SECONDS + 30))
+    while ! grep -Fq "MOKO_AI_UI state=ready provider=local-stub uid=1000" "$SERIAL_PATH"; do
+      if (( SECONDS >= ai_ready_deadline )); then
+        tail -100 "$SERIAL_PATH" >&2
+        echo "MOKO AI UI did not report an available provider." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -F "MOKO_AI_UI state=ready provider=local-stub uid=1000" "$SERIAL_PATH" | tail -1
+
     monitor "sendkey ctrl-alt-a"
     sleep 2
     monitor "sendkey ctrl-a"
@@ -612,7 +626,12 @@ for run in $(seq 1 "$RUNS"); do
       monitor "sendkey $key"
       sleep 0.2
     done
+    marker=$(serial_line_count)
     monitor "sendkey ret"
+
+    wait_for_serial_since "$marker" \
+      "MOKO_AI_UI state=processing provider=local-stub uid=1000" 30 \
+      "MOKO AI UI did not enter its processing state."
 
     ai_response_deadline=$((SECONDS + 45))
     while ! grep -Fq "MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" "$SERIAL_PATH"; do

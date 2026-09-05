@@ -2,6 +2,7 @@
 <node>
   <interface name="org.moko.AI1">
     <method name="ping"><arg direction="out" type="s" name="reply"/></method>
+    <method name="providerStatus"><arg direction="out" type="a{sv}" name="status"/></method>
     <method name="getSystemSummary"><arg direction="out" type="a{sv}" name="summary"/></method>
     <method name="searchFiles"><arg direction="in" type="s" name="query"/><arg direction="out" type="as" name="paths"/></method>
     <method name="openApplication"><arg direction="in" type="s" name="appId"/><arg direction="out" type="a{sv}" name="result"/></method>

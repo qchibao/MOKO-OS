@@ -20,6 +20,7 @@ public:
 
 public slots:
     QString ping() const;
+    QVariantMap providerStatus() const;
     QVariantMap getSystemSummary() const;
     QStringList searchFiles(const QString &query) const;
     QVariantMap openApplication(const QString &appId) const;

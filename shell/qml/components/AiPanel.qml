@@ -40,7 +40,9 @@ GlassPanel {
                 width: 8
                 height: 8
                 radius: 4
-                color: root.controller && root.controller.connected ? "#28A978" : "#C55B66"
+                color: root.controller && root.controller.connected
+                       ? (root.controller.providerAvailable ? "#28A978" : "#D58A2C")
+                       : "#C55B66"
             }
             Text {
                 text: root.controller && root.controller.connected ? "Connected" : "Disconnected"
@@ -64,7 +66,9 @@ GlassPanel {
         Text { Layout.alignment: Qt.AlignHCenter; text: "<font color='#3F7CFF'>Hello,</font> MOKO."; textFormat: Text.RichText; color: "#12161C"; font.pixelSize: root.condensed ? 22 : 26 }
         Text {
             Layout.alignment: Qt.AlignHCenter
-            text: root.controller && root.controller.processing ? "Working on your request..." : "Safe local system actions"
+            text: root.controller && root.controller.processing
+                  ? "Working on your request..."
+                  : root.controller ? root.controller.state : "Provider unavailable"
             color: "#5D6875"
             font.pixelSize: 12
         }
@@ -133,7 +137,8 @@ GlassPanel {
                 color: "#263342"
                 font.pixelSize: 11
                 background: null
-                enabled: root.controller && root.controller.connected && !root.controller.processing
+                enabled: root.controller && root.controller.connected
+                         && root.controller.providerAvailable && !root.controller.processing
                 onAccepted: root.submit(text)
             }
             Text {
@@ -156,9 +161,7 @@ GlassPanel {
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
-            text: root.controller && root.controller.provider
-                  ? "Provider: " + root.controller.provider + " • allowlisted actions only"
-                  : "Developer Preview • allowlisted actions only"
+            text: "On-device actions only"
             color: "#8190A0"
             font.pixelSize: root.condensed ? 7 : 8
         }

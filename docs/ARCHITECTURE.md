@@ -73,12 +73,20 @@ The local provider is deterministic and offline; the remote provider remains an
 interface and must obtain future credentials from user configuration or secret
 storage.
 
+For v0.1.1, providers expose availability separately from daemon connectivity.
+The Shell queries `providerStatus` and maintains explicit Ready, Processing,
+Response, Failed and Provider unavailable states. Controller generation guards
+discard stale D-Bus replies after refreshes or daemon restarts, so transport
+state cannot overwrite a newer request state.
+
 Application actions are restricted to an explicit MOKO allowlist and route back
 through the Shell-owned `org.moko.Applications1` registry API. File actions
 canonicalize existing paths and remain inside the current user's home. System
 status reads NetworkManager D-Bus, `/proc`, `/sys` and mounted-filesystem APIs.
 There is no shell-command action and model/provider output cannot create a
-process directly.
+process directly. The local provider's natural-language surface is deliberately
+small: opening allowlisted MOKO apps and reading battery, NetworkManager,
+mounted-storage and system summaries from real interfaces.
 
 ## Hardware diagnostics boundary
 `moko-hardware-diagnostics` is an unprivileged Qt 6/QML app backed by a

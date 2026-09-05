@@ -40,7 +40,9 @@ AiIntent LocalStubProvider::interpret(const QString &prompt) const
                       QStringLiteral("MOKO AI cannot execute shell commands."));
     }
 
-    if (normalized.contains(QStringLiteral("open"))) {
+    if (containsAny(normalized,
+                    {QStringLiteral("open"), QStringLiteral("launch"),
+                     QStringLiteral("start"), QStringLiteral("show")})) {
         if (containsAny(normalized, {QStringLiteral("files"), QStringLiteral("file manager")}))
             return action(QStringLiteral("open_application"),
                           {{QStringLiteral("appId"), QStringLiteral("org.moko.Files")}},
@@ -62,7 +64,8 @@ AiIntent LocalStubProvider::interpret(const QString &prompt) const
 
     if (containsAny(normalized,
                     {QStringLiteral("system overview"), QStringLiteral("system summary"),
-                     QStringLiteral("system information"), QStringLiteral("about this system")})) {
+                     QStringLiteral("system information"), QStringLiteral("system info"),
+                     QStringLiteral("about this system"), QStringLiteral("computer info")})) {
         return action(QStringLiteral("system_summary"), {},
                       QStringLiteral("Here is the current system summary."));
     }

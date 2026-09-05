@@ -1,3 +1,5 @@
+#include "aicontroller.h"
+
 #include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -17,16 +19,20 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void callsRoundTripOverDbus();
+    void controllerStateFlow();
+    void controllerTracksDaemonRestart();
 
 private:
+    void startDaemon();
+    void stopDaemon();
+
     QProcess m_daemon;
+    QString m_daemonPath;
 };
 
-void AiDbusTests::initTestCase()
+void AiDbusTests::startDaemon()
 {
-    const QString daemonPath = qEnvironmentVariable("MOKO_AI_DAEMON_PATH");
-    QVERIFY2(!daemonPath.isEmpty(), "MOKO_AI_DAEMON_PATH is required");
-    m_daemon.setProgram(daemonPath);
+    m_daemon.setProgram(m_daemonPath);
     m_daemon.setArguments({QStringLiteral("--smoke-test")});
     m_daemon.start();
     QVERIFY(m_daemon.waitForStarted(2000));
@@ -43,7 +49,7 @@ void AiDbusTests::initTestCase()
     QFAIL("moko-ai-daemon did not register org.moko.AI1");
 }
 
-void AiDbusTests::cleanupTestCase()
+void AiDbusTests::stopDaemon()
 {
     if (m_daemon.state() != QProcess::NotRunning) {
         m_daemon.terminate();
@@ -52,6 +58,18 @@ void AiDbusTests::cleanupTestCase()
             m_daemon.waitForFinished();
         }
     }
+}
+
+void AiDbusTests::initTestCase()
+{
+    m_daemonPath = qEnvironmentVariable("MOKO_AI_DAEMON_PATH");
+    QVERIFY2(!m_daemonPath.isEmpty(), "MOKO_AI_DAEMON_PATH is required");
+    startDaemon();
+}
+
+void AiDbusTests::cleanupTestCase()
+{
+    stopDaemon();
 }
 
 void AiDbusTests::callsRoundTripOverDbus()
@@ -70,6 +88,12 @@ void AiDbusTests::callsRoundTripOverDbus()
     QVERIFY2(summary.isValid(), qPrintable(summary.error().message()));
     QVERIFY(!summary.value().value(QStringLiteral("kernel")).toString().isEmpty());
 
+    const QDBusReply<QVariantMap> provider = daemon.call(QStringLiteral("providerStatus"));
+    QVERIFY2(provider.isValid(), qPrintable(provider.error().message()));
+    QVERIFY(provider.value().value(QStringLiteral("available")).toBool());
+    QCOMPARE(provider.value().value(QStringLiteral("name")).toString(),
+             QStringLiteral("local-stub"));
+
     const QDBusReply<QVariantMap> response =
         daemon.call(QStringLiteral("request"), QStringLiteral("system overview"));
     QVERIFY2(response.isValid(), qPrintable(response.error().message()));
@@ -79,6 +103,39 @@ void AiDbusTests::callsRoundTripOverDbus()
         daemon.call(QStringLiteral("request"), QStringLiteral("execute shell command"));
     QVERIFY2(denied.isValid(), qPrintable(denied.error().message()));
     QVERIFY(!denied.value().value(QStringLiteral("ok")).toBool());
+}
+
+void AiDbusTests::controllerStateFlow()
+{
+    AiController controller;
+    QTRY_VERIFY_WITH_TIMEOUT(controller.connected(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.providerAvailable(), 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Ready"), 2000);
+
+    controller.submit(QStringLiteral("system information"));
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Response"), 2000);
+    QVERIFY(!controller.failed());
+    QVERIFY(!controller.response().isEmpty());
+
+    controller.submit(QStringLiteral("compose a poem"));
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Failed"), 2000);
+    QVERIFY(controller.failed());
+}
+
+void AiDbusTests::controllerTracksDaemonRestart()
+{
+    AiController controller;
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Ready"), 2000);
+
+    stopDaemon();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.connected(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.providerAvailable(), 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Provider unavailable"), 2000);
+
+    startDaemon();
+    QTRY_VERIFY_WITH_TIMEOUT(controller.connected(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.providerAvailable(), 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QStringLiteral("Ready"), 2000);
 }
 
 QTEST_GUILESS_MAIN(AiDbusTests)
