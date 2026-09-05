@@ -4,6 +4,9 @@ MOKO OS v0.1 Developer Preview - Known Issues
   formatting, persistence, upgrade or disk installer workflow.
 - Physical PC and Intel Mac compatibility is not certified yet. Hardware
   Diagnostics reports evidence, not a support promise.
+- The first Intel MacBook 2015 boot exposed an optional serial-log failure after
+  the disk audit passed. This image contains the fix, but the same MacBook still
+  requires a physical graphical-boot retest before compatibility is claimed.
 - Safe Graphics Mode forces software rendering for Cage and Qt Quick, but it
   still requires a display output that the Linux kernel can expose through DRM.
 - Cage remains the bootstrap single-application compositor. Only one MOKO app

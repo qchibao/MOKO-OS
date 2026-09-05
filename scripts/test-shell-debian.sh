@@ -16,6 +16,8 @@ docker run --rm --platform linux/amd64 \
   "$IMAGE" \
   bash -lc '
     set -euo pipefail
+    bash tests/test-live-disk-safety.sh
+
     cmake -S shell -B /tmp/moko-shell-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-shell-build --parallel
     ctest --test-dir /tmp/moko-shell-build --output-on-failure

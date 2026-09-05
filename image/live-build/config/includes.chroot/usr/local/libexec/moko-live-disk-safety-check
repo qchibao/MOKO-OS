@@ -3,10 +3,15 @@
 set -eu
 
 report() {
-  echo "$1"
-  if [ -w /dev/ttyS0 ]; then
-    echo "$1" > /dev/ttyS0
+  message=$1
+  serial_device=${MOKO_SERIAL_LOG_DEVICE:-/dev/ttyS0}
+
+  # The journal is authoritative; QEMU serial output is optional diagnostics.
+  printf '%s\n' "$message" 2>/dev/null || :
+  if [ -c "$serial_device" ] && [ -w "$serial_device" ]; then
+    (printf '%s\n' "$message" > "$serial_device") 2>/dev/null || :
   fi
+  return 0
 }
 
 unexpected_mounts=0
@@ -36,3 +41,4 @@ if [ "$unexpected_mounts" -ne 0 ]; then
 fi
 
 report "MOKO_DISK_SAFETY result=pass unexpected_block_mounts=0 automounter=$automounter"
+exit 0

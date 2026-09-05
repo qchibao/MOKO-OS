@@ -9,8 +9,8 @@ Wants=greetd.service NetworkManager.service
 Type=oneshot
 ExecStart=/usr/local/libexec/moko-live-health-check
 RemainAfterExit=yes
-StandardOutput=journal+console
-StandardError=journal+console
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=graphical.target

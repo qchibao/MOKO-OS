@@ -181,6 +181,7 @@ docker build --platform linux/amd64 -t "$IMAGE" "$ROOT/tools/debian-qemu"
 
 docker run --rm --platform linux/amd64 \
   --mount "type=bind,source=$ISO_DIR,target=/artifacts,readonly" \
+  --mount "type=bind,source=$ROOT,target=/source,readonly" \
   --env "ISO_NAME=$ISO_NAME" \
   "$IMAGE" bash -lc '
     set -euo pipefail
@@ -265,6 +266,22 @@ docker run --rm --platform linux/amd64 \
       etc/systemd/system/moko-live-launch-monitor.service
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
+    done
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/libexec/moko-live-disk-safety-check \
+      > /tmp/moko-live-disk-safety-check
+    chmod 0755 /tmp/moko-live-disk-safety-check
+    MOKO_DISK_SAFETY_CHECK=/tmp/moko-live-disk-safety-check \
+      bash /source/tests/test-live-disk-safety.sh
+    for unit in moko-live-disk-safety.service moko-live-health.service; do
+      unsquashfs -cat /tmp/filesystem.squashfs \
+        "etc/systemd/system/$unit" > "/tmp/$unit"
+      grep -Fxq "StandardOutput=journal" "/tmp/$unit"
+      grep -Fxq "StandardError=journal" "/tmp/$unit"
+      if grep -Fq "journal+console" "/tmp/$unit"; then
+        echo "Boot gate still depends on console logging: $unit" >&2
+        exit 1
+      fi
     done
     unsquashfs -ll /tmp/filesystem.squashfs etc/systemd/system/getty@tty1.service \
       | grep -Fq "squashfs-root/etc/systemd/system/getty@tty1.service -> /dev/null"

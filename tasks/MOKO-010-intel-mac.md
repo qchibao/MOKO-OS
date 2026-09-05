@@ -19,6 +19,28 @@ Intel Mac Live USB validation. MOKO-005 and MOKO-009 are validated prerequisites
 - Rollback is reverting the MOKO-010 implementation commit and using the
   validated MOKO-009 ISO recorded in `STATUS.md`.
 
+## MacBook 2015 physical boot blocker
+
+The first physical Intel MacBook 2015 boot reached Debian 13 and the disk audit
+correctly reported `unexpected_block_mounts=0` and `automounter=absent`, but the
+service then failed while writing its optional marker to `/dev/ttyS0`. A serial
+device node can pass `-w` even when the underlying UART returns `EIO`; `set -e`
+therefore converted a logging failure into a false safety failure and blocked
+greetd through the intended hard dependency.
+
+The remediation keeps the audit strict while separating its result from
+diagnostic transport. Normal output goes to the systemd journal. The optional
+QEMU serial mirror requires a writable character device, ignores open/write
+errors, and can never determine the service exit code. The safety script exits
+non-zero only for unexpected block mounts. The same optional serial pattern is
+hardened in the boot health and launch monitors so physical startup does not
+encounter the equivalent failure after greetd starts.
+
+Regression coverage uses `/dev/full` to simulate a device that appears writable
+but rejects output: a safe audit must still exit zero, while an unexpected
+internal mount must still exit one. Rollback is reverting the blocker-fix commit;
+it must not remove or bypass the disk-safety service dependency.
+
 ## Release output
 - Artifact: `out/MOKO-OS-v0.1-dev-amd64.hybrid.iso`
 - SHA-256: `21345808f10a208c9a1d43f16a4c2feab1668104dee4c7226aca382bc2ca6a4c`

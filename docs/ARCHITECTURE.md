@@ -101,6 +101,12 @@ starting after a failed audit. The image does not include an installer or
 `udisks2`, masks the udisks2 service defensively, and QEMU validation never
 attaches a writable disk.
 
+The audit's exit status is independent from diagnostic output. Normal service
+output is handled by the systemd journal. A `/dev/ttyS0` mirror exists only for
+QEMU test observability, is used only when it is a writable character device,
+and ignores open or write errors. Missing or unusable serial hardware can never
+turn a passing storage audit into a failed boot gate.
+
 ## Architecture targets
 - v0.1: amd64 only.
 - Later: arm64 feasibility track after desktop APIs stabilize.

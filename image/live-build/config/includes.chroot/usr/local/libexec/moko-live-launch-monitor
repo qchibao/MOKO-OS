@@ -1,6 +1,17 @@
 #!/bin/sh
-# DEV_ONLY: mirrors sanitized shell launch events to serial for QEMU validation.
+# DEV_ONLY: reports sanitized shell launch events for preview validation.
 set -eu
+
+report() {
+  message=$1
+  serial_device=${MOKO_SERIAL_LOG_DEVICE:-/dev/ttyS0}
+
+  printf '%s\n' "$message" 2>/dev/null || :
+  if [ -c "$serial_device" ] && [ -w "$serial_device" ]; then
+    (printf '%s\n' "$message" > "$serial_device") 2>/dev/null || :
+  fi
+  return 0
+}
 
 uid=$(id -u moko)
 runtime_dir="/run/user/$uid"
@@ -13,10 +24,7 @@ done
 tail -n +1 -F "$events" 2>/dev/null | while IFS= read -r event; do
   case "$event" in
     MOKO_APP_LAUNCH\ *|MOKO_APP_READY\ *|MOKO_APP_ACTION\ *|MOKO_AI_*|MOKO_BOOT_*|MOKO_HW_*|MOKO_SETTINGS_ACTION\ *|MOKO_SHELL_SURFACE\ *)
-      echo "$event"
-      if [ -w /dev/ttyS0 ]; then
-        echo "$event" > /dev/ttyS0
-      fi
+      report "$event"
       ;;
   esac
 done

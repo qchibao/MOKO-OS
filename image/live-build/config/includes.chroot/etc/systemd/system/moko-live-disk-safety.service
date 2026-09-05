@@ -8,8 +8,8 @@ Before=greetd.service moko-live-health.service
 Type=oneshot
 ExecStart=/usr/local/libexec/moko-live-disk-safety-check
 RemainAfterExit=yes
-StandardOutput=journal+console
-StandardError=journal+console
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=graphical.target
