@@ -10,6 +10,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
+#include <QUrl>
 
 #include <unistd.h>
 
@@ -27,6 +28,9 @@ int main(int argc, char *argv[])
     parser.addOption({QStringLiteral("smoke-test"), QStringLiteral("Load the QML UI and exit.")});
     parser.addOption({QStringLiteral("screenshot"), QStringLiteral("Save a validation screenshot and exit."),
                       QStringLiteral("path")});
+    parser.addPositionalArgument(QStringLiteral("location"),
+                                 QStringLiteral("Directory path or file URI to open."),
+                                 QStringLiteral("[location]"));
     parser.process(app);
 
     const bool smokeTest = parser.isSet(QStringLiteral("smoke-test"));
@@ -37,7 +41,13 @@ int main(int argc, char *argv[])
         return 77;
     }
 
-    FileModel files;
+    QString initialPath;
+    if (!parser.positionalArguments().isEmpty()) {
+        const QString location = parser.positionalArguments().constFirst();
+        const QUrl url(location);
+        initialPath = url.isLocalFile() ? url.toLocalFile() : location;
+    }
+    FileModel files(nullptr, initialPath);
     bool qmlWarningsFound = false;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("mokoFiles"), &files);
@@ -50,7 +60,13 @@ int main(int argc, char *argv[])
     if (engine.rootObjects().isEmpty())
         return 1;
 
-    writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.Files state=ready detail=home-loaded"));
+    writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.Files state=ready detail=location-loaded"));
+    QString locationMarker = files.displayPath();
+    locationMarker.replace(u' ', u'_');
+    writeMokoLiveEvent(QStringLiteral("MOKO_FILES_LOCATION location=%1 count=%2 uid=%3")
+                           .arg(locationMarker.left(160))
+                           .arg(files.rowCount())
+                           .arg(geteuid()));
 
     if (validationMode) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());

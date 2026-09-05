@@ -24,6 +24,7 @@ RUN apt-get update \
         qt6-base-dev \
         qt6-declarative-dev \
         qt6-declarative-dev-tools \
+        qt6-webengine-dev \
         qt6-wayland \
         usbutils \
         wayland-protocols \

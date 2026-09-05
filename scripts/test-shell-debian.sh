@@ -33,6 +33,9 @@ docker run --rm --platform linux/amd64 \
     cmake -S apps -B /tmp/moko-apps-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-apps-build --parallel
     ctest --test-dir /tmp/moko-apps-build --output-on-failure
+    apps/browser/tests/test_browser_network.sh \
+      /tmp/moko-apps-build/browser/moko-browser \
+      /artifacts/moko-browser-network-preview.png
 
     compositor/moko-compositor/tests/test_qt_session.sh \
       /tmp/moko-compositor-build/moko-compositor \

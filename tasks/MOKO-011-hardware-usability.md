@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-4 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-5 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -249,3 +249,51 @@ Primary artifacts: `out/moko-iso-smoke-20260905T183829Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T184309Z-uefi-desktop-*`,
 `out/moko-iso-smoke-20260905T184801Z-bios-safe-graphics-*` and
 `out/moko-iso-smoke-20260905T185113Z-bios-hardware-diagnostics-*`.
+
+## Phase 5 architecture - MOKO Browser
+
+`org.moko.Browser` is a native Qt 6/QML application backed by Qt WebEngine.
+MOKO owns the tabs, navigation chrome, history, find and download experience;
+Chromium's mature renderer remains inside the normal WebEngine process model.
+The Browser refuses root execution and unsafe sandbox/web-security overrides.
+No URL or search text is passed to a shell.
+
+Downloads are written to the current user's `Downloads` directory through the
+WebEngine download API. Completed files can be opened through the system MIME
+handler, and the Browser uses the shared `org.moko.Applications1` registry to
+open the download location in MOKO Files. Browser and Files can remain mapped
+simultaneously under `moko-compositor`. All history, downloads and installed
+third-party browsers are temporary in the current non-persistent Live session.
+
+## Phase 5 rollback and safety
+
+Removing the Browser target, desktop entry and runtime package returns to Phase
+4 without changing compositor selection, boot ordering or disk policy. The
+WebEngine sandbox and web security are mandatory; no `--no-sandbox` escape hatch
+is present. The installer remains absent, no writable QEMU disk is attached,
+and downloaded content is confined to the unprivileged Live user's overlay.
+
+## Phase 5 validation
+
+Validated on 2026-09-06 from a fresh live-build run. A clean committed rebuild
+and final reproducibility hash follow this phase commit.
+
+- compositor CTest: `3/3`; Shell CTest: `4/4`; AI CTest: `3/3`;
+- native apps, PTY, diagnostics and Browser CTest: `10/10`;
+- Browser rendered `https://example.com`, executed JavaScript and downloaded
+  Debian's real `hello_2.10-5_amd64.deb` as UID 1000;
+- MOKO Files opened `~/Downloads` and both applications mapped under the MOKO
+  compositor before closing cleanly;
+- BIOS desktop, UEFI desktop, Safe Graphics and direct Hardware Diagnostics
+  boot gates passed with `greetd_restarts=0` and clean shutdown;
+- AI `open files`, Control Center audio mutation, QEMU no-touchpad reporting,
+  Dock restore, move, resize, snap, fullscreen and Alt+Tab gates passed;
+- every run passed the serial-sink disk-safety regression and reported
+  `unexpected_block_mounts=0`; the installer remained disabled.
+
+Primary artifacts: `out/moko-iso-smoke-20260905T200542Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T201222Z-uefi-desktop-*`,
+`out/moko-iso-smoke-20260905T201639Z-bios-safe-graphics-*`,
+`out/moko-iso-smoke-20260905T201952Z-bios-hardware-diagnostics-*`,
+`out/moko-iso-smoke-20260905T202327Z-bios-desktop-*` and
+`out/moko-iso-smoke-20260905T203531Z-bios-desktop-*`.

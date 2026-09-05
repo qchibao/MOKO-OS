@@ -64,6 +64,8 @@ MOKO_AI_PROMPT="open hardware diagnostics" MOKO_AI_EXPECT_ACTION=open_applicatio
 MOKO_CONTROL_CENTER_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
   MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=browser MOKO_LAUNCH_APP_ID=org.moko.Browser \
+  MOKO_REQUIRE_APP_READY=1 MOKO_BROWSER_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_BOOT_RUNS=3 MOKO_BOOT_FIRMWARE=uefi MOKO_BOOT_TIMEOUT=480 \
   ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
@@ -117,6 +119,15 @@ actual default PipeWire sink mute state. QEMU intentionally has no Wi-Fi,
 Bluetooth, backlight or battery device, so zero availability for those devices
 is a valid and required truthful result; the virtual HDA endpoint must still be
 discovered and controlled.
+
+`MOKO_BROWSER_TEST=1` requires the Browser launcher query, application ID and
+readiness check shown above. It verifies that WebEngine starts unprivileged with
+its sandbox and web security enabled, renders a real HTTPS page, executes a
+JavaScript marker, downloads Debian's `hello` package with progress, and opens
+the resulting `~/Downloads` location in a simultaneous MOKO Files window. The
+test uses the network and filesystem for real; it does not replace those steps
+with a fixture. Browser state and downloads disappear when the non-persistent
+Live session ends.
 
 ## Release artifacts
 A successful build writes these files to `out/`:

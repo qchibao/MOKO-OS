@@ -1,4 +1,4 @@
-# MOKO OS v0.1 — Developer Bootstrap
+# MOKO OS v0.1.1 - Hardware & Usability Preview
 
 MOKO OS is a Linux-powered operating system project with a MOKO-owned user experience and system layer. Debian is used as the initial low-level base; MOKO Shell, MOKO services, apps, identity, AI integration, update flow and future compositor are developed as MOKO components rather than a GNOME/KDE theme.
 
@@ -9,6 +9,8 @@ This repository already contains:
 - a Qt 6 / QML **MOKO Shell Developer Preview** matching the bright glass/ice concept;
 - a MOKO-specific shell component structure (top bar, launcher, AI panel, dock, original programmatic glyphs);
 - native Qt 6/QML **MOKO Files, MOKO Settings and MOKO Terminal** applications integrated through the shared MOKO application registry;
+- native Qt 6/QML **MOKO Browser** using the sandboxed Qt WebEngine runtime,
+  with tabs, history, find, downloads and MOKO Files integration;
 - an unprivileged **MOKO AI daemon**, MOKO-owned D-Bus API, allowlisted action layer and provider-backed Shell panel for safe local actions;
 - native **MOKO Hardware Diagnostics** with evidence-based compatibility states and privacy-safe JSON/text reports;
 - fixed BIOS/UEFI boot entries for **Try MOKO OS**, direct **Hardware Diagnostics** and **Safe Graphics Mode**;
@@ -71,6 +73,8 @@ MOKO_CONTROL_CENTER_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_INPUT_TEST=1 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
   MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=browser MOKO_LAUNCH_APP_ID=org.moko.Browser \
+  MOKO_REQUIRE_APP_READY=1 MOKO_BROWSER_TEST=1 ./scripts/test-iso-docker.sh
 ```
 
 The build emits the ISO, SHA-256, build information, package manifest, known

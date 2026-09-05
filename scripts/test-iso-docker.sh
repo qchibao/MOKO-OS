@@ -17,6 +17,7 @@ SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
 WINDOW_WORKFLOW=${MOKO_WINDOW_WORKFLOW:-0}
 CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
 INPUT_TEST=${MOKO_INPUT_TEST:-0}
+BROWSER_TEST=${MOKO_BROWSER_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
@@ -59,13 +60,27 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST BROWSER_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
     exit 1
   }
 done
+if [[ "$BROWSER_TEST" == 1 ]]; then
+  [[ "$BOOT_MODE" == desktop ]] || {
+    echo "MOKO_BROWSER_TEST requires the normal desktop profile." >&2
+    exit 1
+  }
+  [[ "$LAUNCH_QUERY" == browser && "$LAUNCH_APP_ID" == org.moko.Browser ]] || {
+    echo "MOKO_BROWSER_TEST requires the Browser launcher query and app id." >&2
+    exit 1
+  }
+  [[ "$REQUIRE_APP_READY" == 1 ]] || {
+    echo "MOKO_BROWSER_TEST requires MOKO_REQUIRE_APP_READY=1." >&2
+    exit 1
+  }
+fi
 if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   [[ -n "$LAUNCH_QUERY" && -n "$LAUNCH_APP_ID" ]] || {
     echo "MOKO_LAUNCH_QUERY and MOKO_LAUNCH_APP_ID must be set together." >&2
@@ -155,6 +170,33 @@ pointer_click() {
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
 }
 
+dock_app_click() {
+  local app_id=$1
+  local app_slot
+  case "$app_id" in
+    org.moko.Files) app_slot=1 ;;
+    org.moko.Browser) app_slot=2 ;;
+    org.moko.Settings) app_slot=3 ;;
+    org.moko.Terminal) app_slot=4 ;;
+    org.moko.HardwareDiagnostics) app_slot=5 ;;
+    *)
+      echo "No QEMU Dock slot is defined for $app_id." >&2
+      return 1
+      ;;
+  esac
+
+  # Mirrors Dock.qml's compact 1280x800 geometry and pinned application order.
+  local app_count=5
+  local button_extent=44
+  local button_spacing=4
+  local item_count=$((app_count + 2))
+  local dock_width=$((28 + item_count * button_extent + (app_count + 1) * button_spacing))
+  local row_width=$((item_count * button_extent + (item_count - 1) * button_spacing))
+  local row_left=$(((1280 - dock_width) / 2 + (dock_width - row_width) / 2))
+  local x=$((row_left + app_slot * (button_extent + button_spacing) + button_extent / 2))
+  pointer_click "$x" 747
+}
+
 pointer_move() {
   local x=$1
   local y=$2
@@ -179,6 +221,29 @@ pointer_drag() {
   pointer_move "$end_x" "$end_y"
   sleep 1
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+}
+
+send_text() {
+  local value=$1
+  local character key
+  local -i index
+  for ((index = 0; index < ${#value}; index++)); do
+    character=${value:index:1}
+    case "$character" in
+      [a-z0-9]) key=$character ;;
+      " ") key=spc ;;
+      ".") key=dot ;;
+      "/") key=slash ;;
+      "-") key=minus ;;
+      "_") key=shift-minus ;;
+      *)
+        echo "Unsupported QEMU text-entry character: $character" >&2
+        return 1
+        ;;
+    esac
+    monitor "sendkey $key"
+    sleep 0.08
+  done
 }
 
 serial_line_count() {
@@ -273,7 +338,7 @@ docker run --rm --platform linux/amd64 \
       echo "Desktop environment, automounter or installer package found in ISO." >&2
       exit 1
     fi
-    if grep -Eiq "^(build-essential|cmake|libvterm-dev|libwayland-dev|libwlroots-0.18-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev|wayland-protocols)$" /tmp/package-names; then
+    if grep -Eiq "^(build-essential|cmake|libvterm-dev|libwayland-dev|libwlroots-0.18-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|qt6-webengine-dev|qt6-webengine-dev-tools|libxkbcommon-dev|wayland-protocols)$" /tmp/package-names; then
       echo "Build-only dependency found in ISO." >&2
       exit 1
     fi
@@ -282,6 +347,7 @@ docker run --rm --platform linux/amd64 \
       live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
       brightnessctl bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
+      qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
       firmware-amd-graphics firmware-brcm80211
     do
@@ -314,6 +380,7 @@ docker run --rm --platform linux/amd64 \
       usr/local/bin/moko-cage-session \
       usr/local/bin/moko-desktop-session \
       usr/local/bin/moko-files \
+      usr/local/bin/moko-browser \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
       usr/local/bin/moko-hardware-diagnostics \
@@ -322,6 +389,7 @@ docker run --rm --platform linux/amd64 \
       usr/local/libexec/moko-live-disk-safety-check \
       usr/local/libexec/moko-live-launch-monitor \
       usr/local/share/applications/org.moko.Files.desktop \
+      usr/local/share/applications/org.moko.Browser.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
       usr/local/share/applications/org.moko.HardwareDiagnostics.desktop \
@@ -337,6 +405,9 @@ docker run --rm --platform linux/amd64 \
     done
     unsquashfs -cat /tmp/filesystem.squashfs etc/greetd/config.toml \
       | grep -Fxq "command = \"/usr/local/bin/moko-desktop-session\""
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/share/applications/org.moko.Browser.desktop \
+      | grep -Fxq "Exec=moko-browser %U"
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-launch-monitor \
       | grep -Fq "MOKO_INPUT_*"
@@ -895,7 +966,7 @@ for run in $(seq 1 "$RUNS"); do
         "MOKO Files did not minimize through compositor state."
 
       marker=$(serial_line_count)
-      pointer_click 568 747
+      dock_app_click org.moko.Files
       wait_for_serial_since "$marker" \
         "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
         "The Files Dock icon did not focus and restore its compositor window."
@@ -908,7 +979,7 @@ for run in $(seq 1 "$RUNS"); do
       }
 
       marker=$(serial_line_count)
-      pointer_click 616 747
+      dock_app_click org.moko.Settings
       wait_for_serial_since "$marker" \
         "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" 30 \
         "MOKO Settings did not map alongside MOKO Files."
@@ -951,6 +1022,62 @@ for run in $(seq 1 "$RUNS"); do
       wait_for_serial_since "$marker" \
         "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.Settings" 30 \
         "MOKO Settings did not close cleanly after the multi-window workflow."
+    fi
+
+    if [[ "$BROWSER_TEST" == 1 ]]; then
+      grep -Fq "MOKO_BROWSER_READY sandbox=enabled web_security=enabled uid=1000" "$SERIAL_PATH" || {
+        tail -120 "$SERIAL_PATH" >&2
+        echo "MOKO Browser did not retain its sandbox and web-security policy." >&2
+        exit 1
+      }
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-l"
+      sleep 0.5
+      send_text "example.com"
+      monitor "sendkey ret"
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_PAGE state=loaded scheme=https host=example.com uid=1000" 90 \
+        "MOKO Browser did not render the real HTTPS validation page."
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_JAVASCRIPT state=pass scheme=https host=example.com uid=1000" 30 \
+        "MOKO Browser did not execute JavaScript on the HTTPS validation page."
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-l"
+      sleep 0.5
+      send_text "deb.debian.org/debian/pool/main/h/hello/hello_2.10-5_amd64.deb"
+      monitor "sendkey ret"
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_DOWNLOAD state=completed file=hello_2.10-5_amd64.deb bytes=[1-9][0-9]+ uid=1000" 120 \
+        "MOKO Browser did not complete the real HTTPS download."
+
+      BROWSER_DOWNLOAD_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-browser-download.png"
+      monitor "screendump /artifacts/$BROWSER_DOWNLOAD_SCREENSHOT_NAME -f png"
+      test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$BROWSER_DOWNLOAD_SCREENSHOT_NAME")" -gt 10000
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-shift-o"
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_ACTION action=show_downloads state=accepted uid=1000" 30 \
+        "MOKO Browser did not open its download directory through MOKO Files."
+      wait_for_serial_since "$marker" \
+        "MOKO_FILES_LOCATION location=.*/Downloads count=[1-9][0-9]* uid=1000" 30 \
+        "MOKO Files did not show the downloaded file."
+      wait_for_serial_since "$marker" \
+        "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Files" 30 \
+        "MOKO Files did not map above the Browser download workflow."
+
+      BROWSER_FILES_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-browser-files.png"
+      sleep 2
+      monitor "screendump /artifacts/$BROWSER_FILES_SCREENSHOT_NAME -f png"
+      test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$BROWSER_FILES_SCREENSHOT_NAME")" -gt 10000
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-q"
+      wait_for_serial_since "$marker" \
+        "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.Files" 30 \
+        "MOKO Files did not close after validating the Browser download."
     fi
 
     if [[ "$REQUIRE_APP_READY" == 1 ]]; then

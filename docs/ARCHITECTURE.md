@@ -5,7 +5,7 @@ MOKO OS v0.1 is **not** a Linux distribution with only wallpaper/icon/theme chan
 
 ```text
 Applications
-  MOKO Files / Settings / Terminal / Store / AI
+  MOKO Files / Settings / Terminal / Browser / Store / AI
                  │
 MOKO UX + Framework
   MOKO Shell / Design Tokens / App APIs
@@ -87,6 +87,23 @@ There is no shell-command action and model/provider output cannot create a
 process directly. The local provider's natural-language surface is deliberately
 small: opening allowlisted MOKO apps and reading battery, NetworkManager,
 mounted-storage and system summaries from real interfaces.
+
+## Browser boundary
+`org.moko.Browser` is a native Qt 6/QML application that delegates HTML,
+JavaScript and network rendering to Qt WebEngine. MOKO owns the browser chrome,
+tab/history/download models and application integration; it does not implement
+or weaken the Chromium rendering engine. The WebEngine sandbox and web-security
+policy must remain enabled, and the executable refuses root operation,
+`--no-sandbox`, `--disable-web-security` and equivalent unsafe environment
+overrides.
+
+URL input is normalized into either an HTTP(S) URL or an HTTPS search request;
+it is never evaluated as a shell command. Downloads are accepted through the
+WebEngine download API, stored under the current user's `Downloads` directory,
+and opened through the system MIME handler. The Browser asks the shared MOKO
+application registry to show that directory in MOKO Files. History is local to
+the user session. In the current Live image all browser state and downloaded
+files are temporary because persistence is not enabled.
 
 ## Hardware diagnostics boundary
 `moko-hardware-diagnostics` is an unprivileged Qt 6/QML app backed by a
