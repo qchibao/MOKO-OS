@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("MOKO"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("moko.asia"));
     QGuiApplication::setApplicationName(QStringLiteral("MOKO Files"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("org.moko.Files"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser parser;

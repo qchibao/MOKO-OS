@@ -14,7 +14,7 @@ This repository already contains:
 - fixed BIOS/UEFI boot entries for **Try MOKO OS**, direct **Hardware Diagnostics** and **Safe Graphics Mode**;
 - a non-installing Live USB safety audit that runs before the graphical session and rejects unexpected block-device mounts;
 - Debian 13 (trixie) live-build scaffolding for an **amd64/x86_64** developer ISO;
-- a temporary Wayland developer session using Cage while `moko-compositor` is still being built;
+- a MOKO-owned wlroots compositor for the normal multi-window desktop, with Cage retained as the Safe Graphics and rollback path;
 - architecture, design language, hardware target, security principles and roadmap documents;
 - Codex-oriented task files and `AGENTS.md`.
 
@@ -60,9 +60,11 @@ On macOS or another Docker host, use the reproducible validation path:
 ./scripts/test-shell-debian.sh
 ./scripts/build-iso-docker.sh
 MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
+MOKO_BOOT_RUNS=3 MOKO_BOOT_FIRMWARE=uefi MOKO_BOOT_TIMEOUT=480 ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=safe-graphics ./scripts/test-iso-docker.sh
-MOKO_BOOT_FIRMWARE=uefi ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
+  MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
 ```
 
 The build emits the ISO, SHA-256, build information, package manifest, known

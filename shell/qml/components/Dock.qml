@@ -8,6 +8,7 @@ GlassPanel {
     readonly property int buttonSpacing: condensed ? 4 : 9
     readonly property int appCount: applicationModel ? applicationModel.count : 0
     property var applicationModel
+    property var windowManager
 
     height: condensed ? 70 : 86
     width: Math.max(condensed ? 170 : 220,
@@ -48,6 +49,11 @@ GlassPanel {
                 required property string glyph
                 required property string launchState
                 required property string launchMessage
+                readonly property int windowRevision: root.windowManager ? root.windowManager.revision : 0
+                readonly property bool running: {
+                    windowRevision
+                    return root.windowManager && root.windowManager.isRunning(appId)
+                }
                 width: root.buttonExtent
                 height: root.buttonExtent
 
@@ -60,6 +66,7 @@ GlassPanel {
                     iconSource: dockDelegate.iconSource
                     launchState: dockDelegate.launchState
                     launchMessage: dockDelegate.launchMessage
+                    compositorRunning: dockDelegate.running
                     onActivated: root.appRequested(dockDelegate.appId)
                 }
             }

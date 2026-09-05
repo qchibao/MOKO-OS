@@ -35,6 +35,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("MOKO"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("moko.asia"));
     QGuiApplication::setApplicationName(QStringLiteral("MOKO Hardware Diagnostics"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("org.moko.HardwareDiagnostics"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser parser;

@@ -14,6 +14,7 @@ LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
 REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
 EXPECT_HARDWARE_REPORT=${MOKO_EXPECT_HARDWARE_REPORT:-0}
 SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
+WINDOW_WORKFLOW=${MOKO_WINDOW_WORKFLOW:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
@@ -56,7 +57,7 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
@@ -74,6 +75,20 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   }
   [[ "$LAUNCH_SETTLE_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
     echo "MOKO_LAUNCH_SETTLE_SECONDS must be a positive integer." >&2
+    exit 1
+  }
+fi
+if [[ "$WINDOW_WORKFLOW" == 1 ]]; then
+  [[ "$BOOT_MODE" == desktop ]] || {
+    echo "MOKO_WINDOW_WORKFLOW requires the normal desktop profile." >&2
+    exit 1
+  }
+  [[ "$LAUNCH_APP_ID" == org.moko.Files ]] || {
+    echo "MOKO_WINDOW_WORKFLOW requires MOKO_LAUNCH_APP_ID=org.moko.Files." >&2
+    exit 1
+  }
+  [[ "$REQUIRE_APP_READY" == 1 ]] || {
+    echo "MOKO_WINDOW_WORKFLOW requires MOKO_REQUIRE_APP_READY=1." >&2
     exit 1
   }
 fi
@@ -136,6 +151,55 @@ pointer_click() {
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
   sleep 1
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+}
+
+pointer_move() {
+  local x=$1
+  local y=$2
+  local absolute_x=$((x * 32767 / 1279))
+  local absolute_y=$((y * 32767 / 799))
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$absolute_x}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$absolute_y}}]}}"
+}
+
+pointer_drag() {
+  local start_x=$1
+  local start_y=$2
+  local end_x=$3
+  local end_y=$4
+  local midpoint_x=$(((start_x + end_x) / 2))
+  local midpoint_y=$(((start_y + end_y) / 2))
+  pointer_move "$start_x" "$start_y"
+  sleep 1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
+  sleep 1
+  pointer_move "$midpoint_x" "$midpoint_y"
+  sleep 0.5
+  pointer_move "$end_x" "$end_y"
+  sleep 1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+}
+
+serial_line_count() {
+  wc -l < "$SERIAL_PATH" 2>/dev/null || printf '0\n'
+}
+
+wait_for_serial_since() {
+  local start_line=$1
+  local pattern=$2
+  local timeout=$3
+  local failure_message=$4
+  local deadline=$((SECONDS + timeout))
+  while ! awk -v start="$start_line" -v pattern="$pattern" \
+      'NR > start && $0 ~ pattern { found = 1 } END { exit !found }' "$SERIAL_PATH"; do
+    if (( SECONDS >= deadline )); then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "$failure_message" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  awk -v start="$start_line" -v pattern="$pattern" \
+    'NR > start && $0 ~ pattern { line = $0 } END { print line }' "$SERIAL_PATH"
 }
 
 wait_for_monitor() {
@@ -207,14 +271,14 @@ docker run --rm --platform linux/amd64 \
       echo "Desktop environment, automounter or installer package found in ISO." >&2
       exit 1
     fi
-    if grep -Eiq "^(build-essential|cmake|libvterm-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)$" /tmp/package-names; then
+    if grep -Eiq "^(build-essential|cmake|libvterm-dev|libwayland-dev|libwlroots-0.18-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev|wayland-protocols)$" /tmp/package-names; then
       echo "Build-only dependency found in ISO." >&2
       exit 1
     fi
 
     for package in \
       live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
-      bluez cage greetd xwayland mesa-utils mesa-vulkan-drivers \
+      bluez cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
       firmware-amd-graphics firmware-brcm80211
@@ -243,8 +307,10 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "internal SSD/HDD partitions have no mountpoint" /tmp/moko-live-usb-checklist.md
     for path in \
       usr/local/bin/moko-shell \
+      usr/local/bin/moko-compositor \
       usr/local/bin/moko-session \
       usr/local/bin/moko-cage-session \
+      usr/local/bin/moko-desktop-session \
       usr/local/bin/moko-files \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
@@ -267,6 +333,8 @@ docker run --rm --platform linux/amd64 \
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
     done
+    unsquashfs -cat /tmp/filesystem.squashfs etc/greetd/config.toml \
+      | grep -Fxq "command = \"/usr/local/bin/moko-desktop-session\""
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-disk-safety-check \
       > /tmp/moko-live-disk-safety-check
@@ -344,12 +412,14 @@ for run in $(seq 1 "$RUNS"); do
   select_boot_profile
   deadline=$((SECONDS + TIMEOUT_SECONDS))
   expected_graphics=hardware
+  expected_compositor=moko
   expected_safe_graphics=0
   if [[ "$BOOT_MODE" == safe-graphics ]]; then
     expected_graphics=software
+    expected_compositor=cage
     expected_safe_graphics=1
   fi
-  health_pattern="MOKO_HEALTH result=pass mode=$BOOT_MODE .*greetd_restarts=0 graphics=$expected_graphics firmware=$BOOT_FIRMWARE"
+  health_pattern="MOKO_HEALTH result=pass mode=$BOOT_MODE .*compositor=$expected_compositor .*greetd_restarts=0 graphics=$expected_graphics firmware=$BOOT_FIRMWARE"
   while ! grep -E -q "$health_pattern" "$SERIAL_PATH" 2>/dev/null; do
     if grep -q 'MOKO_DISK_SAFETY result=fail' "$SERIAL_PATH" 2>/dev/null; then
       tail -80 "$SERIAL_PATH" >&2
@@ -417,8 +487,8 @@ for run in $(seq 1 "$RUNS"); do
       sleep 1
     done
     grep -Fq "MOKO_APP_READY app_id=org.moko.HardwareDiagnostics state=ready" "$SERIAL_PATH"
-    pointer_click 1050 69
-    pointer_click 1162 69
+    pointer_click 876 119
+    pointer_click 987 119
     for format in json txt; do
       while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
         if (( SECONDS >= hardware_deadline )); then
@@ -501,14 +571,18 @@ for run in $(seq 1 "$RUNS"); do
         fi
         sleep 1
       done
-      while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
+      while ! grep -E -q "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
         if (( SECONDS >= ai_app_deadline )); then
           tail -120 "$SERIAL_PATH" >&2
-          echo "MOKO AI launched app did not receive the Cage surface." >&2
+          echo "MOKO AI launched app did not map in moko-compositor." >&2
           exit 1
         fi
         sleep 1
       done
+      if grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; then
+        echo "MOKO Shell incorrectly used the Cage workaround under moko-compositor." >&2
+        exit 1
+      fi
     fi
 
     sleep "$LAUNCH_SETTLE_SECONDS"
@@ -523,10 +597,10 @@ for run in $(seq 1 "$RUNS"); do
     if [[ -n "$AI_EXPECT_APP_ID" ]]; then
       monitor "sendkey ctrl-q"
       ai_return_deadline=$((SECONDS + 30))
-      while ! grep -Fq "MOKO_SHELL_SURFACE state=shown app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
+      while ! grep -E -q "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
         if (( SECONDS >= ai_return_deadline )); then
           tail -120 "$SERIAL_PATH" >&2
-          echo "MOKO AI launched app did not return to the Shell." >&2
+          echo "MOKO AI launched app did not close in moko-compositor." >&2
           exit 1
         fi
         sleep 1
@@ -592,9 +666,9 @@ for run in $(seq 1 "$RUNS"); do
       sleep 3
       HARDWARE_READY_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-hardware-ready.png"
       monitor "screendump /artifacts/$HARDWARE_READY_SCREENSHOT_NAME -f png"
-      pointer_click 1050 69
+      pointer_click 876 119
       monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-hardware-click.png -f png"
-      pointer_click 1162 69
+      pointer_click 987 119
       for format in json txt; do
         while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
           if (( SECONDS >= hardware_deadline )); then
@@ -609,15 +683,31 @@ for run in $(seq 1 "$RUNS"); do
     fi
 
     surface_deadline=$((SECONDS + 30))
-    while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
-      if (( SECONDS >= surface_deadline )); then
-        tail -100 "$SERIAL_PATH" >&2
-        echo "MOKO Shell did not yield the graphical surface to $LAUNCH_APP_ID." >&2
+    if [[ "$BOOT_MODE" == safe-graphics ]]; then
+      while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
+        if (( SECONDS >= surface_deadline )); then
+          tail -100 "$SERIAL_PATH" >&2
+          echo "MOKO Shell did not yield the Cage surface to $LAUNCH_APP_ID." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      grep -F "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+    else
+      while ! grep -E -q "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
+        if (( SECONDS >= surface_deadline )); then
+          tail -100 "$SERIAL_PATH" >&2
+          echo "$LAUNCH_APP_ID did not map in moko-compositor." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+      if grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; then
+        echo "MOKO Shell incorrectly used the Cage workaround under moko-compositor." >&2
         exit 1
       fi
-      sleep 1
-    done
-    grep -F "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+      grep -E "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+    fi
 
     sleep "$LAUNCH_SETTLE_SECONDS"
     if [[ "$SETTINGS_OPEN_HARDWARE" == 1 ]]; then
@@ -670,6 +760,108 @@ for run in $(seq 1 "$RUNS"); do
       exit 1
     fi
 
+    if [[ "$WINDOW_WORKFLOW" == 1 ]]; then
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-left"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=17 " 20 \
+        "MOKO Files did not snap left through compositor state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-right"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=33 " 20 \
+        "MOKO Files did not snap right through compositor state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-up"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=3 " 20 \
+        "MOKO Files did not maximize through compositor state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-down"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
+        "MOKO Files did not restore from maximized state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-f"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=9 " 20 \
+        "MOKO Files did not enter fullscreen compositor state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-f"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
+        "MOKO Files did not leave fullscreen compositor state."
+
+      marker=$(serial_line_count)
+      monitor "sendkey meta_l-down"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=4 " 20 \
+        "MOKO Files did not minimize through compositor state."
+
+      marker=$(serial_line_count)
+      pointer_click 568 747
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
+        "The Files Dock icon did not focus and restore its compositor window."
+      files_launch_count=$(grep -Ec \
+        'MOKO_APP_LAUNCH app_id=org.moko.Files state=running pid=[1-9][0-9]* uid=1000' \
+        "$SERIAL_PATH")
+      [[ "$files_launch_count" == 1 ]] || {
+        echo "The Files Dock icon relaunched the app instead of focusing it." >&2
+        exit 1
+      }
+
+      marker=$(serial_line_count)
+      pointer_click 616 747
+      wait_for_serial_since "$marker" \
+        "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" 30 \
+        "MOKO Settings did not map alongside MOKO Files."
+      wait_for_serial_since "$marker" \
+        "MOKO_APP_READY app_id=org.moko.Settings state=ready" 30 \
+        "MOKO Settings did not become ready in the multi-window workflow."
+
+      # Let the Qt client commit the compositor-requested work-area size before
+      # targeting its bottom-right resize handle.
+      sleep 3
+      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-multi-window.png -f png"
+
+      marker=$(serial_line_count)
+      pointer_drag 1184 680 1220 710
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_INTERACTION state=end operation=resize id=[0-9]+ app_id=org.moko.Settings .* changed=1" 20 \
+        "Dragging the MOKO Settings resize handle did not resize the real window."
+
+      sleep 2
+      marker=$(serial_line_count)
+      pointer_drag 245 130 345 180
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_INTERACTION state=end operation=move id=[0-9]+ app_id=org.moko.Settings .* changed=1" 20 \
+        "Dragging the MOKO Settings title bar did not move the real window."
+
+      marker=$(serial_line_count)
+      monitor "sendkey alt-tab"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
+        "Alt+Tab did not focus MOKO Files."
+
+      marker=$(serial_line_count)
+      monitor "sendkey alt-tab"
+      wait_for_serial_since "$marker" \
+        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Settings state=1 " 20 \
+        "Alt+Tab did not focus MOKO Settings."
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-q"
+      wait_for_serial_since "$marker" \
+        "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.Settings" 30 \
+        "MOKO Settings did not close cleanly after the multi-window workflow."
+    fi
+
     if [[ "$REQUIRE_APP_READY" == 1 ]]; then
       monitor "sendkey ctrl-q"
       if [[ "$SETTINGS_OPEN_HARDWARE" == 1 ]]; then
@@ -677,15 +869,19 @@ for run in $(seq 1 "$RUNS"); do
         monitor "sendkey ctrl-q"
       fi
       return_deadline=$((SECONDS + 30))
-      while ! grep -Fq "MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
+      return_pattern="MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=$LAUNCH_APP_ID"
+      if [[ "$BOOT_MODE" == safe-graphics ]]; then
+        return_pattern="MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID"
+      fi
+      while ! grep -E -q "$return_pattern" "$SERIAL_PATH"; do
         if (( SECONDS >= return_deadline )); then
           tail -100 "$SERIAL_PATH" >&2
-          echo "$LAUNCH_APP_ID did not close back to MOKO Shell." >&2
+          echo "$LAUNCH_APP_ID did not close cleanly." >&2
           exit 1
         fi
         sleep 1
       done
-      grep -F "MOKO_SHELL_SURFACE state=shown app_id=$LAUNCH_APP_ID" "$SERIAL_PATH" | tail -1
+      grep -E "$return_pattern" "$SERIAL_PATH" | tail -1
     fi
   fi
 

@@ -2,6 +2,7 @@
 #include "applicationregistry.h"
 #include "applicationservice.h"
 #include "aicontroller.h"
+#include "windowmanager.h"
 
 #include <QGuiApplication>
 #include <QCommandLineParser>
@@ -42,6 +43,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName("MOKO");
     QGuiApplication::setOrganizationDomain("moko.asia");
     QGuiApplication::setApplicationName("MOKO Shell");
+    QGuiApplication::setDesktopFileName("org.moko.Shell");
 
     QQuickStyle::setStyle("Basic");
 
@@ -68,6 +70,7 @@ int main(int argc, char *argv[])
     dockApplications.setSourceModel(&applicationRegistry);
     ApplicationService applicationService(&applicationRegistry);
     AiController aiController;
+    WindowManager windowManager;
 
     QDBusConnection sessionBus = QDBusConnection::sessionBus();
     if (sessionBus.isConnected()) {
@@ -92,6 +95,8 @@ int main(int argc, char *argv[])
                                              &dockApplications);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoAiController"),
                                              &aiController);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoWindowManager"),
+                                             &windowManager);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         if (!warnings.isEmpty()) {
             qmlWarningsFound = true;
@@ -116,29 +121,31 @@ int main(int argc, char *argv[])
 
     // BOOTSTRAP: Cage does not raise independent top-levels above the fullscreen shell.
     QSet<QString> runningApplications;
-    QObject::connect(&applicationRegistry,
-                     &ApplicationRegistry::applicationRunning,
-                     &app,
-                     [window, &runningApplications](const QString &appId, const QString &) {
-                         runningApplications.insert(appId);
-                         QTimer::singleShot(250, window, [window, &runningApplications, appId]() {
-                             if (!runningApplications.contains(appId))
-                                 return;
-                             window->hide();
-                             writeShellSurfaceEvent(QStringLiteral("hidden"), appId);
+    if (!windowManager.connected()) {
+        QObject::connect(&applicationRegistry,
+                         &ApplicationRegistry::applicationRunning,
+                         &app,
+                         [window, &runningApplications](const QString &appId, const QString &) {
+                             runningApplications.insert(appId);
+                             QTimer::singleShot(250, window, [window, &runningApplications, appId]() {
+                                 if (!runningApplications.contains(appId))
+                                     return;
+                                 window->hide();
+                                 writeShellSurfaceEvent(QStringLiteral("hidden"), appId);
+                             });
                          });
-                     });
-    QObject::connect(&applicationRegistry,
-                     &ApplicationRegistry::applicationStopped,
-                     &app,
-                     [window, &runningApplications](const QString &appId, const QString &, int) {
-                         runningApplications.remove(appId);
-                         if (!runningApplications.isEmpty())
-                             return;
-                         window->showFullScreen();
-                         window->requestActivate();
-                         writeShellSurfaceEvent(QStringLiteral("shown"), appId);
-                     });
+        QObject::connect(&applicationRegistry,
+                         &ApplicationRegistry::applicationStopped,
+                         &app,
+                         [window, &runningApplications](const QString &appId, const QString &, int) {
+                             runningApplications.remove(appId);
+                             if (!runningApplications.isEmpty())
+                                 return;
+                             window->showFullScreen();
+                             window->requestActivate();
+                             writeShellSurfaceEvent(QStringLiteral("shown"), appId);
+                         });
+    }
 
     if (smokeTest || !screenshotPath.isEmpty()) {
         const QStringList sizeParts = parser.value("size").split('x');

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="moko_window_control_v1">
+  <copyright>
+    Copyright 2026 MOKO OS contributors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+  </copyright>
+
+  <interface name="moko_window_manager_v1" version="1">
+    <description summary="bounded MOKO desktop window control">
+      Exposes compositor-owned toplevel state to trusted clients in the same
+      unprivileged desktop session. Requests operate only on enumerated window
+      IDs and cannot launch commands or processes.
+    </description>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="activate">
+      <arg name="window_id" type="uint"/>
+    </request>
+
+    <request name="set_minimized">
+      <arg name="window_id" type="uint"/>
+      <arg name="minimized" type="uint"/>
+    </request>
+
+    <request name="set_maximized">
+      <arg name="window_id" type="uint"/>
+      <arg name="maximized" type="uint"/>
+    </request>
+
+    <request name="set_fullscreen">
+      <arg name="window_id" type="uint"/>
+      <arg name="fullscreen" type="uint"/>
+    </request>
+
+    <request name="snap">
+      <arg name="window_id" type="uint"/>
+      <arg name="side" type="uint" enum="snap_side"/>
+    </request>
+
+    <request name="close">
+      <arg name="window_id" type="uint"/>
+    </request>
+
+    <event name="window">
+      <arg name="window_id" type="uint"/>
+      <arg name="app_id" type="string"/>
+      <arg name="title" type="string"/>
+      <arg name="state" type="uint" enum="state"/>
+    </event>
+
+    <event name="window_removed">
+      <arg name="window_id" type="uint"/>
+    </event>
+
+    <event name="done"/>
+
+    <enum name="state" bitfield="true">
+      <entry name="activated" value="1"/>
+      <entry name="maximized" value="2"/>
+      <entry name="minimized" value="4"/>
+      <entry name="fullscreen" value="8"/>
+      <entry name="snapped_left" value="16"/>
+      <entry name="snapped_right" value="32"/>
+    </enum>
+
+    <enum name="snap_side">
+      <entry name="none" value="0"/>
+      <entry name="left" value="1"/>
+      <entry name="right" value="2"/>
+    </enum>
+  </interface>
+</protocol>

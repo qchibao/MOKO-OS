@@ -13,6 +13,7 @@ ApplicationWindow {
     minimumHeight: 420
     title: terminal.terminalTitle
     color: "#181C22"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     ColumnLayout {
         anchors.fill: parent
@@ -23,6 +24,13 @@ ApplicationWindow {
             Layout.preferredHeight: 48
             color: "#EEF6FC"
             border.color: "#C9DAE7"
+
+            MouseArea {
+                anchors.fill: parent
+                onPressed: window.startSystemMove()
+                onDoubleClicked: window.visibility = window.visibility === Window.Maximized
+                                                    ? Window.Windowed : Window.Maximized
+            }
 
             RowLayout {
                 anchors.fill: parent
@@ -66,6 +74,27 @@ ApplicationWindow {
                     onClicked: terminal.scrollToBottom()
                 }
                 Button {
+                    text: "-"
+                    implicitWidth: 34
+                    implicitHeight: 32
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Minimize MOKO Terminal"
+                    background: Rectangle { radius: 6; color: parent.hovered ? "#DCEBFA" : "#FFFFFF"; border.color: "#C6D7E5" }
+                    contentItem: Text { text: parent.text; color: "#24374B"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    onClicked: window.showMinimized()
+                }
+                Button {
+                    text: window.visibility === Window.Maximized ? "[]" : "[ ]"
+                    implicitWidth: 38
+                    implicitHeight: 32
+                    ToolTip.visible: hovered
+                    ToolTip.text: window.visibility === Window.Maximized ? "Restore MOKO Terminal" : "Maximize MOKO Terminal"
+                    background: Rectangle { radius: 6; color: parent.hovered ? "#DCEBFA" : "#FFFFFF"; border.color: "#C6D7E5" }
+                    contentItem: Text { text: parent.text; color: "#24374B"; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    onClicked: window.visibility = window.visibility === Window.Maximized
+                                                   ? Window.Windowed : Window.Maximized
+                }
+                Button {
                     text: "X"
                     implicitWidth: 34
                     implicitHeight: 32
@@ -73,7 +102,7 @@ ApplicationWindow {
                     ToolTip.text: "Close MOKO Terminal"
                     background: Rectangle { radius: 6; color: parent.hovered ? "#DCEBFA" : "#FFFFFF"; border.color: "#C6D7E5" }
                     contentItem: Text { text: parent.text; color: "#24374B"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                    onClicked: Qt.quit()
+                    onClicked: window.close()
                 }
             }
         }
@@ -116,7 +145,23 @@ ApplicationWindow {
         }
     }
 
+    MouseArea {
+        width: 14
+        height: 14
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 100
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
+    }
+
     Shortcut { sequence: "Ctrl+Shift+C"; onActivated: terminal.copySelection() }
     Shortcut { sequence: "Ctrl+Shift+V"; onActivated: terminal.pasteClipboard() }
-    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+    Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
+    Shortcut {
+        sequence: "F11"
+        onActivated: window.visibility = window.visibility === Window.FullScreen
+                                       ? Window.Windowed : Window.FullScreen
+    }
 }

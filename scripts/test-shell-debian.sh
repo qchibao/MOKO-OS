@@ -18,6 +18,10 @@ docker run --rm --platform linux/amd64 \
     set -euo pipefail
     bash tests/test-live-disk-safety.sh
 
+    cmake -S compositor/moko-compositor -B /tmp/moko-compositor-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+    cmake --build /tmp/moko-compositor-build --parallel
+    ctest --test-dir /tmp/moko-compositor-build --output-on-failure
+
     cmake -S shell -B /tmp/moko-shell-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-shell-build --parallel
     ctest --test-dir /tmp/moko-shell-build --output-on-failure
@@ -29,6 +33,12 @@ docker run --rm --platform linux/amd64 \
     cmake -S apps -B /tmp/moko-apps-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-apps-build --parallel
     ctest --test-dir /tmp/moko-apps-build --output-on-failure
+
+    compositor/moko-compositor/tests/test_qt_session.sh \
+      /tmp/moko-compositor-build/moko-compositor \
+      /tmp/moko-shell-build/moko-shell \
+      /tmp/moko-apps-build/files/moko-files \
+      /tmp/moko-apps-build/settings/moko-settings
 
     export XDG_RUNTIME_DIR=/tmp/moko-runtime
     install -d -m 700 "$XDG_RUNTIME_DIR"

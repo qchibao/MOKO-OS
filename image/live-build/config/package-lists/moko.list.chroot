@@ -15,6 +15,7 @@ wireplumber
 alsa-utils
 bluez
 cage
+libwlroots-0.18
 greetd
 xwayland
 mesa-utils

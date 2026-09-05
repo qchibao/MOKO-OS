@@ -21,6 +21,11 @@ ApplicationWindow {
     property bool aiVisible: true
     property string clockText: ""
 
+    function openApplication(appId) {
+        if (!mokoWindowManager.activateApplication(appId))
+            mokoApplicationRegistry.launch(appId)
+    }
+
     function updateClock() {
         const d = new Date()
         clockText = Qt.formatTime(d, "hh:mm AP")
@@ -61,7 +66,7 @@ ApplicationWindow {
         applicationModel: mokoLauncherApplications
         opacity: visible ? 1 : 0
         z: 4
-        onAppRequested: (appId) => mokoApplicationRegistry.launch(appId)
+        onAppRequested: (appId) => window.openApplication(appId)
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
 
@@ -108,13 +113,14 @@ ApplicationWindow {
 
     Dock {
         applicationModel: mokoDockApplications
+        windowManager: mokoWindowManager
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         z: 7
         onLauncherRequested: window.launcherVisible = !window.launcherVisible
         onAiRequested: window.aiVisible = !window.aiVisible
-        onAppRequested: (appId) => mokoApplicationRegistry.launch(appId)
+        onAppRequested: (appId) => window.openApplication(appId)
     }
 
     Connections {

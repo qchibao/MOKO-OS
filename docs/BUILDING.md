@@ -61,6 +61,10 @@ MOKO_LAUNCH_QUERY=appearance MOKO_LAUNCH_APP_ID=org.moko.Settings \
   ./scripts/test-iso-docker.sh
 MOKO_AI_PROMPT="open hardware diagnostics" MOKO_AI_EXPECT_ACTION=open_application \
   MOKO_AI_EXPECT_APP_ID=org.moko.HardwareDiagnostics ./scripts/test-iso-docker.sh
+MOKO_LAUNCH_QUERY=files MOKO_LAUNCH_APP_ID=org.moko.Files \
+  MOKO_REQUIRE_APP_READY=1 MOKO_WINDOW_WORKFLOW=1 ./scripts/test-iso-docker.sh
+MOKO_BOOT_RUNS=3 MOKO_BOOT_FIRMWARE=uefi MOKO_BOOT_TIMEOUT=480 \
+  ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
 MOKO_BOOT_MODE=safe-graphics ./scripts/test-iso-docker.sh
 MOKO_BOOT_FIRMWARE=uefi ./scripts/test-iso-docker.sh

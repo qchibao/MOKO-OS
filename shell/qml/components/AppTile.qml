@@ -8,6 +8,7 @@ Item {
     property url iconSource
     property string launchState: "ready"
     property string launchMessage
+    property bool compositorRunning: false
     property bool compact: false
     property bool dense: false
     property bool selected: false
@@ -51,13 +52,13 @@ Item {
             }
 
             Rectangle {
-                visible: root.launchState !== "ready"
+                visible: root.compositorRunning || root.launchState !== "ready"
                 width: root.compact ? 9 : 11
                 height: width
                 radius: width / 2
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                color: root.launchState === "running" ? "#26A66A"
+                color: root.compositorRunning || root.launchState === "running" ? "#2671D9"
                       : root.launchState === "failed" ? "#D94A57" : "#E8A326"
                 border.width: 2
                 border.color: "white"

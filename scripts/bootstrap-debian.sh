@@ -10,7 +10,7 @@ fi
 apt-get update
 apt-get install -y \
   build-essential cmake ninja-build pkg-config \
-  libxkbcommon-dev \
+  libwayland-dev libwlroots-0.18-dev libxkbcommon-dev wayland-protocols \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools \
   qt6-wayland \
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \

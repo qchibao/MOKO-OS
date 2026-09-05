@@ -46,8 +46,21 @@ It should eventually consume system state through MOKO D-Bus services rather tha
 ### Bootstrap stage
 Use Cage only to give the full-screen MOKO Shell a deterministic Wayland environment for Developer Preview builds.
 
+### v0.1.1 transition
+`moko-compositor` is a MOKO-owned wlroots compositor. It owns XDG toplevel
+placement, focus, move/resize, minimize, maximize, fullscreen, snapping and
+global window switching. The Shell remains a separate unprivileged Wayland
+client and consumes compositor window state instead of simulating window
+operations.
+
+Normal desktop mode moves to `moko-compositor` only after its multi-window
+tests and ISO boot gate pass. The validated Cage session remains available as
+an explicit rollback path and continues to back Safe Graphics while the new
+renderer path is qualified on physical hardware.
+
 ### Native MOKO stage
-Develop `moko-compositor` using wlroots or another well-maintained Wayland compositor library. It will own window placement, workspaces, effects, global shortcuts, input routing and shell protocol integration.
+Extend `moko-compositor` with workspaces, shell protocols, multi-monitor
+policy, effects and accessibility without moving policy into application UIs.
 
 ## Security boundary
 The AI UI is unprivileged. Privileged system actions require a MOKO action broker with explicit capability checks/polkit-style authorization. AI provider credentials belong in the user secret store, never in shell QML or ISO source.

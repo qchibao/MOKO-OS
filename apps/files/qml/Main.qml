@@ -12,6 +12,7 @@ ApplicationWindow {
     minimumHeight: 560
     title: "MOKO Files"
     color: "#EAF4FC"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     property int selectedIndex: -1
     property string deleteToken: ""
@@ -62,6 +63,13 @@ ApplicationWindow {
             Layout.preferredHeight: 62
             color: "#F4FAFF"
             border.color: "#D5E3EF"
+
+            MouseArea {
+                anchors.fill: parent
+                onPressed: window.startSystemMove()
+                onDoubleClicked: window.visibility = window.visibility === Window.Maximized
+                                                    ? Window.Windowed : Window.Maximized
+            }
 
             RowLayout {
                 anchors.fill: parent
@@ -126,7 +134,18 @@ ApplicationWindow {
                     }
                 }
                 CommandButton { text: "Refresh"; onClicked: mokoFiles.refresh() }
-                CommandButton { text: "X"; hint: "Close MOKO Files"; onClicked: Qt.quit() }
+                CommandButton {
+                    text: "-"
+                    hint: "Minimize MOKO Files"
+                    onClicked: window.showMinimized()
+                }
+                CommandButton {
+                    text: window.visibility === Window.Maximized ? "Restore" : "Maximize"
+                    hint: text + " MOKO Files"
+                    onClicked: window.visibility = window.visibility === Window.Maximized
+                                                   ? Window.Windowed : Window.Maximized
+                }
+                CommandButton { text: "X"; hint: "Close MOKO Files"; onClicked: window.close() }
             }
         }
 
@@ -462,5 +481,21 @@ ApplicationWindow {
         Label { id: errorText; width: 360; wrapMode: Text.Wrap; color: "#263444" }
     }
 
-    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+    MouseArea {
+        width: 14
+        height: 14
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 100
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
+    }
+
+    Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
+    Shortcut {
+        sequence: "F11"
+        onActivated: window.visibility = window.visibility === Window.FullScreen
+                                       ? Window.Windowed : Window.FullScreen
+    }
 }

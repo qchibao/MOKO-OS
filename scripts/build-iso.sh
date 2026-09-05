@@ -54,7 +54,7 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$SOURCE_STAGING"
 rsync -a --delete --exclude build --exclude out --exclude .git \
-  "$ROOT/shell" "$ROOT/apps" "$ROOT/ai" "$ROOT/core" "$ROOT/assets" \
+  "$ROOT/shell" "$ROOT/apps" "$ROOT/ai" "$ROOT/core" "$ROOT/compositor" "$ROOT/assets" \
   "$SOURCE_STAGING/"
 
 mkdir -p "$RELEASE_STAGING"

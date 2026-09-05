@@ -1,0 +1,93 @@
+#!/bin/sh
+# Select the validated Safe Graphics path or the MOKO desktop compositor.
+set -eu
+
+cmdline=$(cat /proc/cmdline 2>/dev/null || true)
+case " $cmdline " in
+  *" moko.mode=hardware-diagnostics "*) MOKO_BOOT_MODE=hardware-diagnostics ;;
+  *" moko.mode=safe-graphics "*) MOKO_BOOT_MODE=safe-graphics ;;
+  *) MOKO_BOOT_MODE=desktop ;;
+esac
+export MOKO_BOOT_MODE
+
+requested_compositor=${MOKO_COMPOSITOR:-moko}
+case "$requested_compositor" in
+  moko|cage) ;;
+  *) requested_compositor=moko ;;
+esac
+
+if [ "$MOKO_BOOT_MODE" = safe-graphics ] || [ "$requested_compositor" = cage ]; then
+  export MOKO_COMPOSITOR=cage
+  if [ "$MOKO_BOOT_MODE" = safe-graphics ]; then
+    export MOKO_SAFE_GRAPHICS=1
+    export WLR_RENDERER=pixman
+    export WLR_NO_HARDWARE_CURSORS=1
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export QT_QUICK_BACKEND=software
+  fi
+  exec cage -s -- /usr/local/bin/moko-session
+fi
+
+export MOKO_COMPOSITOR=moko
+wayland_display=${MOKO_WAYLAND_DISPLAY:-wayland-moko-0}
+compositor_bin=${MOKO_COMPOSITOR_BIN:-/usr/local/bin/moko-compositor}
+session_bin=${MOKO_SESSION_BIN:-/usr/local/bin/moko-session}
+if [ -d /run/live ]; then
+  export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:?}/moko-launch-events"
+  mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"
+fi
+compositor_pid=
+compositor_ready=0
+
+cleanup() {
+  if [ -n "$compositor_pid" ]; then
+    kill "$compositor_pid" 2>/dev/null || true
+    wait "$compositor_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# The server socket names this compositor. It must not be mistaken for an
+# upstream display by wlroots backend auto-detection.
+start_attempt=0
+while [ "$start_attempt" -lt 3 ]; do
+  start_attempt=$((start_attempt + 1))
+  (
+    unset WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY
+    exec "$compositor_bin" --socket "$wayland_display"
+  ) &
+  compositor_pid=$!
+
+  socket_attempt=0
+  while [ ! -S "${XDG_RUNTIME_DIR:?}/$wayland_display" ]; do
+    if ! kill -0 "$compositor_pid" 2>/dev/null; then
+      wait "$compositor_pid" 2>/dev/null || true
+      compositor_pid=
+      break
+    fi
+    socket_attempt=$((socket_attempt + 1))
+    if [ "$socket_attempt" -ge 100 ]; then
+      kill "$compositor_pid" 2>/dev/null || true
+      wait "$compositor_pid" 2>/dev/null || true
+      compositor_pid=
+      break
+    fi
+    sleep 0.05
+  done
+
+  if [ -n "$compositor_pid" ] \
+      && kill -0 "$compositor_pid" 2>/dev/null \
+      && [ -S "${XDG_RUNTIME_DIR:?}/$wayland_display" ]; then
+    compositor_ready=1
+    break
+  fi
+  rm -f "${XDG_RUNTIME_DIR:?}/$wayland_display"
+  sleep 1
+done
+
+[ "$compositor_ready" -eq 1 ] || exit 1
+
+export WAYLAND_DISPLAY=$wayland_display
+"$session_bin"
+status=$?
+exit "$status"

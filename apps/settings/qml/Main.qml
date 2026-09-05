@@ -12,6 +12,7 @@ ApplicationWindow {
     minimumHeight: 560
     title: "MOKO Settings"
     color: "#F7FBFF"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     property var sections: mokoSettings.sectionIds()
     property string selectedSection: sections.length ? sections[0] : "about"
@@ -42,6 +43,16 @@ ApplicationWindow {
             color: "#EAF4FC"
             border.color: "#D2E1EC"
 
+            MouseArea {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 54
+                onPressed: window.startSystemMove()
+                onDoubleClicked: window.visibility = window.visibility === Window.Maximized
+                                                    ? Window.Windowed : Window.Maximized
+            }
+
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 18
@@ -53,6 +64,34 @@ ApplicationWindow {
                     Text { text: "SETTINGS"; color: "#3978F6"; font.pixelSize: 11; font.weight: Font.Bold }
                     Item { Layout.fillWidth: true }
                     Button {
+                        text: "-"
+                        implicitWidth: 34
+                        implicitHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Minimize MOKO Settings"
+                        background: Rectangle {
+                            radius: 6
+                            color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
+                            border.color: "#C6D7E5"
+                        }
+                        onClicked: window.showMinimized()
+                    }
+                    Button {
+                        text: window.visibility === Window.Maximized ? "[]" : "[ ]"
+                        implicitWidth: 38
+                        implicitHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: window.visibility === Window.Maximized ? "Restore MOKO Settings"
+                                                                            : "Maximize MOKO Settings"
+                        background: Rectangle {
+                            radius: 6
+                            color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
+                            border.color: "#C6D7E5"
+                        }
+                        onClicked: window.visibility = window.visibility === Window.Maximized
+                                                       ? Window.Windowed : Window.Maximized
+                    }
+                    Button {
                         text: "X"
                         implicitWidth: 34
                         implicitHeight: 32
@@ -63,7 +102,7 @@ ApplicationWindow {
                             color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
                             border.color: "#C6D7E5"
                         }
-                        onClicked: Qt.quit()
+                        onClicked: window.close()
                     }
                 }
 
@@ -276,5 +315,21 @@ ApplicationWindow {
         }
     }
 
-    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+    MouseArea {
+        width: 14
+        height: 14
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 100
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
+    }
+
+    Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
+    Shortcut {
+        sequence: "F11"
+        onActivated: window.visibility = window.visibility === Window.FullScreen
+                                       ? Window.Windowed : Window.FullScreen
+    }
 }

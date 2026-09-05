@@ -92,6 +92,14 @@ if [ "$mode" = safe-graphics ]; then
     exit 1
   fi
   graphics=software
+  compositor=cage
+else
+  compositor_pid=$(pgrep -o -x moko-compositor || true)
+  if [ -z "$compositor_pid" ]; then
+    report "MOKO_HEALTH result=fail reason=moko-compositor-missing mode=$mode"
+    exit 1
+  fi
+  compositor=moko
 fi
 
 firmware=bios
@@ -99,4 +107,4 @@ if [ -d /sys/firmware/efi ]; then
   firmware=uefi
 fi
 
-report "MOKO_HEALTH result=pass mode=$mode surface=$surface surface_pid=$surface_pid nic=$nic input_events=$input_events greetd_restarts=$greetd_restarts graphics=$graphics firmware=$firmware"
+report "MOKO_HEALTH result=pass mode=$mode surface=$surface surface_pid=$surface_pid compositor=$compositor nic=$nic input_events=$input_events greetd_restarts=$greetd_restarts graphics=$graphics firmware=$firmware"

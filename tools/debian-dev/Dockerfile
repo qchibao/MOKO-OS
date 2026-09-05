@@ -11,6 +11,8 @@ RUN apt-get update \
         dbus \
         ethtool \
         libgl1-mesa-dri \
+        libwayland-dev \
+        libwlroots-0.18-dev \
         libvterm-dev \
         libxkbcommon-dev \
         ninja-build \
@@ -24,6 +26,7 @@ RUN apt-get update \
         qt6-declarative-dev-tools \
         qt6-wayland \
         usbutils \
+        wayland-protocols \
         weston \
     && rm -rf /var/lib/apt/lists/*
 

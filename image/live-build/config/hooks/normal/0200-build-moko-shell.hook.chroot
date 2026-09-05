@@ -3,8 +3,13 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  build-essential cmake libvterm-dev libxkbcommon-dev ninja-build pkg-config \
+  build-essential cmake libvterm-dev libwayland-dev libwlroots-0.18-dev \
+  libxkbcommon-dev ninja-build pkg-config wayland-protocols \
   qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools
+cmake -S /opt/moko-src/compositor/moko-compositor -B /tmp/moko-compositor-build -G Ninja \
+  -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake --build /tmp/moko-compositor-build --parallel
+cmake --install /tmp/moko-compositor-build
 cmake -S /opt/moko-src/shell -B /tmp/moko-shell-build -G Ninja \
   -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
 cmake --build /tmp/moko-shell-build --parallel
@@ -19,9 +24,12 @@ cmake --build /tmp/moko-apps-build --parallel
 cmake --install /tmp/moko-apps-build
 install -Dm755 /opt/moko-src/core/moko-session/moko-session /usr/local/bin/moko-session
 install -Dm755 /opt/moko-src/core/moko-session/moko-cage-session /usr/local/bin/moko-cage-session
-rm -rf /tmp/moko-shell-build /tmp/moko-ai-build /tmp/moko-apps-build /opt/moko-src
+install -Dm755 /opt/moko-src/core/moko-session/moko-desktop-session /usr/local/bin/moko-desktop-session
+rm -rf /tmp/moko-compositor-build /tmp/moko-shell-build /tmp/moko-ai-build \
+  /tmp/moko-apps-build /opt/moko-src
 apt-get purge -y \
-  build-essential cmake libvterm-dev libxkbcommon-dev ninja-build pkg-config \
-  qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools || true
+  build-essential cmake libvterm-dev libwayland-dev libwlroots-0.18-dev \
+  libxkbcommon-dev ninja-build pkg-config qt6-base-dev qt6-declarative-dev \
+  qt6-declarative-dev-tools wayland-protocols || true
 apt-get autoremove -y || true
 apt-get clean

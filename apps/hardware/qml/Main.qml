@@ -12,6 +12,7 @@ ApplicationWindow {
     minimumHeight: 580
     title: "MOKO Hardware Diagnostics"
     color: "#F7FBFF"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     property var sections: mokoHardware.sectionIds()
     property string selectedSection: sections.length ? sections[0] : "system"
@@ -71,6 +72,13 @@ ApplicationWindow {
             color: "#FFFFFF"
             border.color: "#D7E4EE"
 
+            MouseArea {
+                anchors.fill: parent
+                onPressed: window.startSystemMove()
+                onDoubleClicked: window.visibility = window.visibility === Window.Maximized
+                                                    ? Window.Windowed : Window.Maximized
+            }
+
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 22
@@ -117,11 +125,27 @@ ApplicationWindow {
                     onClicked: mokoHardware.exportText()
                 }
                 Button {
+                    text: "-"
+                    implicitWidth: 36
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Minimize Hardware Diagnostics"
+                    onClicked: window.showMinimized()
+                }
+                Button {
+                    text: window.visibility === Window.Maximized ? "[]" : "[ ]"
+                    implicitWidth: 38
+                    ToolTip.visible: hovered
+                    ToolTip.text: window.visibility === Window.Maximized ? "Restore Hardware Diagnostics"
+                                                                        : "Maximize Hardware Diagnostics"
+                    onClicked: window.visibility = window.visibility === Window.Maximized
+                                                   ? Window.Windowed : Window.Maximized
+                }
+                Button {
                     text: "X"
                     implicitWidth: 36
                     ToolTip.visible: hovered
                     ToolTip.text: "Close Hardware Diagnostics"
-                    onClicked: Qt.quit()
+                    onClicked: window.close()
                 }
             }
         }
@@ -320,6 +344,22 @@ ApplicationWindow {
         }
     }
 
+    MouseArea {
+        width: 14
+        height: 14
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 100
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
+    }
+
     Shortcut { sequence: "Ctrl+E"; onActivated: mokoHardware.exportAll() }
-    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+    Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
+    Shortcut {
+        sequence: "F11"
+        onActivated: window.visibility = window.visibility === Window.FullScreen
+                                       ? Window.Windowed : Window.FullScreen
+    }
 }
