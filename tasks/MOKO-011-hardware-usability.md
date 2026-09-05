@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-5 QEMU VALIDATED, PHASE 6 SOURCE VALIDATED
+State: IN PROGRESS - PHASES 1-6 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -315,9 +315,10 @@ and the Shell clock uses the active locale and timezone rather than a fixed
 12-hour format. None of these paths changes process permissions, boot ordering,
 compositor selection, mount policy or disk safety.
 
-## Phase 6 source validation
+## Phase 6 validation
 
-Validated on 2026-09-06 before the committed ISO regression run.
+Validated on 2026-09-06 from clean commit `45234e7`, Live ISO SHA-256
+`b6e2a4c11b77c76c0a7566a1393cf61fb1cb0defb73ea02ac0c3e4344c6ac1ef`.
 
 - live disk-safety logging regression: passed;
 - compositor CTest: `3/3` passed;
@@ -329,5 +330,27 @@ Validated on 2026-09-06 before the committed ISO regression run.
 - Settings, Files, Hardware Diagnostics and Control Center render captures:
   passed at 1280-wide layouts;
 - Settings Developer Mode filtering and Hardware display-label tests: passed;
-- committed Live ISO BIOS/UEFI and workflow validation: pending this phase
-  commit.
+- BIOS desktop cold boots: `3/3` passed with `greetd_restarts=0`;
+- UEFI desktop cold boots: `3/3` passed with `greetd_restarts=0`;
+- combined Control Center, Input and multi-window workflow passed, including
+  real PipeWire mute, two mapped apps, move, resize, minimize/restore,
+  maximize/restore, fullscreen, snap, Dock restore and Alt+Tab;
+- Safe Graphics passed with Cage/software rendering, Files launch/return and
+  clean shutdown;
+- Hardware Diagnostics direct boot retained the report enum, rendered consumer
+  labels, exported JSON/text as UID 1000 and reported
+  `writable_disk_detected=0`;
+- Browser HTTPS, JavaScript, real Debian package download and MOKO Files
+  Downloads handoff passed;
+- AI `open settings` passed Ready -> Processing -> Response through the
+  allowlisted D-Bus action as UID 1000;
+- every ISO run passed disk safety, graphical health and clean shutdown; the
+  installer remained disabled and no writable disk was attached.
+
+Primary artifacts: `out/moko-iso-smoke-20260905T213037Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T214133Z-uefi-desktop-*`,
+`out/moko-iso-smoke-20260905T215357Z-bios-desktop-*`,
+`out/moko-iso-smoke-20260905T220022Z-bios-safe-graphics-*`,
+`out/moko-iso-smoke-20260905T220358Z-bios-hardware-diagnostics-*`,
+`out/moko-iso-smoke-20260905T220731Z-bios-desktop-*` and
+`out/moko-iso-smoke-20260905T221329Z-bios-desktop-*`.
