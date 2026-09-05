@@ -81,6 +81,26 @@ file content. Settings launches the app through the Shell-owned
 `org.moko.Applications1` registry, and MOKO AI can request the same allowlisted
 application ID without gaining a general process or shell capability.
 
+## Live USB boot boundary
+The Developer Preview exposes three fixed profiles through both GRUB/UEFI and
+ISOLINUX/legacy BIOS: `desktop`, `hardware-diagnostics` and `safe-graphics`.
+The kernel command line carries only the `moko.mode` enum. `moko-cage-session`
+validates that enum before Cage starts; no menu value becomes a command or an
+arbitrary environment assignment.
+
+The diagnostics profile opens the native read-only app directly and starts the
+normal Shell if the app is closed. Safe Graphics Mode forces the Cage pixman
+renderer, disables hardware cursors and uses Qt Quick software rendering before
+any user-visible MOKO process starts. It is a compatibility fallback, not a
+replacement desktop or a support claim.
+
+`moko-live-disk-safety.service` runs before greetd and fails the graphical boot
+health gate if a block device other than the live medium was mounted during
+startup. A greetd unit dependency also prevents the graphical session from
+starting after a failed audit. The image does not include an installer or
+`udisks2`, masks the udisks2 service defensively, and QEMU validation never
+attaches a writable disk.
+
 ## Architecture targets
 - v0.1: amd64 only.
 - Later: arm64 feasibility track after desktop APIs stabilize.

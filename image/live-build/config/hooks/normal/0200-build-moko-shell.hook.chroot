@@ -18,6 +18,7 @@ cmake -S /opt/moko-src/apps -B /tmp/moko-apps-build -G Ninja \
 cmake --build /tmp/moko-apps-build --parallel
 cmake --install /tmp/moko-apps-build
 install -Dm755 /opt/moko-src/core/moko-session/moko-session /usr/local/bin/moko-session
+install -Dm755 /opt/moko-src/core/moko-session/moko-cage-session /usr/local/bin/moko-cage-session
 rm -rf /tmp/moko-shell-build /tmp/moko-ai-build /tmp/moko-apps-build /opt/moko-src
 apt-get purge -y \
   build-essential cmake libvterm-dev libxkbcommon-dev ninja-build pkg-config \

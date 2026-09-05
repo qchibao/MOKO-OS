@@ -5,13 +5,15 @@ cat > /etc/greetd/config.toml <<'CFG'
 vt = 1
 
 [default_session]
-command = "cage -s -- /usr/local/bin/moko-session"
+command = "/usr/local/bin/moko-cage-session"
 user = "moko"
 CFG
 # BOOTSTRAP: reserve VT1 for greetd while keeping serial and other VTs available.
 systemctl disable getty@tty1.service || true
 systemctl mask getty@tty1.service || true
+systemctl mask udisks2.service || true
 systemctl enable greetd.service || true
+systemctl enable moko-live-disk-safety.service || true
 systemctl enable moko-live-health.service || true
 systemctl enable moko-live-launch-monitor.service || true
 systemctl set-default graphical.target || true

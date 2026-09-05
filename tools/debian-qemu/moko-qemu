@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+if [ "${MOKO_QEMU_FIRMWARE:-bios}" = uefi ]; then
+  code=/usr/share/OVMF/OVMF_CODE_4M.fd
+  vars_template=/usr/share/OVMF/OVMF_VARS_4M.fd
+  vars=/tmp/MOKO_OVMF_VARS_4M.fd
+  [ -f "$code" ] && [ -f "$vars_template" ] || {
+    echo "OVMF firmware files are unavailable." >&2
+    exit 1
+  }
+  cp "$vars_template" "$vars"
+  set -- "$@" \
+    -drive "if=pflash,format=raw,readonly=on,file=$code" \
+    -drive "if=pflash,format=raw,file=$vars"
+fi
+
+exec "$@"

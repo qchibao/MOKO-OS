@@ -1,0 +1,6 @@
+#!/bin/sh
+# Copy the generated package manifest into the user-visible release directory.
+set -eu
+
+install -Dm644 live/filesystem.packages \
+  MOKO/MOKO-OS-v0.1-dev-amd64.packages.txt

@@ -1,0 +1,16 @@
+MOKO OS v0.1 Developer Preview - Known Issues
+
+- This image is a non-installing Live USB preview. There is no partitioning,
+  formatting, persistence, upgrade or disk installer workflow.
+- Physical PC and Intel Mac compatibility is not certified yet. Hardware
+  Diagnostics reports evidence, not a support promise.
+- Safe Graphics Mode forces software rendering for Cage and Qt Quick, but it
+  still requires a display output that the Linux kernel can expose through DRM.
+- Cage remains the bootstrap single-application compositor. Only one MOKO app
+  surface is presented at a time until moko-compositor replaces it.
+- Wi-Fi, Bluetooth, audio, microphone, webcam, suspend and special Apple input
+  devices remain model-specific and require the Live USB checklist.
+- T2-equipped Intel Macs are UNKNOWN unless the exact model has been tested.
+- Secure Boot is not claimed as supported for this Developer Preview.
+- Shutdown can print harmless live-media loop detach warnings after the system
+  has already completed a clean poweroff path.

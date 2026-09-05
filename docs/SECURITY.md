@@ -12,3 +12,11 @@
    set and never exposes arbitrary shell execution.
 10. AI application launches use an explicit app-id allowlist; file actions accept
     only canonical existing paths inside the current user's home directory.
+11. Live boot profiles are fixed enum values. Boot menu input cannot become a
+    shell command, executable path or arbitrary environment value.
+12. The Developer Preview omits the installer and `udisks2`, masks the udisks2
+    service defensively, and runs a block-mount audit before greetd. A failed
+    audit prevents greetd from starting and prevents the graphical health gate
+    from passing.
+13. Release QEMU tests attach the ISO as read-only optical media and do not
+    create or attach a writable virtual disk.

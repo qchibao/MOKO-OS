@@ -1,0 +1,21 @@
+#!/bin/sh
+# BOOTSTRAP: select one of the fixed live-session profiles before Cage starts.
+set -eu
+
+cmdline=$(cat /proc/cmdline 2>/dev/null || true)
+case " $cmdline " in
+  *" moko.mode=hardware-diagnostics "*) MOKO_BOOT_MODE=hardware-diagnostics ;;
+  *" moko.mode=safe-graphics "*) MOKO_BOOT_MODE=safe-graphics ;;
+  *) MOKO_BOOT_MODE=desktop ;;
+esac
+export MOKO_BOOT_MODE
+
+if [ "$MOKO_BOOT_MODE" = safe-graphics ]; then
+  export MOKO_SAFE_GRAPHICS=1
+  export WLR_RENDERER=pixman
+  export WLR_NO_HARDWARE_CURSORS=1
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export QT_QUICK_BACKEND=software
+fi
+
+exec cage -s -- /usr/local/bin/moko-session

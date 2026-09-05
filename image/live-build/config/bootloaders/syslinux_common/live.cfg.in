@@ -1,0 +1,18 @@
+label live-@FLAVOUR@
+	menu label ^Try MOKO OS
+	menu default
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ moko.mode=desktop
+
+label live-@FLAVOUR@-diagnostics
+	menu label ^Hardware Diagnostics
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ moko.mode=hardware-diagnostics
+
+label live-@FLAVOUR@-safe-graphics
+	menu label ^Safe Graphics Mode
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ moko.mode=safe-graphics

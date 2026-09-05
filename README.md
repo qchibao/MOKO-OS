@@ -11,6 +11,8 @@ This repository already contains:
 - native Qt 6/QML **MOKO Files, MOKO Settings and MOKO Terminal** applications integrated through the shared MOKO application registry;
 - an unprivileged **MOKO AI daemon**, MOKO-owned D-Bus API, allowlisted action layer and provider-backed Shell panel for safe local actions;
 - native **MOKO Hardware Diagnostics** with evidence-based compatibility states and privacy-safe JSON/text reports;
+- fixed BIOS/UEFI boot entries for **Try MOKO OS**, direct **Hardware Diagnostics** and **Safe Graphics Mode**;
+- a non-installing Live USB safety audit that runs before the graphical session and rejects unexpected block-device mounts;
 - Debian 13 (trixie) live-build scaffolding for an **amd64/x86_64** developer ISO;
 - a temporary Wayland developer session using Cage while `moko-compositor` is still being built;
 - architecture, design language, hardware target, security principles and roadmap documents;
@@ -58,10 +60,14 @@ On macOS or another Docker host, use the reproducible validation path:
 ./scripts/test-shell-debian.sh
 ./scripts/build-iso-docker.sh
 MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
+MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
+MOKO_BOOT_MODE=safe-graphics ./scripts/test-iso-docker.sh
+MOKO_BOOT_FIRMWARE=uefi ./scripts/test-iso-docker.sh
 ```
 
-The validated ISO hash is recorded in `out/SHA256SUMS`; see `STATUS.md` and the
-task files for the current evidence and remaining work.
+The build emits the ISO, SHA-256, build information, package manifest, known
+issues and Live USB checklist under `out/`. See `STATUS.md` and the task files
+for the current validation evidence and remaining physical hardware work.
 
 ## Use with Codex
 

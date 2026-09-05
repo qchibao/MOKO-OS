@@ -1,0 +1,38 @@
+#!/bin/sh
+# DEV_ONLY: fail validation if startup mounted a block device outside live media.
+set -eu
+
+report() {
+  echo "$1"
+  if [ -w /dev/ttyS0 ]; then
+    echo "$1" > /dev/ttyS0
+  fi
+}
+
+unexpected_mounts=0
+mounts=$(findmnt --raw --noheadings --output SOURCE,TARGET 2>/dev/null || true)
+while read -r source target; do
+  [ -n "${source:-}" ] || continue
+  case "$source:$target" in
+    /dev/loop*:/run/live/*|/dev/loop*:/lib/live/*|/dev/sr*:/run/live/*|/dev/sr*:/lib/live/*|/dev/*:/run/live/medium|/dev/*:/lib/live/mount/medium)
+      ;;
+    /dev/*:*)
+      unexpected_mounts=$((unexpected_mounts + 1))
+      ;;
+  esac
+done <<EOF
+$mounts
+EOF
+
+if command -v udisksd >/dev/null 2>&1; then
+  automounter=present
+else
+  automounter=absent
+fi
+
+if [ "$unexpected_mounts" -ne 0 ]; then
+  report "MOKO_DISK_SAFETY result=fail unexpected_block_mounts=$unexpected_mounts automounter=$automounter"
+  exit 1
+fi
+
+report "MOKO_DISK_SAFETY result=pass unexpected_block_mounts=0 automounter=$automounter"

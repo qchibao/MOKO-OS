@@ -1,0 +1,15 @@
+[Unit]
+# DEV_ONLY: assert the non-destructive Live USB storage policy before login.
+Description=MOKO Developer Preview live disk safety audit
+After=local-fs.target
+Before=greetd.service moko-live-health.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/moko-live-disk-safety-check
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=graphical.target

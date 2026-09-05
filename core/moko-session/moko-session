@@ -1,9 +1,18 @@
 #!/bin/sh
 # BOOTSTRAP: session wrapper for the MOKO OS Developer Preview.
+set -u
+
 export XDG_CURRENT_DESKTOP=MOKO
 export XDG_SESSION_DESKTOP=MOKO
 export QT_QPA_PLATFORM=wayland
 export QT_QUICK_CONTROLS_STYLE=Basic
+MOKO_BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
+case "$MOKO_BOOT_MODE" in
+  desktop|hardware-diagnostics|safe-graphics) ;;
+  *) MOKO_BOOT_MODE=desktop ;;
+esac
+export MOKO_BOOT_MODE
+
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-}/bus" ]; then
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 fi
@@ -16,8 +25,21 @@ fi
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
   dbus-update-activation-environment \
     XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP QT_QPA_PLATFORM \
-    QT_QUICK_CONTROLS_STYLE WAYLAND_DISPLAY MOKO_LIVE_LAUNCH_EVENTS >/dev/null 2>&1 || true
+    QT_QUICK_CONTROLS_STYLE WAYLAND_DISPLAY MOKO_BOOT_MODE MOKO_SAFE_GRAPHICS \
+    LIBGL_ALWAYS_SOFTWARE QT_QUICK_BACKEND MOKO_LIVE_LAUNCH_EVENTS >/dev/null 2>&1 || true
 fi
+
+if [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ]; then
+  mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"
+  printf 'MOKO_BOOT_PROFILE mode=%s safe_graphics=%s uid=%s\n' \
+    "$MOKO_BOOT_MODE" "${MOKO_SAFE_GRAPHICS:-0}" "$(id -u)" \
+    >> "$MOKO_LIVE_LAUNCH_EVENTS"
+fi
+
+if [ "$MOKO_BOOT_MODE" = hardware-diagnostics ]; then
+  /usr/local/bin/moko-hardware-diagnostics
+fi
+
 ai_pid=""
 if command -v moko-ai-daemon >/dev/null 2>&1; then
   moko-ai-daemon >"${XDG_RUNTIME_DIR:-/tmp}/moko-ai-daemon.log" 2>&1 &

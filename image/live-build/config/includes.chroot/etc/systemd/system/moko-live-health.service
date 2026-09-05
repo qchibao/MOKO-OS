@@ -1,7 +1,8 @@
 [Unit]
 # DEV_ONLY: removed when the Developer Preview boot diagnostics are replaced.
 Description=MOKO Developer Preview live boot health check
-After=greetd.service NetworkManager.service
+After=moko-live-disk-safety.service greetd.service NetworkManager.service
+Requires=moko-live-disk-safety.service
 Wants=greetd.service NetworkManager.service
 
 [Service]

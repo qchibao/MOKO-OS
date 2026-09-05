@@ -49,3 +49,15 @@ numbers, UUIDs, MAC addresses, host names and personal file content.
 QEMU is a validation target, not a hardware support claim. Physical PC and
 Intel Mac results must be collected from a non-destructive Live USB session and
 reviewed per model before changing a compatibility status.
+
+## Live USB Developer Preview
+Both legacy BIOS and x86_64 UEFI menus expose `Try MOKO OS`, direct
+`Hardware Diagnostics` and `Safe Graphics Mode`. The fallback uses software
+rendering for Cage and Qt Quick but still depends on a Linux DRM output; it does
+not prove that an untested GPU is supported.
+
+The live image includes NetworkManager, BlueZ, PipeWire/WirePlumber, common
+Intel/AMD graphics firmware, Intel/Broadcom Wi-Fi firmware and standard input,
+NVMe and USB kernel support. Presence in the image is not certification for a
+specific machine. Use `docs/LIVE_USB_CHECKLIST.md`, export both diagnostics
+reports, and leave any unverified subsystem `UNKNOWN`.

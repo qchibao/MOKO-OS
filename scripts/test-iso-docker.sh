@@ -6,6 +6,8 @@ ISO=${1:-$ROOT/out/MOKO-OS-v0.1-dev-amd64.hybrid.iso}
 RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
+BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
+BOOT_FIRMWARE=${MOKO_BOOT_FIRMWARE:-bios}
 LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
 LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
 LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
@@ -32,10 +34,35 @@ command -v docker >/dev/null || {
   echo "MOKO_BOOT_RUNS must be a positive integer." >&2
   exit 1
 }
+[[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_BOOT_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
 [[ "$SCREENSHOT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "MOKO_SCREENSHOT_TIMEOUT must be a positive integer." >&2
   exit 1
 }
+case "$BOOT_MODE" in
+  desktop|hardware-diagnostics|safe-graphics) ;;
+  *)
+    echo "MOKO_BOOT_MODE must be desktop, hardware-diagnostics or safe-graphics." >&2
+    exit 1
+    ;;
+esac
+case "$BOOT_FIRMWARE" in
+  bios|uefi) ;;
+  *)
+    echo "MOKO_BOOT_FIRMWARE must be bios or uefi." >&2
+    exit 1
+    ;;
+esac
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE; do
+  boolean_value=${!boolean_name}
+  [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
+    echo "MOKO_${boolean_name} must be 0 or 1." >&2
+    exit 1
+  }
+done
 if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   [[ -n "$LAUNCH_QUERY" && -n "$LAUNCH_APP_ID" ]] || {
     echo "MOKO_LAUNCH_QUERY and MOKO_LAUNCH_APP_ID must be set together." >&2
@@ -47,18 +74,6 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   }
   [[ "$LAUNCH_SETTLE_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
     echo "MOKO_LAUNCH_SETTLE_SECONDS must be a positive integer." >&2
-    exit 1
-  }
-  [[ "$REQUIRE_APP_READY" == 0 || "$REQUIRE_APP_READY" == 1 ]] || {
-    echo "MOKO_REQUIRE_APP_READY must be 0 or 1." >&2
-    exit 1
-  }
-  [[ "$EXPECT_HARDWARE_REPORT" == 0 || "$EXPECT_HARDWARE_REPORT" == 1 ]] || {
-    echo "MOKO_EXPECT_HARDWARE_REPORT must be 0 or 1." >&2
-    exit 1
-  }
-  [[ "$SETTINGS_OPEN_HARDWARE" == 0 || "$SETTINGS_OPEN_HARDWARE" == 1 ]] || {
-    echo "MOKO_SETTINGS_OPEN_HARDWARE must be 0 or 1." >&2
     exit 1
   }
 fi
@@ -76,10 +91,15 @@ if [[ -n "$AI_PROMPT" || -n "$AI_EXPECT_ACTION" || -n "$AI_EXPECT_APP_ID" ]]; th
     exit 1
   }
 fi
+if [[ "$BOOT_MODE" == hardware-diagnostics ]] \
+    && [[ -n "$LAUNCH_QUERY" || -n "$AI_PROMPT" ]]; then
+  echo "Launcher and AI interaction tests require a Shell boot profile." >&2
+  exit 1
+fi
 
 ISO_DIR=$(cd "$(dirname "$ISO")" && pwd)
 ISO_NAME=$(basename "$ISO")
-ARTIFACT_PREFIX="moko-iso-smoke-$STAMP"
+ARTIFACT_PREFIX="moko-iso-smoke-$STAMP-$BOOT_FIRMWARE-$BOOT_MODE"
 CONTAINER=""
 
 cleanup() {
@@ -129,6 +149,34 @@ wait_for_monitor() {
   done
 }
 
+select_boot_profile() {
+  local hotkey=""
+  local menu_delay=${MOKO_BOOT_MENU_DELAY:-}
+  case "$BOOT_MODE" in
+    hardware-diagnostics) hotkey=h ;;
+    safe-graphics) hotkey=s ;;
+    desktop) return ;;
+  esac
+
+  if [[ -z "$menu_delay" ]]; then
+    if [[ "$BOOT_FIRMWARE" == uefi ]]; then
+      menu_delay=6
+    else
+      menu_delay=3
+    fi
+  fi
+  [[ "$menu_delay" =~ ^[1-9][0-9]*$ ]] || {
+    echo "MOKO_BOOT_MENU_DELAY must be a positive integer." >&2
+    return 1
+  }
+
+  # Let SeaBIOS/OVMF hand control to the ISO before sending a menu hotkey.
+  sleep "$menu_delay"
+  monitor "sendkey $hotkey"
+  sleep 0.5
+  monitor "sendkey ret"
+}
+
 docker build --platform linux/amd64 -t "$IMAGE" "$ROOT/tools/debian-qemu"
 
 docker run --rm --platform linux/amd64 \
@@ -141,28 +189,68 @@ docker run --rm --platform linux/amd64 \
       -extract /live/filesystem.packages /tmp/filesystem.packages \
       -extract /live/filesystem.squashfs /tmp/filesystem.squashfs \
       -extract /isolinux/isolinux.cfg /tmp/isolinux.cfg \
-      -extract /boot/grub/config.cfg /tmp/grub.cfg >/dev/null 2>&1
+      -extract /isolinux/menu.cfg /tmp/isolinux-menu.cfg \
+      -extract /isolinux/live.cfg /tmp/syslinux-live.cfg \
+      -extract /boot/grub/config.cfg /tmp/grub-config.cfg \
+      -extract /boot/grub/grub.cfg /tmp/grub-menu.cfg \
+      -extract /EFI/boot/bootx64.efi /tmp/bootx64.efi \
+      -extract /MOKO/BUILD-INFO.txt /tmp/moko-build-info.txt \
+      -extract /MOKO/KNOWN-ISSUES.txt /tmp/moko-known-issues.txt \
+      -extract /MOKO/LIVE_USB_CHECKLIST.md /tmp/moko-live-usb-checklist.md \
+      -extract /MOKO/MOKO-OS-v0.1-dev-amd64.packages.txt /tmp/moko-packages.txt \
+      >/dev/null 2>&1
+    cmp /tmp/filesystem.packages /tmp/moko-packages.txt
+    cut -f1 /tmp/filesystem.packages | sed "s/:.*$//" > /tmp/package-names
 
-    if grep -Eiq "^(gnome-shell|gnome-core|gnome-session|task-gnome-desktop|plasma-desktop|kde-standard|task-kde-desktop|calamares|debian-installer)([[:space:]]|$)" /tmp/filesystem.packages; then
-      echo "Desktop environment or installer package found in ISO." >&2
+    if grep -Eiq "^(gnome-shell|gnome-core|gnome-session|task-gnome-desktop|plasma-desktop|kde-standard|task-kde-desktop|xfce4|task-xfce-desktop|calamares|debian-installer|gparted|parted|udisks2)$" /tmp/package-names; then
+      echo "Desktop environment, automounter or installer package found in ISO." >&2
       exit 1
     fi
-    if grep -Eiq "^(build-essential|cmake|libvterm-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)([[:space:]]|$)" /tmp/filesystem.packages; then
+    if grep -Eiq "^(build-essential|cmake|libvterm-dev|ninja-build|pkg-config|qt6-base-dev|qt6-base-dev-tools|qt6-declarative-dev|qt6-declarative-dev-tools|libxkbcommon-dev)$" /tmp/package-names; then
       echo "Build-only dependency found in ISO." >&2
       exit 1
     fi
 
-    grep -q "timeout 50" /tmp/isolinux.cfg
-    grep -q "set timeout=5" /tmp/grub.cfg
+    for package in \
+      live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
+      bluez cage greetd xwayland mesa-utils mesa-vulkan-drivers \
+      libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
+      firmware-linux firmware-misc-nonfree firmware-iwlwifi \
+      firmware-amd-graphics firmware-brcm80211
+    do
+      grep -Fxq "$package" /tmp/package-names || {
+          echo "Required Live USB package missing: $package" >&2
+          exit 1
+        }
+    done
+
+    grep -q "timeout 100" /tmp/isolinux.cfg
+    grep -q "set timeout=10" /tmp/grub-config.cfg
+    grep -Fq "MOKO OS v0.1 Developer Preview" /tmp/isolinux-menu.cfg
+    for label in "Try MOKO OS" "Hardware Diagnostics" "Safe Graphics Mode"; do
+      grep -Fq "$label" /tmp/syslinux-live.cfg
+      grep -Fq "$label" /tmp/grub-menu.cfg
+    done
+    for mode in desktop hardware-diagnostics safe-graphics; do
+      grep -Fq "moko.mode=$mode" /tmp/syslinux-live.cfg
+      grep -Fq "moko.mode=$mode" /tmp/grub-menu.cfg
+    done
+    test -s /tmp/bootx64.efi
+    grep -Fxq "Artifact: MOKO-OS-v0.1-dev-amd64.hybrid.iso" /tmp/moko-build-info.txt
+    grep -Fq "Installer: disabled" /tmp/moko-build-info.txt
+    grep -Fq "non-installing Live USB preview" /tmp/moko-known-issues.txt
+    grep -Fq "internal SSD/HDD partitions have no mountpoint" /tmp/moko-live-usb-checklist.md
     for path in \
       usr/local/bin/moko-shell \
       usr/local/bin/moko-session \
+      usr/local/bin/moko-cage-session \
       usr/local/bin/moko-files \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
       usr/local/bin/moko-hardware-diagnostics \
       usr/local/bin/moko-ai-daemon \
       usr/local/libexec/moko-live-health-check \
+      usr/local/libexec/moko-live-disk-safety-check \
       usr/local/libexec/moko-live-launch-monitor \
       usr/local/share/applications/org.moko.Files.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
@@ -171,6 +259,8 @@ docker run --rm --platform linux/amd64 \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       usr/local/share/dbus-1/services/org.moko.AI1.service \
       etc/greetd/config.toml \
+      etc/systemd/system/greetd.service.d/10-moko-live-safety.conf \
+      etc/systemd/system/moko-live-disk-safety.service \
       etc/systemd/system/moko-live-health.service \
       etc/systemd/system/moko-live-launch-monitor.service
     do
@@ -178,6 +268,13 @@ docker run --rm --platform linux/amd64 \
     done
     unsquashfs -ll /tmp/filesystem.squashfs etc/systemd/system/getty@tty1.service \
       | grep -Fq "squashfs-root/etc/systemd/system/getty@tty1.service -> /dev/null"
+    unsquashfs -ll /tmp/filesystem.squashfs etc/systemd/system/udisks2.service \
+      | grep -Fq "squashfs-root/etc/systemd/system/udisks2.service -> /dev/null"
+    if unsquashfs -ll /tmp/filesystem.squashfs usr/local/bin/moko-installer \
+        | grep -Fq "squashfs-root/usr/local/bin/moko-installer"; then
+      echo "Installer executable found in ISO." >&2
+      exit 1
+    fi
   '
 
 for run in $(seq 1 "$RUNS"); do
@@ -190,8 +287,9 @@ for run in $(seq 1 "$RUNS"); do
   echo "Cold boot $run/$RUNS"
   docker run -d --name "$CONTAINER" --platform linux/amd64 \
     --mount "type=bind,source=$ISO_DIR,target=/artifacts" \
+    --env "MOKO_QEMU_FIRMWARE=$BOOT_FIRMWARE" \
     "$IMAGE" \
-    qemu-system-x86_64 \
+    moko-qemu qemu-system-x86_64 \
       -name "MOKO OS cold boot $run" \
       -machine q35 \
       -accel "$QEMU_ACCEL" \
@@ -215,8 +313,21 @@ for run in $(seq 1 "$RUNS"); do
       -no-reboot >/dev/null
 
   wait_for_monitor
+  select_boot_profile
   deadline=$((SECONDS + TIMEOUT_SECONDS))
-  while ! grep -q 'MOKO_HEALTH result=pass' "$SERIAL_PATH" 2>/dev/null; do
+  expected_graphics=hardware
+  expected_safe_graphics=0
+  if [[ "$BOOT_MODE" == safe-graphics ]]; then
+    expected_graphics=software
+    expected_safe_graphics=1
+  fi
+  health_pattern="MOKO_HEALTH result=pass mode=$BOOT_MODE .*greetd_restarts=0 graphics=$expected_graphics firmware=$BOOT_FIRMWARE"
+  while ! grep -E -q "$health_pattern" "$SERIAL_PATH" 2>/dev/null; do
+    if grep -q 'MOKO_DISK_SAFETY result=fail' "$SERIAL_PATH" 2>/dev/null; then
+      tail -80 "$SERIAL_PATH" >&2
+      echo "Cold boot $run violated the live disk-safety policy." >&2
+      exit 1
+    fi
     if grep -q 'MOKO_HEALTH result=fail' "$SERIAL_PATH" 2>/dev/null; then
       tail -80 "$SERIAL_PATH" >&2
       echo "Cold boot $run reported a failed health check." >&2
@@ -235,9 +346,28 @@ for run in $(seq 1 "$RUNS"); do
     sleep 2
   done
 
+  grep -Fq "MOKO_DISK_SAFETY result=pass unexpected_block_mounts=0 automounter=absent" "$SERIAL_PATH" || {
+    tail -100 "$SERIAL_PATH" >&2
+    echo "Live session did not prove the read-only startup mount policy." >&2
+    exit 1
+  }
+  profile_deadline=$((SECONDS + 30))
+  while ! grep -Fq "MOKO_BOOT_PROFILE mode=$BOOT_MODE safe_graphics=$expected_safe_graphics uid=1000" "$SERIAL_PATH"; do
+    if (( SECONDS >= profile_deadline )); then
+      tail -100 "$SERIAL_PATH" >&2
+      echo "The selected MOKO boot profile did not reach the user session." >&2
+      exit 1
+    fi
+    sleep 1
+  done
+
   screenshot_deadline=$((SECONDS + SCREENSHOT_TIMEOUT_SECONDS))
   screenshot_size=0
-  while (( screenshot_size < 100000 )); do
+  screenshot_minimum=100000
+  if [[ "$BOOT_MODE" == hardware-diagnostics ]]; then
+    screenshot_minimum=50000
+  fi
+  while (( screenshot_size < screenshot_minimum )); do
     monitor "screendump /artifacts/$SCREENSHOT_NAME -f png"
     screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$SCREENSHOT_NAME")
     if (( SECONDS >= screenshot_deadline )); then
@@ -246,7 +376,33 @@ for run in $(seq 1 "$RUNS"); do
     fi
     sleep 5
   done
-  grep 'MOKO_HEALTH result=pass' "$SERIAL_PATH" | tail -1
+  grep -E "$health_pattern" "$SERIAL_PATH" | tail -1
+
+  if [[ "$BOOT_MODE" == hardware-diagnostics ]]; then
+    hardware_deadline=$((SECONDS + 45))
+    while ! grep -E -q "MOKO_HW_REPORT state=ready overall=(SUPPORTED|PARTIAL|UNKNOWN) manufacturer=QEMU .* architecture=x86_64 .* writable_disk_detected=0" "$SERIAL_PATH"; do
+      if (( SECONDS >= hardware_deadline )); then
+        tail -120 "$SERIAL_PATH" >&2
+        echo "Direct-boot Hardware Diagnostics did not produce the QEMU report." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    grep -Fq "MOKO_APP_READY app_id=org.moko.HardwareDiagnostics state=ready" "$SERIAL_PATH"
+    pointer_click 1050 69
+    pointer_click 1162 69
+    for format in json txt; do
+      while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
+        if (( SECONDS >= hardware_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "Direct-boot Hardware Diagnostics did not export $format." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+    done
+    grep -E "MOKO_HW_REPORT state=ready|MOKO_HW_EXPORT" "$SERIAL_PATH" | tail -3
+  fi
 
   if [[ "$run" == 1 && -n "$AI_PROMPT" ]]; then
     ai_daemon_deadline=$((SECONDS + 30))
@@ -272,7 +428,12 @@ for run in $(seq 1 "$RUNS"); do
     grep -F "MOKO_AI_UI state=connected uid=1000" "$SERIAL_PATH" | tail -1
 
     monitor "sendkey ctrl-alt-a"
-    sleep 1
+    sleep 2
+    monitor "sendkey ctrl-a"
+    sleep 0.5
+    # Absorb a possible first-key focus transition; the provider trims whitespace.
+    monitor "sendkey spc"
+    sleep 0.5
     for ((index = 0; index < ${#AI_PROMPT}; index++)); do
       key=${AI_PROMPT:index:1}
       if [[ "$key" == " " ]]; then
@@ -346,6 +507,10 @@ for run in $(seq 1 "$RUNS"); do
   fi
 
   if [[ "$run" == 1 && -n "$LAUNCH_QUERY" ]]; then
+    pointer_click 220 108
+    sleep 1
+    monitor "sendkey ctrl-a"
+    sleep 0.5
     for ((index = 0; index < ${#LAUNCH_QUERY}; index++)); do
       monitor "sendkey ${LAUNCH_QUERY:index:1}"
       sleep 0.1

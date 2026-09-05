@@ -9,11 +9,36 @@ report() {
   fi
 }
 
+cmdline=$(cat /proc/cmdline 2>/dev/null || true)
+case " $cmdline " in
+  *" moko.mode=hardware-diagnostics "*)
+    mode=hardware-diagnostics
+    surface=moko-hardware-diagnostics
+    surface_pattern='^/usr/local/bin/moko-hardware-diagnostics($| )'
+    ;;
+  *" moko.mode=safe-graphics "*)
+    mode=safe-graphics
+    surface=moko-shell
+    surface_pattern='moko-shell'
+    ;;
+  *)
+    mode=desktop
+    surface=moko-shell
+    surface_pattern='moko-shell'
+    ;;
+esac
+
 attempt=0
-while ! pgrep -x moko-shell >/dev/null 2>&1; do
+while :; do
+  if [ "$mode" = hardware-diagnostics ]; then
+    surface_pid=$(pgrep -o -f "$surface_pattern" || true)
+  else
+    surface_pid=$(pgrep -o -x "$surface_pattern" || true)
+  fi
+  [ -n "$surface_pid" ] && break
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 120 ]; then
-    report "MOKO_HEALTH result=fail reason=shell-timeout"
+    report "MOKO_HEALTH result=fail reason=surface-timeout mode=$mode surface=$surface"
     exit 1
   fi
   sleep 1
@@ -21,6 +46,11 @@ done
 
 if ! systemctl is-active --quiet greetd.service; then
   report "MOKO_HEALTH result=fail reason=greetd-inactive"
+  exit 1
+fi
+
+if ! systemctl is-active --quiet moko-live-disk-safety.service; then
+  report "MOKO_HEALTH result=fail reason=disk-safety-inactive"
   exit 1
 fi
 
@@ -32,7 +62,6 @@ fi
 
 input_events=$(find /dev/input -maxdepth 1 -name 'event*' 2>/dev/null | wc -l)
 greetd_restarts=$(systemctl show greetd.service -p NRestarts --value)
-shell_pid=$(pgrep -o -x moko-shell)
 
 if [ "$input_events" -eq 0 ]; then
   report "MOKO_HEALTH result=fail reason=no-input-events"
@@ -44,4 +73,25 @@ if [ "$greetd_restarts" -ge 3 ]; then
   exit 1
 fi
 
-report "MOKO_HEALTH result=pass shell_pid=$shell_pid nic=$nic input_events=$input_events greetd_restarts=$greetd_restarts"
+graphics=hardware
+if [ "$mode" = safe-graphics ]; then
+  if ! tr '\000' '\n' < "/proc/$surface_pid/environ" | grep -qx 'MOKO_SAFE_GRAPHICS=1' \
+      || ! tr '\000' '\n' < "/proc/$surface_pid/environ" | grep -qx 'QT_QUICK_BACKEND=software'; then
+    report "MOKO_HEALTH result=fail reason=safe-graphics-environment-missing"
+    exit 1
+  fi
+  cage_pid=$(pgrep -o -x cage || true)
+  if [ -z "$cage_pid" ] \
+      || ! tr '\000' '\n' < "/proc/$cage_pid/environ" | grep -qx 'WLR_RENDERER=pixman'; then
+    report "MOKO_HEALTH result=fail reason=safe-compositor-renderer-missing"
+    exit 1
+  fi
+  graphics=software
+fi
+
+firmware=bios
+if [ -d /sys/firmware/efi ]; then
+  firmware=uefi
+fi
+
+report "MOKO_HEALTH result=pass mode=$mode surface=$surface surface_pid=$surface_pid nic=$nic input_events=$input_events greetd_restarts=$greetd_restarts graphics=$graphics firmware=$firmware"

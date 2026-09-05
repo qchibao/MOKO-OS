@@ -61,6 +61,9 @@ MOKO_LAUNCH_QUERY=appearance MOKO_LAUNCH_APP_ID=org.moko.Settings \
   ./scripts/test-iso-docker.sh
 MOKO_AI_PROMPT="open hardware diagnostics" MOKO_AI_EXPECT_ACTION=open_application \
   MOKO_AI_EXPECT_APP_ID=org.moko.HardwareDiagnostics ./scripts/test-iso-docker.sh
+MOKO_BOOT_MODE=hardware-diagnostics ./scripts/test-iso-docker.sh
+MOKO_BOOT_MODE=safe-graphics ./scripts/test-iso-docker.sh
+MOKO_BOOT_FIRMWARE=uefi ./scripts/test-iso-docker.sh
 ```
 
 Each run waits for the live image's `MOKO_HEALTH` marker, captures the serial
@@ -73,6 +76,15 @@ creates or attaches a writable disk.
 The Docker QEMU path defaults to multi-threaded TCG with a 2 GiB translation
 block cache. Override it with `MOKO_QEMU_ACCEL` only when comparing emulator
 configurations; the timeout and health assertions remain unchanged.
+
+`MOKO_BOOT_MODE` accepts only `desktop`, `hardware-diagnostics` or
+`safe-graphics`. `MOKO_BOOT_FIRMWARE` accepts only `bios` or `uefi`; UEFI tests
+use a fresh writable copy of the OVMF variable store inside the disposable QEMU
+container. Every run statically checks both boot menus, the x86_64 EFI loader,
+required hardware packages, release metadata, installer/automounter absence and
+the live disk-safety units before starting QEMU. Runtime health must report the
+requested mode, firmware, renderer, zero greetd restarts and zero unexpected
+block mounts.
 
 The optional launcher variables drive the visible launcher through QEMU keyboard
 input and require its sanitized runtime event to report the selected process as
@@ -92,6 +104,24 @@ input. They require an unprivileged daemon connection, the expected D-Bus
 response, and, for application actions, the registry launch, in-process app
 readiness and Cage surface handoff. The test captures the resulting AI panel or
 application framebuffer as `*-ai.png`.
+
+## Release artifacts
+A successful build writes these files to `out/`:
+
+```text
+MOKO-OS-v0.1-dev-amd64.hybrid.iso
+MOKO-OS-v0.1-dev-amd64.build-info.txt
+MOKO-OS-v0.1-dev-amd64.packages.txt
+MOKO-OS-v0.1-dev-amd64.known-issues.txt
+MOKO-OS-v0.1-dev-amd64.live-usb-checklist.md
+SHA256SUMS
+```
+
+The build timestamp derives from `SOURCE_DATE_EPOCH`, normally the recorded git
+commit time. Build info, known issues, package manifest and the physical
+checklist are also placed under `/MOKO` on the ISO. The live-build package
+manifest remains available at `/live/filesystem.packages`, and the release test
+requires both copies to match byte-for-byte.
 
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a
