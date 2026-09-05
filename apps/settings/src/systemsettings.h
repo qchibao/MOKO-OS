@@ -8,12 +8,15 @@ class SystemSettings final : public QObject
     Q_OBJECT
     Q_PROPERTY(QString refreshedAt READ refreshedAt NOTIFY dataChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY dataChanged)
+    Q_PROPERTY(bool developerMode READ developerMode WRITE setDeveloperMode NOTIFY developerModeChanged)
 
 public:
     explicit SystemSettings(QObject *parent = nullptr);
 
     QString refreshedAt() const;
     QString statusMessage() const;
+    bool developerMode() const;
+    void setDeveloperMode(bool enabled);
 
     Q_INVOKABLE QStringList sectionIds() const;
     Q_INVOKABLE QString sectionTitle(const QString &sectionId) const;
@@ -24,6 +27,7 @@ public:
 
 signals:
     void dataChanged();
+    void developerModeChanged();
 
 private:
     using Rows = QVariantList;
@@ -32,7 +36,8 @@ private:
                            const QString &value,
                            const QString &detail = {},
                            bool available = true,
-                           bool writable = false);
+                           bool writable = false,
+                           bool technical = false);
     static QString readTextFile(const QString &path);
     static QMap<QString, QString> readKeyValueFile(const QString &path);
     static QString formatBytes(quint64 bytes);
@@ -54,4 +59,5 @@ private:
     QHash<QString, Rows> m_rows;
     QString m_refreshedAt;
     QString m_statusMessage;
+    bool m_developerMode = false;
 };

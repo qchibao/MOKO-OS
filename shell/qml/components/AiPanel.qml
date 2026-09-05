@@ -95,10 +95,10 @@ GlassPanel {
 
         Repeater {
             model: [
-                ["System Overview", "Read live Linux system status.", "ai", "system overview"],
-                ["Open MOKO Files", "Launch through the MOKO app registry.", "files", "open files"],
-                ["Network Status", "Read NetworkManager state.", "browser", "network status"],
-                ["Storage Status", "Read mounted filesystem capacity.", "settings", "storage status"]
+                ["System Overview", "Check this device's current status.", "ai", "system overview"],
+                ["Open MOKO Files", "Browse files and folders.", "files", "open files"],
+                ["Network Status", "Check the current connection.", "browser", "network status"],
+                ["Storage Status", "Check available storage space.", "settings", "storage status"]
             ]
             delegate: Rectangle {
                 required property var modelData

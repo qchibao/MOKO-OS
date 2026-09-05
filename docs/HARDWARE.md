@@ -37,9 +37,11 @@ T2-equipped Intel Macs require a separate compatibility track. Do not claim supp
 
 ## MOKO Hardware Diagnostics
 Launch `MOKO Hardware Diagnostics` from the Launcher, Dock, MOKO Settings or the
-allowlisted MOKO AI action. The scan is read-only and reports four evidence
-levels: `SUPPORTED`, `PARTIAL`, `UNKNOWN` and `UNSUPPORTED`. `UNKNOWN` is the
-required result when the running system cannot provide enough evidence.
+allowlisted MOKO AI action. The normal UI describes results as `Working`,
+`Limited`, `Not detected` or `Unsupported`. The Advanced view and exported
+reports retain the machine-readable evidence levels `SUPPORTED`, `PARTIAL`,
+`UNKNOWN` and `UNSUPPORTED`; `UNKNOWN` remains required when the running system
+cannot provide enough evidence.
 
 The app can explicitly export `moko-hardware-report.json` and
 `moko-hardware-report.txt` to the current user's home directory. Reports include

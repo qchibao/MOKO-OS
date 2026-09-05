@@ -14,9 +14,17 @@ ApplicationWindow {
     color: "#F7FBFF"
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    property var sections: mokoSettings.sectionIds()
+    property var sections: {
+        const developerMode = mokoSettings.developerMode
+        return mokoSettings.sectionIds().filter(function(sectionId) {
+            return developerMode || sectionId !== "system"
+        })
+    }
     property string selectedSection: sections.length ? sections[0] : "about"
-    property var currentRows: mokoSettings.rows(selectedSection)
+    property var currentRows: {
+        mokoSettings.developerMode
+        return mokoSettings.rows(selectedSection)
+    }
 
     function selectSection(sectionId) {
         selectedSection = sectionId
@@ -26,6 +34,12 @@ ApplicationWindow {
     Connections {
         target: mokoSettings
         function onDataChanged() { window.currentRows = mokoSettings.rows(window.selectedSection) }
+        function onDeveloperModeChanged() {
+            if (!mokoSettings.developerMode && window.selectedSection === "system")
+                window.selectSection("about")
+            else
+                window.currentRows = mokoSettings.rows(window.selectedSection)
+        }
     }
 
     Rectangle {
@@ -146,6 +160,29 @@ ApplicationWindow {
 
                 Button {
                     Layout.fillWidth: true
+                    text: mokoSettings.developerMode ? "Developer Mode: On" : "Developer Mode"
+                    checkable: true
+                    checked: mokoSettings.developerMode
+                    implicitHeight: 38
+                    background: Rectangle {
+                        radius: 7
+                        color: parent.checked ? "#DCEAFF"
+                                              : parent.hovered ? "#F5FAFF" : "#FFFFFF"
+                        border.color: parent.checked ? "#8EB6F8" : "#C7D9EA"
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#1F3247"
+                        font.pixelSize: 11
+                        font.weight: parent.checked ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: mokoSettings.developerMode = checked
+                }
+
+                Button {
+                    Layout.fillWidth: true
                     text: "Refresh"
                     implicitHeight: 38
                     background: Rectangle {
@@ -238,7 +275,8 @@ ApplicationWindow {
                                     wrapMode: Text.Wrap
                                 }
                                 Text {
-                                    visible: modelData.detail && modelData.detail.length > 0
+                                    visible: mokoSettings.developerMode
+                                             && modelData.detail && modelData.detail.length > 0
                                     Layout.fillWidth: true
                                     text: modelData.detail || ""
                                     color: "#758698"
@@ -304,7 +342,8 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
-                        text: mokoSettings.statusMessage + ". Unavailable controls are intentionally not simulated."
+                        text: mokoSettings.statusMessage
+                              + ". Changes appear only when this device supports them."
                         color: "#567087"
                         font.pixelSize: 10
                         verticalAlignment: Text.AlignVCenter

@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-5 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-5 QEMU VALIDATED, PHASE 6 SOURCE VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -297,3 +297,37 @@ Primary artifacts: `out/moko-iso-smoke-20260905T200542Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T201952Z-bios-hardware-diagnostics-*`,
 `out/moko-iso-smoke-20260905T202327Z-bios-desktop-*` and
 `out/moko-iso-smoke-20260905T203531Z-bios-desktop-*`.
+
+## Phase 6 architecture - consumer and developer surfaces
+
+Settings and Hardware Diagnostics now keep technical evidence in their MOKO
+models while filtering it from the normal interface. Settings persists an
+explicit per-user Developer Mode; Hardware Diagnostics exposes a separate
+Advanced view. Compatibility enums remain unchanged in report exports and
+tests, but the default graphical UI uses Working, Limited, Not detected and
+Unsupported without boxed diagnostic badges.
+
+The shared application registry continues to honor standard desktop-entry
+visibility. A local hidden desktop entry suppresses Zutty without teaching the
+Launcher about a specific helper app. MOKO Files uses native QML dialogs with
+the existing MOKO visual tokens, launcher labels fit across two bounded lines,
+and the Shell clock uses the active locale and timezone rather than a fixed
+12-hour format. None of these paths changes process permissions, boot ordering,
+compositor selection, mount policy or disk safety.
+
+## Phase 6 source validation
+
+Validated on 2026-09-06 before the committed ISO regression run.
+
+- live disk-safety logging regression: passed;
+- compositor CTest: `3/3` passed;
+- Shell CTest: `4/4` passed;
+- AI CTest: `3/3` passed;
+- native apps, Browser, PTY and diagnostics CTest: `10/10` passed;
+- Browser HTTPS/JavaScript network smoke: passed;
+- MOKO compositor Qt multi-window session: passed;
+- Settings, Files, Hardware Diagnostics and Control Center render captures:
+  passed at 1280-wide layouts;
+- Settings Developer Mode filtering and Hardware display-label tests: passed;
+- committed Live ISO BIOS/UEFI and workflow validation: pending this phase
+  commit.

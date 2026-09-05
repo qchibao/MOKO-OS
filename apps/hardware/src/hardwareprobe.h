@@ -9,6 +9,7 @@ class HardwareProbe final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString overallStatus READ overallStatus NOTIFY dataChanged)
+    Q_PROPERTY(QString overallDisplayStatus READ overallDisplayStatus NOTIFY dataChanged)
     Q_PROPERTY(QString refreshedAt READ refreshedAt NOTIFY dataChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QString exportDirectory READ exportDirectory WRITE setExportDirectory NOTIFY exportDirectoryChanged)
@@ -17,6 +18,7 @@ public:
     explicit HardwareProbe(QObject *parent = nullptr);
 
     QString overallStatus() const;
+    QString overallDisplayStatus() const;
     QString refreshedAt() const;
     QString statusMessage() const;
     QString exportDirectory() const;
@@ -25,6 +27,7 @@ public:
     Q_INVOKABLE QStringList sectionIds() const;
     Q_INVOKABLE QString sectionTitle(const QString &sectionId) const;
     Q_INVOKABLE QString sectionStatus(const QString &sectionId) const;
+    Q_INVOKABLE QString sectionDisplayStatus(const QString &sectionId) const;
     Q_INVOKABLE QString sectionSummary(const QString &sectionId) const;
     Q_INVOKABLE QVariantList rows(const QString &sectionId) const;
     Q_INVOKABLE void refresh();
@@ -58,7 +61,9 @@ private:
     static QVariantMap row(const QString &label,
                            const QString &value,
                            const QString &evidence = {},
-                           bool available = true);
+                           bool available = true,
+                           bool technical = false);
+    static QString displayStatus(const QString &status);
     static QString readTextFile(const QString &path);
     static QMap<QString, QString> readKeyValueFile(const QString &path);
     static QString processOutput(const QString &program,

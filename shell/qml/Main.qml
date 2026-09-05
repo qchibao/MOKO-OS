@@ -13,7 +13,7 @@ ApplicationWindow {
     height: 900
     minimumWidth: 1280
     minimumHeight: 720
-    title: "MOKO OS v0.1 Developer Preview"
+    title: "MOKO OS v0.1.1 Hardware & Usability Preview"
     visibility: previewMode ? Window.Windowed : Window.FullScreen
     color: "#E8F4FF"
 
@@ -22,6 +22,7 @@ ApplicationWindow {
     property bool controlCenterVisible: false
     property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
+    property string dateText: ""
 
     function openApplication(appId) {
         if (!mokoWindowManager.activateApplication(appId))
@@ -30,7 +31,9 @@ ApplicationWindow {
 
     function updateClock() {
         const d = new Date()
-        clockText = Qt.formatTime(d, "hh:mm AP")
+        clockText = Qt.formatTime(d, Qt.locale().timeFormat(Locale.ShortFormat))
+        dateText = Qt.formatDate(d, Qt.locale().dateFormat(Locale.LongFormat))
+                   + "\n" + d.toString()
     }
 
     Component.onCompleted: updateClock()
@@ -55,6 +58,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         clockText: window.clockText
+        dateText: window.dateText
         control: mokoSystemControl
         z: 10
         onControlCenterRequested: (page) => {
@@ -125,7 +129,7 @@ ApplicationWindow {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "v0.1  •  DEVELOPER PREVIEW"
+            text: "v0.1.1  •  HARDWARE & USABILITY PREVIEW"
             color: "#657487"
             font.pixelSize: 10
             font.letterSpacing: 0

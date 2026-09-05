@@ -12,7 +12,7 @@ This repository already contains:
 - native Qt 6/QML **MOKO Browser** using the sandboxed Qt WebEngine runtime,
   with tabs, history, find, downloads and MOKO Files integration;
 - an unprivileged **MOKO AI daemon**, MOKO-owned D-Bus API, allowlisted action layer and provider-backed Shell panel for safe local actions;
-- native **MOKO Hardware Diagnostics** with evidence-based compatibility states and privacy-safe JSON/text reports;
+- native **MOKO Hardware Diagnostics** with consumer status language, an explicit Advanced view and privacy-safe evidence reports;
 - fixed BIOS/UEFI boot entries for **Try MOKO OS**, direct **Hardware Diagnostics** and **Safe Graphics Mode**;
 - a non-installing Live USB safety audit that runs before the graphical session and rejects unexpected block-device mounts;
 - Debian 13 (trixie) live-build scaffolding for an **amd64/x86_64** developer ISO;
@@ -24,7 +24,7 @@ This repository already contains:
 - architecture, design language, hardware target, security principles and roadmap documents;
 - Codex-oriented task files and `AGENTS.md`.
 
-The ISO is intentionally labeled **Developer Preview**. The shell, launcher and
+The ISO is intentionally labeled **Hardware & Usability Preview**. The shell, launcher and
 first native applications, AI system actions and hardware diagnostics have been built on Debian 13 and
 validated in the real QEMU graphical session, including three cold boots with
 network/input detection and clean shutdown. It remains a non-installing preview;
@@ -32,7 +32,7 @@ non-destructive Live USB readiness and physical hardware testing come next.
 
 ## First target
 
-`MOKO OS v0.1 Developer Preview — x86_64`
+`MOKO OS v0.1.1 Hardware & Usability Preview - x86_64`
 
 Primary hardware target:
 

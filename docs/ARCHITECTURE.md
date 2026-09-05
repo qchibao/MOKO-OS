@@ -119,6 +119,20 @@ file content. Settings launches the app through the Shell-owned
 `org.moko.Applications1` registry, and MOKO AI can request the same allowlisted
 application ID without gaining a general process or shell capability.
 
+## Consumer and developer information boundary
+Normal MOKO surfaces present concise states such as `Working`, `Limited`,
+`Not detected`, `Connected` and `Disconnected`. Hardware compatibility enums
+remain stable in exported reports and tests because they are machine-readable
+evidence, but are not rendered as colored diagnostic badges in the default UI.
+
+MOKO Settings persists an explicit per-user Developer Mode. Raw kernel, Qt,
+renderer, PipeWire, NetworkManager, BlueZ and D-Bus details are filtered from
+the normal model view and become visible only in Developer Mode. Hardware
+Diagnostics follows the same boundary through its Advanced control while
+keeping read-only evidence available for support and exported reports. Helper
+desktop entries are hidden from the shared application registry rather than
+special-cased in the Launcher.
+
 ## Control Center boundary
 `moko-shell` owns the Control Center UI and exposes consumer-facing state without
 showing raw D-Bus or PipeWire internals. Its unprivileged `SystemControl`

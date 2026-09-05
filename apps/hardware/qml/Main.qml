@@ -16,7 +16,8 @@ ApplicationWindow {
 
     property var sections: mokoHardware.sectionIds()
     property string selectedSection: sections.length ? sections[0] : "system"
-    property var currentRows: mokoHardware.rows(selectedSection)
+    property bool developerMode: false
+    property var currentRows: []
     property int dataRevision: 0
 
     function sectionTitle(sectionId) {
@@ -41,24 +42,59 @@ ApplicationWindow {
         return "#637488"
     }
 
-    function statusBackground(status) {
-        if (status === "SUPPORTED") return "#E1F5EC"
-        if (status === "PARTIAL") return "#FFF0D8"
-        if (status === "UNSUPPORTED") return "#FBE4E7"
-        return "#EAF0F5"
+    function displayStatus(sectionId) {
+        dataRevision
+        const display = mokoHardware.sectionDisplayStatus(sectionId)
+        return developerMode ? display + " / " + sectionStatus(sectionId) : display
+    }
+
+    function overallDisplayStatus() {
+        dataRevision
+        return developerMode ? mokoHardware.overallDisplayStatus + " / " + mokoHardware.overallStatus
+                             : mokoHardware.overallDisplayStatus
+    }
+
+    function refreshRows() {
+        const rows = mokoHardware.rows(selectedSection)
+        currentRows = developerMode ? rows : rows.filter(function(row) { return !row.technical })
     }
 
     function selectSection(sectionId) {
         selectedSection = sectionId
-        currentRows = mokoHardware.rows(sectionId)
+        refreshRows()
     }
+
+    onDeveloperModeChanged: refreshRows()
+    Component.onCompleted: refreshRows()
 
     Connections {
         target: mokoHardware
         function onDataChanged() {
             window.dataRevision += 1
             window.sections = mokoHardware.sectionIds()
-            window.currentRows = mokoHardware.rows(window.selectedSection)
+            window.refreshRows()
+        }
+    }
+
+    component HeaderButton: Button {
+        id: headerButton
+        implicitHeight: 36
+        leftPadding: 13
+        rightPadding: 13
+        hoverEnabled: true
+        background: Rectangle {
+            radius: 6
+            color: headerButton.down ? "#D5E7F7"
+                                     : headerButton.hovered ? "#E9F3FA" : "#F8FBFD"
+            border.color: "#C7D8E4"
+        }
+        contentItem: Text {
+            text: headerButton.text
+            color: "#203447"
+            font.pixelSize: 11
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
         }
     }
 
@@ -90,48 +126,46 @@ ApplicationWindow {
                     Text { text: "MOKO"; color: "#10151C"; font.pixelSize: 23; font.weight: Font.Black }
                     Text { text: "HARDWARE DIAGNOSTICS"; color: "#3978F6"; font.pixelSize: 10; font.weight: Font.Bold }
                 }
-                Rectangle {
+                Text {
                     Layout.leftMargin: 12
-                    implicitWidth: overallLabel.implicitWidth + 22
-                    implicitHeight: 30
-                    radius: 7
-                    color: window.statusBackground(mokoHardware.overallStatus)
-                    Text {
-                        id: overallLabel
-                        anchors.centerIn: parent
-                        text: mokoHardware.overallStatus
-                        color: window.statusColor(mokoHardware.overallStatus)
-                        font.pixelSize: 10
-                        font.weight: Font.Bold
-                    }
+                    text: "Compatibility: " + window.overallDisplayStatus()
+                    color: "#52687B"
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
                 }
                 Item { Layout.fillWidth: true }
-                Button {
+                HeaderButton {
+                    text: window.developerMode ? "Advanced: On" : "Advanced"
+                    checkable: true
+                    checked: window.developerMode
+                    onClicked: window.developerMode = checked
+                }
+                HeaderButton {
                     text: "Refresh"
                     ToolTip.visible: hovered
                     ToolTip.text: "Run the read-only hardware scan again"
                     onClicked: mokoHardware.refresh()
                 }
-                Button {
+                HeaderButton {
                     text: "Export JSON"
                     ToolTip.visible: hovered
                     ToolTip.text: "Export moko-hardware-report.json"
                     onClicked: mokoHardware.exportJson()
                 }
-                Button {
+                HeaderButton {
                     text: "Export Text"
                     ToolTip.visible: hovered
                     ToolTip.text: "Export moko-hardware-report.txt"
                     onClicked: mokoHardware.exportText()
                 }
-                Button {
+                HeaderButton {
                     text: "-"
                     implicitWidth: 36
                     ToolTip.visible: hovered
                     ToolTip.text: "Minimize Hardware Diagnostics"
                     onClicked: window.showMinimized()
                 }
-                Button {
+                HeaderButton {
                     text: window.visibility === Window.Maximized ? "[]" : "[ ]"
                     implicitWidth: 38
                     ToolTip.visible: hovered
@@ -140,7 +174,7 @@ ApplicationWindow {
                     onClicked: window.visibility = window.visibility === Window.Maximized
                                                    ? Window.Windowed : Window.Maximized
                 }
-                Button {
+                HeaderButton {
                     text: "X"
                     implicitWidth: 36
                     ToolTip.visible: hovered
@@ -190,17 +224,16 @@ ApplicationWindow {
                                 font.weight: window.selectedSection === modelData ? Font.DemiBold : Font.Normal
                             }
                             Rectangle {
-                                implicitWidth: 70
-                                implicitHeight: 22
-                                radius: 6
-                                color: window.statusBackground(window.sectionStatus(modelData))
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: window.sectionStatus(modelData)
-                                    color: window.statusColor(window.sectionStatus(modelData))
-                                    font.pixelSize: 8
-                                    font.weight: Font.Bold
-                                }
+                                width: 8
+                                height: 8
+                                radius: 4
+                                color: window.statusColor(window.sectionStatus(modelData))
+                            }
+                            Text {
+                                text: window.displayStatus(modelData)
+                                color: "#5F7182"
+                                font.pixelSize: 9
+                                font.weight: Font.Medium
                             }
                         }
                         MouseArea {
@@ -246,18 +279,19 @@ ApplicationWindow {
                                 wrapMode: Text.Wrap
                             }
                         }
-                        Rectangle {
-                            implicitWidth: sectionStatusLabel.implicitWidth + 24
-                            implicitHeight: 32
-                            radius: 7
-                            color: window.statusBackground(window.sectionStatus(window.selectedSection))
-                            Text {
-                                id: sectionStatusLabel
-                                anchors.centerIn: parent
-                                text: window.sectionStatus(window.selectedSection)
+                        RowLayout {
+                            spacing: 8
+                            Rectangle {
+                                width: 9
+                                height: 9
+                                radius: 5
                                 color: window.statusColor(window.sectionStatus(window.selectedSection))
-                                font.pixelSize: 10
-                                font.weight: Font.Bold
+                            }
+                            Text {
+                                text: window.displayStatus(window.selectedSection)
+                                color: "#586D7F"
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
                             }
                         }
                     }
@@ -308,7 +342,8 @@ ApplicationWindow {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        visible: modelData.evidence && modelData.evidence.length > 0
+                                        visible: window.developerMode
+                                                 && modelData.evidence && modelData.evidence.length > 0
                                         text: modelData.evidence || ""
                                         color: "#758698"
                                         font.pixelSize: 9
@@ -332,7 +367,9 @@ ApplicationWindow {
                             anchors.fill: parent
                             anchors.leftMargin: 12
                             anchors.rightMargin: 12
-                            text: mokoHardware.statusMessage + "  |  Reports: " + mokoHardware.exportDirectory
+                            text: window.developerMode
+                                  ? mokoHardware.statusMessage + "  |  Reports: " + mokoHardware.exportDirectory
+                                  : mokoHardware.statusMessage
                             color: "#567087"
                             font.pixelSize: 10
                             verticalAlignment: Text.AlignVCenter

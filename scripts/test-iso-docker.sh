@@ -393,6 +393,7 @@ docker run --rm --platform linux/amd64 \
       usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
       usr/local/share/applications/org.moko.HardwareDiagnostics.desktop \
+      usr/local/share/applications/zutty.desktop \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       usr/local/share/dbus-1/services/org.moko.AI1.service \
       etc/greetd/config.toml \
@@ -408,6 +409,10 @@ docker run --rm --platform linux/amd64 \
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/share/applications/org.moko.Browser.desktop \
       | grep -Fxq "Exec=moko-browser %U"
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/share/applications/zutty.desktop > /tmp/zutty.desktop
+    grep -Fxq "NoDisplay=true" /tmp/zutty.desktop
+    grep -Fxq "Hidden=true" /tmp/zutty.desktop
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-launch-monitor \
       | grep -Fq "MOKO_INPUT_*"

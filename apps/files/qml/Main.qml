@@ -49,6 +49,92 @@ ApplicationWindow {
         ToolTip.delay: 500
     }
 
+    component DialogField: TextField {
+        implicitHeight: 42
+        leftPadding: 12
+        rightPadding: 12
+        selectByMouse: true
+        color: "#1D2C3D"
+        placeholderTextColor: "#8997A5"
+        background: Rectangle {
+            radius: 7
+            color: "#FFFFFF"
+            border.color: parent.activeFocus ? "#5C91FF" : "#C7D9EA"
+        }
+    }
+
+    component MokoDialog: Dialog {
+        id: mokoDialog
+        property string primaryText: "OK"
+        property string secondaryText: "Cancel"
+        property bool destructive: false
+        property int dialogWidth: 420
+        width: Math.min(dialogWidth, window.width - 48)
+        modal: true
+        anchors.centerIn: parent
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle {
+            radius: 8
+            color: "#F8FBFE"
+            border.width: 1
+            border.color: "#BFD2E0"
+        }
+        header: Rectangle {
+            implicitHeight: 54
+            color: "#EAF4FC"
+            border.color: "#D2E1EC"
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 20
+                anchors.verticalCenter: parent.verticalCenter
+                text: mokoDialog.title
+                color: "#152437"
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+        }
+        footer: Rectangle {
+            implicitHeight: 62
+            color: "#F3F8FC"
+            border.color: "#D7E3EC"
+            RowLayout {
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 8
+                CommandButton {
+                    visible: mokoDialog.secondaryText.length > 0
+                    text: mokoDialog.secondaryText
+                    onClicked: mokoDialog.reject()
+                }
+                Button {
+                    text: mokoDialog.primaryText
+                    implicitHeight: 36
+                    leftPadding: 16
+                    rightPadding: 16
+                    background: Rectangle {
+                        radius: 7
+                        color: parent.down
+                               ? (mokoDialog.destructive ? "#9D3541" : "#285FC4")
+                               : parent.hovered
+                                 ? (mokoDialog.destructive ? "#CB4A58" : "#4A84ED")
+                                 : (mokoDialog.destructive ? "#B83E4B" : "#3978F6")
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#FFFFFF"
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: mokoDialog.accept()
+                }
+            }
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "#F8FBFE"
@@ -419,45 +505,49 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    MokoDialog {
         id: newFolderDialog
         title: "Create Folder"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        primaryText: "Create"
         onAccepted: mokoFiles.createFolder(folderName.text)
-        TextField { id: folderName; width: 320; placeholderText: "Folder name"; onAccepted: newFolderDialog.accept() }
+        DialogField {
+            id: folderName
+            width: 360
+            placeholderText: "Folder name"
+            onAccepted: newFolderDialog.accept()
+        }
         onOpened: folderName.forceActiveFocus()
     }
 
-    Dialog {
+    MokoDialog {
         id: renameDialog
         title: "Rename Item"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        primaryText: "Rename"
         onAccepted: mokoFiles.renameEntry(window.selectedIndex, renameName.text)
-        TextField { id: renameName; width: 320; selectByMouse: true; onAccepted: renameDialog.accept() }
+        DialogField {
+            id: renameName
+            width: 360
+            onAccepted: renameDialog.accept()
+        }
         onOpened: { renameName.forceActiveFocus(); renameName.selectAll() }
     }
 
-    Dialog {
+    MokoDialog {
         id: deleteDialog
         title: "Confirm Delete"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Yes | Dialog.Cancel
+        primaryText: "Delete"
+        destructive: true
         onAccepted: { mokoFiles.confirmDelete(window.deleteToken); window.resetSelection() }
         onRejected: mokoFiles.cancelDelete()
-        Label { id: deleteText; width: 340; wrapMode: Text.Wrap; color: "#263444" }
+        Text { id: deleteText; width: 360; wrapMode: Text.Wrap; color: "#263444"; font.pixelSize: 12 }
     }
 
-    Dialog {
+    MokoDialog {
         id: propertiesDialog
         title: "Properties"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Close
+        primaryText: "Close"
+        secondaryText: ""
+        dialogWidth: 500
         contentItem: ColumnLayout {
             width: 430
             Repeater {
@@ -472,13 +562,12 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    MokoDialog {
         id: errorDialog
         title: "MOKO Files"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Close
-        Label { id: errorText; width: 360; wrapMode: Text.Wrap; color: "#263444" }
+        primaryText: "Close"
+        secondaryText: ""
+        Text { id: errorText; width: 360; wrapMode: Text.Wrap; color: "#263444"; font.pixelSize: 12 }
     }
 
     MouseArea {

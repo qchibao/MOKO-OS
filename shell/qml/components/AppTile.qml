@@ -79,11 +79,17 @@ Item {
         Text {
             visible: !root.compact
             width: root.dense ? 68 : 76
+            height: root.dense ? 25 : 29
             text: root.title
             horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignTop
+            wrapMode: Text.Wrap
+            maximumLineCount: 2
             elide: Text.ElideRight
             color: "#263342"
-            font.pixelSize: root.dense ? 10 : 11
+            font.pixelSize: root.dense ? 9 : 10
+            fontSizeMode: Text.Fit
+            minimumPixelSize: 8
         }
     }
 

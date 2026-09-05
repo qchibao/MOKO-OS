@@ -104,6 +104,7 @@ HardwareProbe::HardwareProbe(QObject *parent)
 }
 
 QString HardwareProbe::overallStatus() const { return m_overallStatus; }
+QString HardwareProbe::overallDisplayStatus() const { return displayStatus(m_overallStatus); }
 QString HardwareProbe::refreshedAt() const { return m_refreshedAt; }
 QString HardwareProbe::statusMessage() const { return m_statusMessage; }
 QString HardwareProbe::exportDirectory() const { return m_exportDirectory; }
@@ -134,6 +135,11 @@ QString HardwareProbe::sectionStatus(const QString &sectionId) const
     return m_sections.value(sectionId).status;
 }
 
+QString HardwareProbe::sectionDisplayStatus(const QString &sectionId) const
+{
+    return displayStatus(sectionStatus(sectionId));
+}
+
 QString HardwareProbe::sectionSummary(const QString &sectionId) const
 {
     return m_sections.value(sectionId).summary;
@@ -147,12 +153,25 @@ QVariantList HardwareProbe::rows(const QString &sectionId) const
 QVariantMap HardwareProbe::row(const QString &label,
                                const QString &value,
                                const QString &evidence,
-                               bool available)
+                               bool available,
+                               bool technical)
 {
     return {{QStringLiteral("label"), label},
             {QStringLiteral("value"), value},
             {QStringLiteral("evidence"), evidence},
-            {QStringLiteral("available"), available}};
+            {QStringLiteral("available"), available},
+            {QStringLiteral("technical"), technical}};
+}
+
+QString HardwareProbe::displayStatus(const QString &status)
+{
+    if (status == QString::fromLatin1(supported))
+        return QStringLiteral("Working");
+    if (status == QString::fromLatin1(partial))
+        return QStringLiteral("Limited");
+    if (status == QString::fromLatin1(unsupported))
+        return QStringLiteral("Unsupported");
+    return QStringLiteral("Not detected");
 }
 
 QString HardwareProbe::readTextFile(const QString &path)
@@ -318,16 +337,17 @@ void HardwareProbe::collectSystem()
         || architecture == QStringLiteral("amd64");
     setSection(QStringLiteral("system"), QStringLiteral("System"),
                targetArchitecture ? QString::fromLatin1(supported) : QString::fromLatin1(unsupported),
-               targetArchitecture ? QStringLiteral("Detected supported x86_64 architecture")
-                                  : QStringLiteral("MOKO OS v0.1 targets x86_64 only"),
+               targetArchitecture ? QStringLiteral("Compatible 64-bit system architecture")
+                                  : QStringLiteral("This preview supports x86_64 systems only"),
                {row(QStringLiteral("Manufacturer"), m_manufacturer, QStringLiteral("DMI/sysfs")),
                 row(QStringLiteral("Model"), m_model, QStringLiteral("DMI/sysfs")),
                 row(QStringLiteral("Firmware"), firmware, QStringLiteral("/sys/firmware/efi")),
-                row(QStringLiteral("Firmware vendor"), firstNonEmpty({biosVendor}), QStringLiteral("DMI bios_vendor"), !biosVendor.isEmpty()),
+                row(QStringLiteral("Firmware vendor"), firstNonEmpty({biosVendor}),
+                    QStringLiteral("DMI bios_vendor"), !biosVendor.isEmpty(), true),
                 row(QStringLiteral("Firmware version"), firstNonEmpty({biosVersion}),
                     biosDate.isEmpty() ? QStringLiteral("DMI bios_version")
                                        : QStringLiteral("DMI date %1").arg(biosDate),
-                    !biosVersion.isEmpty()),
+                    !biosVersion.isEmpty(), true),
                 row(QStringLiteral("Architecture"), architecture, QStringLiteral("Qt system information"))});
 }
 
@@ -380,8 +400,8 @@ void HardwareProbe::collectCpu()
     const QString status = !architectureOk ? QString::fromLatin1(unsupported)
         : threads >= 2 ? QString::fromLatin1(supported) : QString::fromLatin1(partial);
     setSection(QStringLiteral("cpu"), QStringLiteral("CPU"), status,
-               threads >= 2 ? QStringLiteral("CPU meets the Developer Preview thread target")
-                            : QStringLiteral("Fewer than two hardware threads detected"),
+               threads >= 2 ? QStringLiteral("Processor meets the preview requirements")
+                            : QStringLiteral("Processor support is limited"),
                {row(QStringLiteral("Vendor"), firstNonEmpty({vendor}), QStringLiteral("/proc/cpuinfo")),
                 row(QStringLiteral("Model"), firstNonEmpty({model}), QStringLiteral("/proc/cpuinfo")),
                 row(QStringLiteral("Physical cores"), QString::number(cores), QStringLiteral("/proc/cpuinfo")),
@@ -402,8 +422,8 @@ void HardwareProbe::collectMemory()
         : total >= 2 * gib ? QString::fromLatin1(partial)
         : total > 0 ? QString::fromLatin1(unsupported) : QString::fromLatin1(unknown);
     const QString summary = total >= 4 * gib
-        ? QStringLiteral("Meets the 4 GiB Developer Preview minimum")
-        : total > 0 ? QStringLiteral("Below the 4 GiB Developer Preview minimum")
+        ? QStringLiteral("Memory meets the preview requirements")
+        : total > 0 ? QStringLiteral("Available memory is below the recommended amount")
                     : QStringLiteral("Memory capacity could not be read");
     setSection(QStringLiteral("memory"), QStringLiteral("Memory"), status, summary,
                {row(QStringLiteral("Total RAM"), total ? formatBytes(total) : QStringLiteral("Unknown"),
@@ -466,14 +486,17 @@ void HardwareProbe::collectGraphics()
         : (driverBound || !m_activeRenderer.isEmpty()) ? QString::fromLatin1(partial)
                                                        : QString::fromLatin1(unknown);
     setSection(QStringLiteral("graphics"), QStringLiteral("Graphics"), status,
-               software ? QStringLiteral("Graphics are active through a software renderer")
-                        : driverBound ? QStringLiteral("A kernel graphics driver and renderer were detected")
+               software ? QStringLiteral("Graphics is available with limited acceleration")
+                        : driverBound ? QStringLiteral("Graphics acceleration is working")
                                       : QStringLiteral("Graphics support needs hardware validation"),
                {row(QStringLiteral("GPU vendor"), firstNonEmpty({gpuVendor}), QStringLiteral("PCI inventory")),
                 row(QStringLiteral("GPU model"), firstNonEmpty({gpuModel}), QStringLiteral("lspci/sysfs")),
-                row(QStringLiteral("Kernel driver"), firstNonEmpty({driver}), QStringLiteral("PCI driver binding"), driverBound),
-                row(QStringLiteral("Active renderer"), firstNonEmpty({m_activeRenderer}), QStringLiteral("OpenGL context"), !m_activeRenderer.isEmpty()),
-                row(QStringLiteral("Wayland renderer"), waylandRenderer, QStringLiteral("Session and Qt Quick graphics API"))});
+                row(QStringLiteral("Kernel driver"), firstNonEmpty({driver}),
+                    QStringLiteral("PCI driver binding"), driverBound, true),
+                row(QStringLiteral("Active renderer"), firstNonEmpty({m_activeRenderer}),
+                    QStringLiteral("OpenGL context"), !m_activeRenderer.isEmpty(), true),
+                row(QStringLiteral("Wayland renderer"), waylandRenderer,
+                    QStringLiteral("Session and Qt Quick graphics API"), true, true)});
 }
 
 void HardwareProbe::collectStorage()
@@ -570,10 +593,11 @@ void HardwareProbe::collectNetwork()
             ? firmwareMatch.captured(1).trimmed() : QStringLiteral("Not reported by the driver");
         deviceFound = true;
         driverFound = driverFound || driver != QStringLiteral("Not bound");
-        rows.append(row(wireless ? QStringLiteral("Wi-Fi device") : QStringLiteral("Ethernet device"),
-                        name,
-                        QStringLiteral("driver %1; state %2; firmware %3")
-                            .arg(driver, state, firmware),
+        rows.append(row(wireless ? QStringLiteral("Wi-Fi") : QStringLiteral("Ethernet"),
+                        driver != QStringLiteral("Not bound") ? QStringLiteral("Working")
+                                                               : QStringLiteral("Limited"),
+                        QStringLiteral("interface %1; driver %2; state %3; firmware %4")
+                            .arg(name, driver, state, firmware),
                         driver != QStringLiteral("Not bound")));
     }
     if (!deviceFound)
@@ -582,25 +606,28 @@ void HardwareProbe::collectNetwork()
     const QString status = driverFound ? QString::fromLatin1(supported)
         : deviceFound ? QString::fromLatin1(partial) : QString::fromLatin1(unknown);
     setSection(QStringLiteral("network"), QStringLiteral("Network"), status,
-               driverFound ? QStringLiteral("A network interface has a bound kernel driver")
-                           : QStringLiteral("No validated network driver was found"), rows);
+               driverFound ? QStringLiteral("Network hardware is working")
+                           : QStringLiteral("Network support needs further validation"), rows);
 }
 
 void HardwareProbe::collectBluetooth()
 {
     QDBusConnectionInterface *interface = QDBusConnection::systemBus().interface();
     const bool bluez = interface && interface->isServiceRegistered(QStringLiteral("org.bluez"));
-    QVariantList rows{row(QStringLiteral("BlueZ service"), bluez ? QStringLiteral("Running")
-                                                                    : QStringLiteral("Unavailable"),
-                              QStringLiteral("org.bluez on system D-Bus"), bluez)};
+    QVariantList rows{row(QStringLiteral("Bluetooth service"),
+                              bluez ? QStringLiteral("Working") : QStringLiteral("Not detected")),
+                      row(QStringLiteral("BlueZ service"), bluez ? QStringLiteral("Running")
+                                                                  : QStringLiteral("Unavailable"),
+                          QStringLiteral("org.bluez on system D-Bus"), bluez, true)};
     const QDir controllers(QStringLiteral("/sys/class/bluetooth"));
     const QStringList entries = controllers.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     bool driverFound = false;
     for (const QString &controller : entries) {
         const QString driver = driverForDevice(controllers.filePath(controller));
         driverFound = driverFound || driver != QStringLiteral("Not bound");
-        rows.append(row(QStringLiteral("Controller %1").arg(controller), driver,
-                        QStringLiteral("Kernel Bluetooth class"), driver != QStringLiteral("Not bound")));
+        rows.append(row(QStringLiteral("Controller"), QStringLiteral("Detected"),
+                        QStringLiteral("%1; driver %2").arg(controller, driver),
+                        driver != QStringLiteral("Not bound")));
     }
     if (entries.isEmpty())
         rows.append(row(QStringLiteral("Controller"), QStringLiteral("None detected"),
@@ -608,8 +635,8 @@ void HardwareProbe::collectBluetooth()
     const QString status = bluez && driverFound ? QString::fromLatin1(supported)
         : bluez || !entries.isEmpty() ? QString::fromLatin1(partial) : QString::fromLatin1(unknown);
     setSection(QStringLiteral("bluetooth"), QStringLiteral("Bluetooth"), status,
-               entries.isEmpty() ? QStringLiteral("No Bluetooth controller is visible")
-                                 : QStringLiteral("Bluetooth controller evidence was collected"), rows);
+               entries.isEmpty() ? QStringLiteral("Bluetooth hardware was not detected")
+                                 : QStringLiteral("Bluetooth hardware is available"), rows);
 }
 
 void HardwareProbe::collectAudio()
@@ -617,9 +644,11 @@ void HardwareProbe::collectAudio()
     const QString runtimeDirectory = qEnvironmentVariable(
         "XDG_RUNTIME_DIR", QStringLiteral("/run/user/%1").arg(geteuid()));
     const bool pipewire = QFile::exists(QDir(runtimeDirectory).filePath(QStringLiteral("pipewire-0")));
-    QVariantList rows{row(QStringLiteral("PipeWire"), pipewire ? QStringLiteral("Running")
-                                                                   : QStringLiteral("Unavailable"),
-                              QDir(runtimeDirectory).filePath(QStringLiteral("pipewire-0")), pipewire)};
+    QVariantList rows{row(QStringLiteral("Audio service"),
+                              pipewire ? QStringLiteral("Working") : QStringLiteral("Not detected")),
+                      row(QStringLiteral("PipeWire"), pipewire ? QStringLiteral("Running")
+                                                               : QStringLiteral("Unavailable"),
+                          QDir(runtimeDirectory).filePath(QStringLiteral("pipewire-0")), pipewire, true)};
     const QDir sound(QStringLiteral("/sys/class/sound"));
     const QStringList cards = sound.entryList({QStringLiteral("card[0-9]*")},
                                               QDir::Dirs | QDir::NoDotAndDotDot);
@@ -639,13 +668,13 @@ void HardwareProbe::collectAudio()
                         ? QStringLiteral("No device graph reported") : QStringLiteral("Available"),
                     wpctl.isEmpty() ? QStringLiteral("wpctl returned no data")
                                     : QStringLiteral("wpctl returned a live graph; device names are omitted from exports"),
-                    !wpctl.isEmpty()));
+                    !wpctl.isEmpty(), true));
     const QString status = pipewire && !cards.isEmpty() ? QString::fromLatin1(supported)
         : pipewire ? QString::fromLatin1(partial) : QString::fromLatin1(unknown);
     setSection(QStringLiteral("audio"), QStringLiteral("Audio"), status,
-               pipewire ? (cards.isEmpty() ? QStringLiteral("PipeWire runs but no hardware device is visible")
-                                           : QStringLiteral("PipeWire and audio hardware are visible"))
-                        : QStringLiteral("PipeWire is not available in this session"), rows);
+               pipewire ? (cards.isEmpty() ? QStringLiteral("Audio is available, but no output device was detected")
+                                           : QStringLiteral("Audio is working"))
+                        : QStringLiteral("Audio was not detected"), rows);
 }
 
 void HardwareProbe::collectInput()
@@ -721,13 +750,19 @@ void HardwareProbe::collectPower()
         if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty())
             canSuspend = reply.arguments().constFirst().toString();
     }
-    rows.append(row(QStringLiteral("Suspend capability"), firstNonEmpty({canSuspend}),
-                    QStringLiteral("systemd-logind CanSuspend"), !canSuspend.isEmpty()));
+    rows.append(row(QStringLiteral("Sleep"), canSuspend == QStringLiteral("yes")
+                                                   ? QStringLiteral("Available")
+                                                   : canSuspend == QStringLiteral("challenge")
+                                                     ? QStringLiteral("Authorization required")
+                                                     : canSuspend.isEmpty() ? QStringLiteral("Not detected")
+                                                                            : QStringLiteral("Unavailable"),
+                    QStringLiteral("systemd-logind CanSuspend returned '%1'").arg(canSuspend),
+                    !canSuspend.isEmpty()));
     const QString status = canSuspend == QStringLiteral("yes") ? QString::fromLatin1(supported)
         : !canSuspend.isEmpty() ? QString::fromLatin1(partial) : QString::fromLatin1(unknown);
     setSection(QStringLiteral("power"), QStringLiteral("Power"), status,
-               battery ? QStringLiteral("Battery and suspend evidence was collected")
-                       : QStringLiteral("Desktop/VM power state; no battery detected"), rows);
+               battery ? QStringLiteral("Battery and sleep information is available")
+                       : QStringLiteral("No battery was detected on this device"), rows);
 }
 
 void HardwareProbe::collectMacSpecific()
@@ -768,7 +803,8 @@ void HardwareProbe::collectMacSpecific()
             || inputName.contains(QStringLiteral("Apple"), Qt::CaseInsensitive)
                 && inputName.contains(QStringLiteral("Keyboard"), Qt::CaseInsensitive);
     }
-    setSection(QStringLiteral("mac"), QStringLiteral("Mac-specific"), QString::fromLatin1(unknown),
+    setSection(QStringLiteral("mac"), QStringLiteral("Mac-specific"),
+               appleSystem ? QString::fromLatin1(partial) : QString::fromLatin1(unknown),
                appleSystem ? QStringLiteral("Intel Mac evidence found; model-specific live testing is required")
                            : QStringLiteral("No Apple system identity detected"),
                {row(QStringLiteral("Intel Mac model"), appleSystem ? m_model : QStringLiteral("Not detected"),
@@ -861,7 +897,7 @@ void HardwareProbe::rebuildReport()
     const auto os = readKeyValueFile(QStringLiteral("/etc/os-release"));
     m_report = {{QStringLiteral("schema"), QStringLiteral("org.moko.hardware-report.v1")},
                 {QStringLiteral("generatedAt"), m_refreshedAt},
-                {QStringLiteral("product"), QStringLiteral("MOKO OS v0.1 Developer Preview")},
+                {QStringLiteral("product"), QStringLiteral("MOKO OS v0.1.1 Hardware & Usability Preview")},
                 {QStringLiteral("linuxBase"), os.value(QStringLiteral("PRETTY_NAME"), QStringLiteral("Unknown Linux"))},
                 {QStringLiteral("overallStatus"), m_overallStatus},
                 {QStringLiteral("privacy"), QStringLiteral("Serial numbers, MAC addresses, host names and personal files are excluded")},

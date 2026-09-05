@@ -10,6 +10,7 @@ class SystemSettingsTest final : public QObject
 private slots:
     void exposesAllRequiredSections();
     void returnsStructuredRealRows();
+    void hidesTechnicalRowsUntilDeveloperMode();
 };
 
 void SystemSettingsTest::exposesAllRequiredSections()
@@ -25,6 +26,28 @@ void SystemSettingsTest::exposesAllRequiredSections()
                                     QStringLiteral("system")}) {
         QVERIFY2(sections.contains(expected), qPrintable(expected));
     }
+}
+
+void SystemSettingsTest::hidesTechnicalRowsUntilDeveloperMode()
+{
+    SystemSettings settings;
+    settings.setDeveloperMode(false);
+
+    const auto labelsFor = [&settings](const QString &section) {
+        QStringList labels;
+        for (const QVariant &rowValue : settings.rows(section))
+            labels.append(rowValue.toMap().value(QStringLiteral("label")).toString());
+        return labels;
+    };
+
+    QVERIFY(!labelsFor(QStringLiteral("sound")).contains(QStringLiteral("Audio service details")));
+    QVERIFY(!labelsFor(QStringLiteral("network")).contains(QStringLiteral("Connection service")));
+    QVERIFY(!labelsFor(QStringLiteral("system")).contains(QStringLiteral("Qt version")));
+
+    settings.setDeveloperMode(true);
+    QVERIFY(labelsFor(QStringLiteral("sound")).contains(QStringLiteral("Audio service details")));
+    QVERIFY(labelsFor(QStringLiteral("network")).contains(QStringLiteral("Connection service")));
+    QVERIFY(labelsFor(QStringLiteral("system")).contains(QStringLiteral("Qt version")));
 }
 
 void SystemSettingsTest::returnsStructuredRealRows()

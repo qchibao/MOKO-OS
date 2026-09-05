@@ -8,6 +8,7 @@ Rectangle {
     border.color: Qt.rgba(1,1,1,.64)
 
     property string clockText: "--:--"
+    property string dateText: ""
     property var control
     signal controlCenterRequested(int page)
 
@@ -51,7 +52,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: 22
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 28
+        spacing: 18
 
         Text {
             text: "MOKO"
@@ -60,9 +61,16 @@ Rectangle {
             font.bold: true
             font.letterSpacing: 0
         }
-        Repeater {
-            model: ["Desktop", "File", "Edit", "View", "Window", "Help"]
-            Text { text: modelData; color: "#344151"; font.pixelSize: 13 }
+        Rectangle {
+            width: 1
+            height: 17
+            color: "#C5D5E1"
+            anchors.verticalCenter: parent.verticalCenter
+        }
+        Text {
+            text: "Hardware & Usability Preview"
+            color: "#536477"
+            font.pixelSize: 11
         }
     }
 
@@ -111,11 +119,24 @@ Rectangle {
             onClicked: root.controlCenterRequested(3)
         }
         Item { width: 6; height: 1 }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.clockText
-            color: "#263342"
-            font.pixelSize: 12
+        Item {
+            width: clockLabel.implicitWidth + 12
+            height: 30
+            Text {
+                id: clockLabel
+                anchors.centerIn: parent
+                text: root.clockText
+                color: "#263342"
+                font.pixelSize: 12
+            }
+            MouseArea {
+                id: clockMouse
+                anchors.fill: parent
+                hoverEnabled: true
+            }
+            ToolTip.visible: clockMouse.containsMouse
+            ToolTip.text: root.dateText
+            ToolTip.delay: 350
         }
     }
 }

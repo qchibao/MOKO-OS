@@ -14,6 +14,7 @@ class HardwareProbeTest final : public QObject
 private slots:
     void exposesRequiredCategoriesAndEvidence();
     void exportsPrivacySafeJsonAndText();
+    void exposesConsumerStatusLabelsAndTechnicalRows();
 };
 
 void HardwareProbeTest::exposesRequiredCategoriesAndEvidence()
@@ -41,6 +42,23 @@ void HardwareProbeTest::exposesRequiredCategoriesAndEvidence()
     QVERIFY(evidence.value(QStringLiteral("loadedModules")).isArray());
     QVERIFY(evidence.value(QStringLiteral("pciDevices")).isArray());
     QVERIFY(evidence.value(QStringLiteral("usbDevices")).isArray());
+}
+
+void HardwareProbeTest::exposesConsumerStatusLabelsAndTechnicalRows()
+{
+    HardwareProbe probe;
+    probe.refresh();
+
+    const QStringList labels = {QStringLiteral("Working"), QStringLiteral("Limited"),
+                                QStringLiteral("Not detected"), QStringLiteral("Unsupported")};
+    QVERIFY(labels.contains(probe.overallDisplayStatus()));
+    for (const QString &section : probe.sectionIds())
+        QVERIFY(labels.contains(probe.sectionDisplayStatus(section)));
+
+    bool foundTechnicalRow = false;
+    for (const QVariant &rowValue : probe.rows(QStringLiteral("graphics")))
+        foundTechnicalRow = foundTechnicalRow || rowValue.toMap().value(QStringLiteral("technical")).toBool();
+    QVERIFY(foundTechnicalRow);
 }
 
 void HardwareProbeTest::exportsPrivacySafeJsonAndText()

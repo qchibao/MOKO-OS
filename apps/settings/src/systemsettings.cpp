@@ -11,8 +11,10 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QScreen>
 #include <QStorageInfo>
@@ -41,8 +43,19 @@ QString networkStateName(uint state)
     case 70:
         return QStringLiteral("Connected");
     default:
-        return QStringLiteral("Unknown (%1)").arg(state);
+        return QStringLiteral("Not detected");
     }
+}
+
+QString suspendStateName(const QString &state)
+{
+    if (state == QStringLiteral("yes"))
+        return QStringLiteral("Available");
+    if (state == QStringLiteral("challenge"))
+        return QStringLiteral("Authorization required");
+    if (state == QStringLiteral("no") || state == QStringLiteral("na"))
+        return QStringLiteral("Unavailable");
+    return QStringLiteral("Not detected");
 }
 
 QString firstNonEmpty(const QStringList &values, const QString &fallback = QStringLiteral("Unknown"))
@@ -59,6 +72,8 @@ QString firstNonEmpty(const QStringList &values, const QString &fallback = QStri
 SystemSettings::SystemSettings(QObject *parent)
     : QObject(parent)
 {
+    QSettings settings;
+    m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
     refresh();
 }
 
@@ -70,6 +85,21 @@ QString SystemSettings::refreshedAt() const
 QString SystemSettings::statusMessage() const
 {
     return m_statusMessage;
+}
+
+bool SystemSettings::developerMode() const
+{
+    return m_developerMode;
+}
+
+void SystemSettings::setDeveloperMode(bool enabled)
+{
+    if (m_developerMode == enabled)
+        return;
+    m_developerMode = enabled;
+    QSettings().setValue(QStringLiteral("developerMode"), enabled);
+    emit developerModeChanged();
+    emit dataChanged();
 }
 
 QStringList SystemSettings::sectionIds() const
@@ -93,7 +123,7 @@ QString SystemSettings::sectionTitle(const QString &sectionId) const
         {QStringLiteral("power"), QStringLiteral("Power")},
         {QStringLiteral("storage"), QStringLiteral("Storage")},
         {QStringLiteral("hardware"), QStringLiteral("Hardware Diagnostics")},
-        {QStringLiteral("system"), QStringLiteral("System Information")},
+        {QStringLiteral("system"), QStringLiteral("Advanced Technical Information")},
     };
     return titles.value(sectionId, sectionId);
 }
@@ -102,22 +132,30 @@ QString SystemSettings::sectionDescription(const QString &sectionId) const
 {
     static const QHash<QString, QString> descriptions = {
         {QStringLiteral("about"), QStringLiteral("MOKO OS and device identity")},
-        {QStringLiteral("display"), QStringLiteral("Active Wayland display information")},
-        {QStringLiteral("appearance"), QStringLiteral("Current MOKO visual configuration")},
-        {QStringLiteral("sound"), QStringLiteral("PipeWire and audio service state")},
-        {QStringLiteral("network"), QStringLiteral("NetworkManager connectivity")},
-        {QStringLiteral("bluetooth"), QStringLiteral("BlueZ controller service")},
+        {QStringLiteral("display"), QStringLiteral("Connected displays and interface scale")},
+        {QStringLiteral("appearance"), QStringLiteral("MOKO color and interface style")},
+        {QStringLiteral("sound"), QStringLiteral("Audio availability")},
+        {QStringLiteral("network"), QStringLiteral("Connection and Wi-Fi status")},
+        {QStringLiteral("bluetooth"), QStringLiteral("Bluetooth availability")},
         {QStringLiteral("power"), QStringLiteral("Battery and suspend capability")},
         {QStringLiteral("storage"), QStringLiteral("Mounted filesystems and free space")},
         {QStringLiteral("hardware"), QStringLiteral("Read-only compatibility report and export")},
-        {QStringLiteral("system"), QStringLiteral("Kernel, architecture and runtime details")},
+        {QStringLiteral("system"), QStringLiteral("Kernel and runtime details for troubleshooting")},
     };
     return descriptions.value(sectionId);
 }
 
 QVariantList SystemSettings::rows(const QString &sectionId) const
 {
-    return m_rows.value(sectionId);
+    if (m_developerMode)
+        return m_rows.value(sectionId);
+
+    Rows visibleRows;
+    for (const QVariant &rowValue : m_rows.value(sectionId)) {
+        if (!rowValue.toMap().value(QStringLiteral("technical")).toBool())
+            visibleRows.append(rowValue);
+    }
+    return visibleRows;
 }
 
 void SystemSettings::refresh()
@@ -133,7 +171,10 @@ void SystemSettings::refresh()
     collectStorage();
     collectHardwareDiagnostics();
     collectSystem();
-    m_refreshedAt = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    const QDateTime now = QDateTime::currentDateTime();
+    m_refreshedAt = QStringLiteral("%1 %2")
+                        .arg(QLocale::system().toString(now, QLocale::ShortFormat),
+                             now.timeZoneAbbreviation());
     m_statusMessage = QStringLiteral("Live system data refreshed");
     emit dataChanged();
 }
@@ -162,13 +203,15 @@ QVariantMap SystemSettings::row(const QString &label,
                                 const QString &value,
                                 const QString &detail,
                                 bool available,
-                                bool writable)
+                                bool writable,
+                                bool technical)
 {
     return {{QStringLiteral("label"), label},
             {QStringLiteral("value"), value},
             {QStringLiteral("detail"), detail},
             {QStringLiteral("available"), available},
-            {QStringLiteral("writable"), writable}};
+            {QStringLiteral("writable"), writable},
+            {QStringLiteral("technical"), technical}};
 }
 
 QString SystemSettings::readTextFile(const QString &path)
@@ -235,11 +278,12 @@ void SystemSettings::collectAbout()
     const QString model = firstNonEmpty({readTextFile(QStringLiteral("/sys/devices/virtual/dmi/id/product_name")),
                                          readTextFile(QStringLiteral("/sys/firmware/devicetree/base/model"))});
     m_rows.insert(QStringLiteral("about"),
-                  {row(QStringLiteral("Product"), QStringLiteral("MOKO OS v0.1 Developer Preview")),
-                   row(QStringLiteral("Linux base"), os.value(QStringLiteral("PRETTY_NAME"), QStringLiteral("Unknown"))),
+                  {row(QStringLiteral("Product"), QStringLiteral("MOKO OS v0.1.1 Hardware & Usability Preview")),
+                   row(QStringLiteral("Linux base"), os.value(QStringLiteral("PRETTY_NAME"), QStringLiteral("Unknown")),
+                       {}, true, false, true),
                    row(QStringLiteral("Device"), model),
-                   row(QStringLiteral("Host name"), QSysInfo::machineHostName()),
-                   row(QStringLiteral("Architecture"), QSysInfo::currentCpuArchitecture())});
+                   row(QStringLiteral("Host name"), QSysInfo::machineHostName(), {}, true, false, true),
+                   row(QStringLiteral("Architecture"), QSysInfo::currentCpuArchitecture(), {}, true, false, true)});
 }
 
 void SystemSettings::collectDisplay()
@@ -263,8 +307,8 @@ void SystemSettings::collectDisplay()
                           QString::number(screen->devicePixelRatio(), 'f', 2),
                           QStringLiteral("Read-only in v0.1")));
     }
-    result.append(row(QStringLiteral("Platform"), QGuiApplication::platformName(),
-                      QStringLiteral("Qt display backend")));
+    result.append(row(QStringLiteral("Display backend"), QGuiApplication::platformName(),
+                      QStringLiteral("Qt platform plugin"), true, false, true));
     m_rows.insert(QStringLiteral("display"), result);
 }
 
@@ -272,9 +316,9 @@ void SystemSettings::collectAppearance()
 {
     m_rows.insert(QStringLiteral("appearance"),
                   {row(QStringLiteral("Theme"), QStringLiteral("MOKO Light"),
-                       QStringLiteral("Read-only in v0.1")),
-                   row(QStringLiteral("Accent"), QStringLiteral("#3F7CFF"),
-                       QStringLiteral("MOKO design token; read-only")),
+                       QStringLiteral("Read-only in v0.1.1")),
+                   row(QStringLiteral("Accent"), QStringLiteral("Blue"),
+                       QStringLiteral("MOKO design token #3F7CFF; read-only")),
                    row(QStringLiteral("Interface style"), QStringLiteral("Bright glass / ice"),
                        QStringLiteral("Current shell design language"))});
 }
@@ -287,14 +331,18 @@ void SystemSettings::collectSound()
     QString status = processOutput(QStringLiteral("wpctl"), {QStringLiteral("status"), QStringLiteral("--name")});
     if (status.size() > 1200)
         status = status.left(1200) + QStringLiteral("...");
+    const bool sessionReady = socketPresent && !status.isEmpty();
     m_rows.insert(QStringLiteral("sound"),
-                  {row(QStringLiteral("PipeWire socket"), socketPresent ? QStringLiteral("Available")
-                                                                       : QStringLiteral("Unavailable"),
-                       QDir(runtimeDirectory).filePath(QStringLiteral("pipewire-0")), socketPresent),
-                   row(QStringLiteral("WirePlumber graph"),
-                       status.isEmpty() ? QStringLiteral("Unavailable") : QStringLiteral("Detected"),
+                  {row(QStringLiteral("Audio"), sessionReady ? QStringLiteral("Working")
+                                                              : socketPresent ? QStringLiteral("Limited")
+                                                                              : QStringLiteral("Not detected"),
+                       QStringLiteral("PipeWire socket: %1")
+                           .arg(QDir(runtimeDirectory).filePath(QStringLiteral("pipewire-0"))),
+                       socketPresent),
+                   row(QStringLiteral("Audio service details"),
+                       status.isEmpty() ? QStringLiteral("Not detected") : QStringLiteral("Working"),
                        status.isEmpty() ? QStringLiteral("wpctl returned no data") : status,
-                       !status.isEmpty())});
+                       !status.isEmpty(), false, true)});
 }
 
 void SystemSettings::collectNetwork()
@@ -305,8 +353,10 @@ void SystemSettings::collectNetwork()
                            QDBusConnection::systemBus());
     if (!manager.isValid()) {
         m_rows.insert(QStringLiteral("network"),
-                      {row(QStringLiteral("NetworkManager"), QStringLiteral("Unavailable"),
-                           manager.lastError().message(), false)});
+                      {row(QStringLiteral("Connection"), QStringLiteral("Not detected"),
+                           QStringLiteral("Network controls are unavailable"), false),
+                       row(QStringLiteral("Connection service"), QStringLiteral("Not detected"),
+                           manager.lastError().message(), false, false, true)});
         return;
     }
 
@@ -317,12 +367,16 @@ void SystemSettings::collectNetwork()
     if (devicesReply.type() == QDBusMessage::ReplyMessage && !devicesReply.arguments().isEmpty())
         deviceCount = qdbus_cast<QList<QDBusObjectPath>>(devicesReply.arguments().constFirst()).size();
     m_rows.insert(QStringLiteral("network"),
-                  {row(QStringLiteral("NetworkManager"), QStringLiteral("Connected to D-Bus")),
-                   row(QStringLiteral("Connectivity"), networkStateName(state)),
-                   row(QStringLiteral("Network devices"), QString::number(deviceCount)),
-                   row(QStringLiteral("Wi-Fi radio"), wirelessEnabled ? QStringLiteral("Enabled")
-                                                                         : QStringLiteral("Disabled"),
-                       QStringLiteral("Reported by NetworkManager; read-only"))});
+                  {row(QStringLiteral("Connection"), networkStateName(state),
+                       QStringLiteral("Reported by NetworkManager over the system D-Bus")),
+                   row(QStringLiteral("Wi-Fi"), wirelessEnabled ? QStringLiteral("On")
+                                                                  : QStringLiteral("Off"),
+                       QStringLiteral("Reported by NetworkManager; read-only")),
+                   row(QStringLiteral("Network devices"), QString::number(deviceCount),
+                       QStringLiteral("NetworkManager GetDevices"), true, false, true),
+                   row(QStringLiteral("Connection service"), QStringLiteral("Working"),
+                       QStringLiteral("org.freedesktop.NetworkManager on the system D-Bus"),
+                       true, false, true)});
 }
 
 void SystemSettings::collectBluetooth()
@@ -333,13 +387,16 @@ void SystemSettings::collectBluetooth()
     const QStringList controllers = QDir(QStringLiteral("/sys/class/bluetooth"))
                                         .entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     m_rows.insert(QStringLiteral("bluetooth"),
-                  {row(QStringLiteral("BlueZ service"), available ? QStringLiteral("Running")
-                                                                   : QStringLiteral("Unavailable"),
-                       QStringLiteral("System D-Bus service org.bluez"), available),
+                  {row(QStringLiteral("Bluetooth"), available ? QStringLiteral("Working")
+                                                               : QStringLiteral("Not detected"),
+                       QStringLiteral("BlueZ service on the system D-Bus"), available),
                    row(QStringLiteral("Controllers"), controllers.isEmpty()
                                                            ? QStringLiteral("None detected")
                                                            : controllers.join(QStringLiteral(", ")),
-                       QStringLiteral("Kernel bluetooth class"), !controllers.isEmpty())});
+                       QStringLiteral("Kernel Bluetooth class"), !controllers.isEmpty()),
+                   row(QStringLiteral("Bluetooth service"),
+                       available ? QStringLiteral("Connected") : QStringLiteral("Disconnected"),
+                       QStringLiteral("org.bluez on the system D-Bus"), available, false, true)});
 }
 
 void SystemSettings::collectPower()
@@ -372,8 +429,8 @@ void SystemSettings::collectPower()
         if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty())
             canSuspend = reply.arguments().constFirst().toString();
     }
-    result.append(row(QStringLiteral("Suspend capability"), canSuspend,
-                      QStringLiteral("systemd-logind; no action exposed here"),
+    result.append(row(QStringLiteral("Sleep"), suspendStateName(canSuspend),
+                      QStringLiteral("systemd-logind CanSuspend returned '%1'").arg(canSuspend),
                       canSuspend != QStringLiteral("Unavailable")));
     m_rows.insert(QStringLiteral("power"), result);
 }
@@ -407,7 +464,7 @@ void SystemSettings::collectHardwareDiagnostics()
     const bool available = !program.isEmpty();
     m_rows.insert(QStringLiteral("hardware"),
                   {row(QStringLiteral("Compatibility scanner"),
-                       available ? QStringLiteral("Installed") : QStringLiteral("Unavailable"),
+                       available ? QStringLiteral("Ready") : QStringLiteral("Not detected"),
                        available ? program : QStringLiteral("moko-hardware-diagnostics was not found"),
                        available),
                    row(QStringLiteral("Operations"), QStringLiteral("Read-only"),
@@ -431,14 +488,19 @@ void SystemSettings::collectSystem()
         : 0;
     m_rows.insert(QStringLiteral("system"),
                   {row(QStringLiteral("Kernel"), unameOk ? QString::fromLocal8Bit(kernelInfo.release)
-                                                          : QStringLiteral("Unknown")),
+                                                          : QStringLiteral("Unknown"),
+                       {}, unameOk, false, true),
                    row(QStringLiteral("Kernel name"), unameOk ? QString::fromLocal8Bit(kernelInfo.sysname)
-                                                               : QStringLiteral("Unknown")),
+                                                               : QStringLiteral("Unknown"),
+                       {}, unameOk, false, true),
                    row(QStringLiteral("Machine"), unameOk ? QString::fromLocal8Bit(kernelInfo.machine)
-                                                           : QSysInfo::currentCpuArchitecture()),
+                                                           : QSysInfo::currentCpuArchitecture(),
+                       {}, true, false, true),
                    row(QStringLiteral("Total memory"), memoryBytes ? formatBytes(memoryBytes)
                                                                    : QStringLiteral("Unknown"),
                        QStringLiteral("/proc/meminfo"), memoryBytes > 0),
-                   row(QStringLiteral("Qt version"), QString::fromLatin1(qVersion())),
-                   row(QStringLiteral("Session"), qEnvironmentVariable("XDG_SESSION_TYPE", QStringLiteral("Unknown"))) });
+                   row(QStringLiteral("Qt version"), QString::fromLatin1(qVersion()),
+                       {}, true, false, true),
+                   row(QStringLiteral("Session"), qEnvironmentVariable("XDG_SESSION_TYPE", QStringLiteral("Unknown")),
+                       {}, true, false, true) });
 }
