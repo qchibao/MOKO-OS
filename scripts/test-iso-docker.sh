@@ -275,6 +275,17 @@ docker run --rm --platform linux/amd64 \
       echo "Installer executable found in ISO." >&2
       exit 1
     fi
+    for path in \
+      root/.wget-hsts \
+      var/cache/apt/pkgcache.bin \
+      var/cache/apt/srcpkgcache.bin
+    do
+      if unsquashfs -ll /tmp/filesystem.squashfs "$path" \
+          | grep -Fq "squashfs-root/$path"; then
+        echo "Non-reproducible build cache found in ISO: $path" >&2
+        exit 1
+      fi
+    done
   '
 
 for run in $(seq 1 "$RUNS"); do

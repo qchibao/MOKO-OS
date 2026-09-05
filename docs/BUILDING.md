@@ -123,6 +123,16 @@ checklist are also placed under `/MOKO` on the ISO. The live-build package
 manifest remains available at `/live/filesystem.packages`, and the release test
 requires both copies to match byte-for-byte.
 
+To verify reproducibility, preserve the first clean artifact, rebuild from the
+same clean commit, then compare the two images:
+
+```bash
+cp out/MOKO-OS-v0.1-dev-amd64.hybrid.iso out/repro-build-a.iso
+./scripts/build-iso-docker.sh
+./scripts/compare-iso-builds.sh \
+  out/repro-build-a.iso out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
+```
+
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a
 Debian 13 VM, a dedicated Linux machine, or a suitable Linux CI runner; then
