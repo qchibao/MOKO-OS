@@ -1,5 +1,5 @@
 # MOKO-010 - Live USB readiness
-State: DONE (validated in QEMU)
+State: DONE (validated in QEMU; physical MacBook blocker fix awaits retest)
 
 Prepare the non-installing amd64 Developer Preview for QEMU and physical PC or
 Intel Mac Live USB validation. MOKO-005 and MOKO-009 are validated prerequisites.
@@ -43,9 +43,9 @@ it must not remove or bypass the disk-safety service dependency.
 
 ## Release output
 - Artifact: `out/MOKO-OS-v0.1-dev-amd64.hybrid.iso`
-- SHA-256: `21345808f10a208c9a1d43f16a4c2feab1668104dee4c7226aca382bc2ca6a4c`
-- Build timestamp (UTC): `2026-09-05T02:10:29Z`
-- Source commit: `f879a7171058f8681fa39585403342db24d5e106`
+- SHA-256: `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`
+- Build timestamp (UTC): `2026-09-05T04:46:59Z`
+- Source commit: `72152744a0b3422ab2c3b48aae7b43fc54a008f5`
 - Source state: clean
 - Package manifest: `out/MOKO-OS-v0.1-dev-amd64.packages.txt`
 - Known issues: `out/MOKO-OS-v0.1-dev-amd64.known-issues.txt`
@@ -53,22 +53,25 @@ it must not remove or bypass the disk-safety service dependency.
 
 ## Validation
 - Two clean builds from the same commit are byte-for-byte identical. Both have
-  SHA-256 `21345808f10a208c9a1d43f16a4c2feab1668104dee4c7226aca382bc2ca6a4c`.
+  SHA-256 `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`.
 - Debian 13 compile, unit and render tests pass: Shell `2/2`, AI `3/3`, native
   apps `8/8`.
+- Disk-safety regression coverage passes with a missing serial device, a
+  writable character device that rejects writes (`/dev/full`), failed primary
+  output and an unsafe `/dev/sda1` mount. Only the unsafe mount exits non-zero.
 - BIOS desktop passes `3/3` cold boots with input, network, MOKO Shell and clean
   shutdown. The interaction run confirms the AI daemon opens MOKO Files and the
   Launcher searches for and opens MOKO Settings as UID 1000. Artifacts:
-  `out/moko-iso-smoke-20260905T023402Z-bios-desktop-boot-*`.
+  `out/moko-iso-smoke-20260905T045746Z-bios-desktop-boot-*`.
 - UEFI desktop passes with MOKO Terminal launched from the registry and its PTY
   shell reported ready as UID 1000. Artifacts:
-  `out/moko-iso-smoke-20260905T024646Z-uefi-desktop-boot-1.*`.
+  `out/moko-iso-smoke-20260905T052713Z-uefi-desktop-boot-1.*`.
 - Safe Graphics Mode passes with software rendering, working input and zero
   greetd restarts. Artifacts:
-  `out/moko-iso-smoke-20260905T025142Z-bios-safe-graphics-boot-1.*`.
+  `out/moko-iso-smoke-20260905T053211Z-bios-safe-graphics-boot-1.*`.
 - Hardware Diagnostics direct boot passes, reports QEMU as `PARTIAL`, exports
   JSON/text as UID 1000 and detects no writable test disk. Artifacts:
-  `out/moko-iso-smoke-20260905T025445Z-bios-hardware-diagnostics-boot-1.*`.
+  `out/moko-iso-smoke-20260905T053521Z-bios-hardware-diagnostics-boot-1.*`.
 - Static ISO gates confirm BIOS/UEFI profiles, required hardware packages,
   disabled installer/udisks2 paths, release files and absence of unstable APT
   and wget cache files.

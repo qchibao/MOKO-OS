@@ -650,12 +650,20 @@ for run in $(seq 1 "$RUNS"); do
       monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-settings-launched-hardware.png -f png"
     fi
     LAUNCH_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-launched.png"
-    monitor "screendump /artifacts/$LAUNCH_SCREENSHOT_NAME -f png"
-    launch_screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$LAUNCH_SCREENSHOT_NAME")
-    (( launch_screenshot_size > 10000 )) || {
-      echo "Launched application framebuffer capture is unexpectedly small." >&2
-      exit 1
-    }
+    launch_screenshot_deadline=$((SECONDS + SCREENSHOT_TIMEOUT_SECONDS))
+    launch_screenshot_size=0
+    while :; do
+      monitor "screendump /artifacts/$LAUNCH_SCREENSHOT_NAME -f png"
+      launch_screenshot_size=$(docker exec "$CONTAINER" stat -c %s "/artifacts/$LAUNCH_SCREENSHOT_NAME")
+      if (( launch_screenshot_size > 10000 )); then
+        break
+      fi
+      if (( SECONDS >= launch_screenshot_deadline )); then
+        echo "Launched application framebuffer remained blank after $SCREENSHOT_TIMEOUT_SECONDS seconds ($launch_screenshot_size bytes)." >&2
+        exit 1
+      fi
+      sleep 5
+    done
     if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
       tail -80 "$SERIAL_PATH" >&2
       echo "Application exited during launch validation." >&2
