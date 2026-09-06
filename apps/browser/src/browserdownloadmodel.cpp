@@ -173,6 +173,22 @@ bool BrowserDownloadModel::showInFiles(int row)
     return true;
 }
 
+bool BrowserDownloadModel::setDownloadDirectory(const QString &directory)
+{
+    const QFileInfo info(QDir::cleanPath(directory));
+    if (!info.exists() || !info.isDir() || !info.isWritable())
+        return fail(QStringLiteral("Choose a writable download folder."));
+    const QString clean = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath()
+                                                             : info.canonicalFilePath();
+    if (clean == m_downloadDirectory)
+        return true;
+    m_downloadDirectory = clean;
+    emit downloadDirectoryChanged();
+    emit statusMessage(QStringLiteral("Downloads will be saved to %1")
+                           .arg(QDir::toNativeSeparators(clean)));
+    return true;
+}
+
 QVariantMap BrowserDownloadModel::entry(int row) const
 {
     if (row < 0 || row >= m_entries.size())

@@ -33,6 +33,11 @@ class WindowManager final : public QObject
     Q_PROPERTY(bool dragAvailable READ dragAvailable NOTIFY inputChanged)
     Q_PROPERTY(bool dragEnabled READ dragEnabled NOTIFY inputChanged)
     Q_PROPERTY(bool gesturesAvailable READ gesturesAvailable NOTIFY inputChanged)
+    Q_PROPERTY(bool desktopProtocolAvailable READ desktopProtocolAvailable NOTIFY desktopChanged)
+    Q_PROPERTY(int outputScale READ outputScale NOTIFY desktopChanged)
+    Q_PROPERTY(bool outputScale200Available READ outputScale200Available NOTIFY desktopChanged)
+    Q_PROPERTY(int keyboardLayout READ keyboardLayout NOTIFY desktopChanged)
+    Q_PROPERTY(QString keyboardLayoutName READ keyboardLayoutName NOTIFY desktopChanged)
 
 public:
     explicit WindowManager(QObject *parent = nullptr);
@@ -59,6 +64,11 @@ public:
     bool dragAvailable() const;
     bool dragEnabled() const;
     bool gesturesAvailable() const;
+    bool desktopProtocolAvailable() const;
+    int outputScale() const;
+    bool outputScale200Available() const;
+    int keyboardLayout() const;
+    QString keyboardLayoutName() const;
 
     Q_INVOKABLE bool isRunning(const QString &appId) const;
     Q_INVOKABLE bool isActive(const QString &appId) const;
@@ -72,6 +82,10 @@ public:
     Q_INVOKABLE bool closeApplication(const QString &appId);
     Q_INVOKABLE bool setNaturalScrollEnabled(bool enabled);
     Q_INVOKABLE bool setPointerAcceleration(int speed);
+    Q_INVOKABLE bool setOutputScale(int scalePercent);
+    Q_INVOKABLE bool setKeyboardLayout(int layout);
+    Q_INVOKABLE bool toggleKeyboardLayout();
+    Q_INVOKABLE bool setShellOverlay(bool visible);
     Q_INVOKABLE void reportInputPanelOpened() const;
 
 signals:
@@ -79,6 +93,8 @@ signals:
     void windowsChanged();
     void brightnessStepRequested(int delta);
     void inputChanged();
+    void desktopChanged();
+    void globalActionRequested(const QString &action);
 
 private:
     friend struct WindowManagerCallbacks;
@@ -95,6 +111,10 @@ private:
                            quint32 capabilities,
                            quint32 state,
                            qint32 pointerAcceleration);
+    void updateDesktopConfig(quint32 outputScale,
+                             quint32 scaleCapabilities,
+                             quint32 keyboardLayout);
+    bool flushRequest();
     const WindowInfo *windowForApplication(const QString &appId) const;
     bool sendRequest(const QString &appId, const std::function<void(quint32)> &request);
 
@@ -108,4 +128,7 @@ private:
     quint32 m_inputCapabilities = 0;
     quint32 m_inputState = 0;
     int m_pointerAcceleration = 0;
+    int m_outputScale = 100;
+    quint32 m_outputScaleCapabilities = 1;
+    int m_keyboardLayout = 0;
 };

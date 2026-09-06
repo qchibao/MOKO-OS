@@ -14,6 +14,7 @@ pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
+find_program(GRIM grim)
 
 set(PROTOCOL_XML ${CMAKE_CURRENT_SOURCE_DIR}/protocols/moko-window-control-v1.xml)
 set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -96,6 +97,16 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:moko-compositor-integration-client>
     )
     set_tests_properties(moko-compositor-headless-integration PROPERTIES TIMEOUT 20)
+
+    if(GRIM)
+        add_test(
+            NAME moko-compositor-screencopy-integration
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_screencopy.sh
+                    $<TARGET_FILE:moko-compositor>
+                    ${GRIM}
+        )
+        set_tests_properties(moko-compositor-screencopy-integration PROPERTIES TIMEOUT 20)
+    endif()
 
     add_test(
         NAME moko-desktop-session-backend-selection

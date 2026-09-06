@@ -4,6 +4,7 @@
 #include "livemarker.h"
 
 #include <QVariant>
+#include <QFileInfo>
 
 #include <unistd.h>
 
@@ -59,6 +60,13 @@ QString BrowserController::statusMessage() const
 QUrl BrowserController::urlFromInput(const QString &input) const
 {
     return normalizedBrowserUrl(input);
+}
+
+QUrl BrowserController::localFileUrl(const QString &path) const
+{
+    const QFileInfo info(path);
+    return info.exists() && info.isFile() && info.isReadable()
+        ? QUrl::fromLocalFile(info.absoluteFilePath()) : QUrl();
 }
 
 void BrowserController::recordLoad(const QString &title, const QUrl &url,

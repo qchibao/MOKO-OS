@@ -41,6 +41,10 @@ qt_add_executable(moko-shell
     src/applicationservice.cpp
     src/applicationservice.h
     src/main.cpp
+    src/notificationmodel.cpp
+    src/notificationmodel.h
+    src/screenshotcontroller.cpp
+    src/screenshotcontroller.h
     src/bluetoothagent.cpp
     src/bluetoothagent.h
     src/systemcontrol.cpp
@@ -77,6 +81,7 @@ qt_add_qml_module(moko-shell
         qml/components/AppTile.qml
         qml/components/TopBar.qml
         qml/components/ControlCenterPanel.qml
+        qml/components/NotificationCenterPanel.qml
         qml/components/LauncherPanel.qml
         qml/components/AiPanel.qml
         qml/components/Dock.qml
@@ -139,4 +144,36 @@ if(BUILD_TESTING)
     target_link_libraries(moko-system-control-backend-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
     add_test(NAME moko-system-control-backend-tests COMMAND moko-system-control-backend-tests)
     set_tests_properties(moko-system-control-backend-tests PROPERTIES TIMEOUT 15)
+
+    qt_add_executable(moko-notification-model-tests
+        tests/test_notificationmodel.cpp
+        src/notificationmodel.cpp
+        src/notificationmodel.h
+    )
+    target_include_directories(moko-notification-model-tests PRIVATE src)
+    target_link_libraries(moko-notification-model-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME moko-notification-model-tests COMMAND moko-notification-model-tests)
+    set_tests_properties(moko-notification-model-tests PROPERTIES TIMEOUT 10)
+
+    qt_add_executable(moko-notification-dbus-tests
+        tests/test_notificationdbus.cpp
+        src/notificationmodel.cpp
+        src/notificationmodel.h
+    )
+    target_include_directories(moko-notification-dbus-tests PRIVATE src)
+    target_link_libraries(moko-notification-dbus-tests PRIVATE
+        Qt6::Core Qt6::DBus Qt6::Test)
+    add_test(NAME moko-notification-dbus-tests
+        COMMAND dbus-run-session -- $<TARGET_FILE:moko-notification-dbus-tests>)
+    set_tests_properties(moko-notification-dbus-tests PROPERTIES TIMEOUT 15)
+
+    qt_add_executable(moko-screenshot-controller-tests
+        tests/test_screenshotcontroller.cpp
+        src/screenshotcontroller.cpp
+        src/screenshotcontroller.h
+    )
+    target_include_directories(moko-screenshot-controller-tests PRIVATE src)
+    target_link_libraries(moko-screenshot-controller-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME moko-screenshot-controller-tests COMMAND moko-screenshot-controller-tests)
+    set_tests_properties(moko-screenshot-controller-tests PROPERTIES TIMEOUT 10)
 endif()

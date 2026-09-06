@@ -20,13 +20,55 @@ ApplicationWindow {
     property bool launcherVisible: true
     property bool aiVisible: true
     property bool controlCenterVisible: false
+    property bool notificationCenterVisible: false
+    property string activeSystemPanel: ""
     property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
     property string dateText: ""
 
     function openApplication(appId) {
+        activeSystemPanel = ""
+        launcherVisible = false
+        aiVisible = false
+        controlCenterVisible = false
+        notificationCenterVisible = false
+        mokoWindowManager.setShellOverlay(false)
         if (!mokoWindowManager.activateApplication(appId))
             mokoApplicationRegistry.launch(appId)
+    }
+
+    function toggleSystemPanel(panel) {
+        if (activeSystemPanel === panel) {
+            activeSystemPanel = ""
+            launcherVisible = false
+            aiVisible = false
+            controlCenterVisible = false
+            notificationCenterVisible = false
+            mokoWindowManager.setShellOverlay(false)
+            return
+        }
+
+        activeSystemPanel = panel
+        launcherVisible = panel === "launcher"
+        aiVisible = panel === "ai"
+        controlCenterVisible = panel === "control-center"
+        notificationCenterVisible = panel === "notification-center"
+        mokoWindowManager.setShellOverlay(true)
+        if (notificationCenterVisible) {
+            mokoNotificationModel.reportCenterOpened()
+            mokoNotificationModel.markAllRead()
+        }
+        if (aiVisible)
+            Qt.callLater(aiPanel.focusInput)
+    }
+
+    function dismissSystemPanels() {
+        activeSystemPanel = ""
+        launcherVisible = false
+        aiVisible = false
+        controlCenterVisible = false
+        notificationCenterVisible = false
+        mokoWindowManager.setShellOverlay(false)
     }
 
     function updateClock() {
@@ -60,13 +102,19 @@ ApplicationWindow {
         clockText: window.clockText
         dateText: window.dateText
         control: mokoSystemControl
+        notificationModel: mokoNotificationModel
+        windowManager: mokoWindowManager
         z: 10
         onControlCenterRequested: (page) => {
             controlCenter.currentPage = page
-            window.controlCenterVisible = !window.controlCenterVisible
-            if (window.controlCenterVisible)
+            window.toggleSystemPanel("control-center")
+            if (window.controlCenterVisible) {
                 mokoSystemControl.reportControlCenterOpened(page)
+            }
         }
+        onNotificationCenterRequested: window.toggleSystemPanel("notification-center")
+        onScreenshotRequested: mokoScreenshotController.captureFullScreen()
+        onKeyboardLayoutRequested: mokoWindowManager.toggleKeyboardLayout()
     }
 
     ControlCenterPanel {
@@ -79,6 +127,17 @@ ApplicationWindow {
         control: mokoSystemControl
         windowManager: mokoWindowManager
         z: 15
+    }
+
+    NotificationCenterPanel {
+        id: notificationCenter
+        anchors.right: parent.right
+        anchors.rightMargin: 14
+        anchors.top: topBar.bottom
+        anchors.topMargin: 10
+        visible: window.notificationCenterVisible
+        notificationModel: mokoNotificationModel
+        z: 16
     }
 
     LauncherPanel {
@@ -143,9 +202,41 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         z: 7
-        onLauncherRequested: window.launcherVisible = !window.launcherVisible
-        onAiRequested: window.aiVisible = !window.aiVisible
+        onLauncherRequested: window.toggleSystemPanel("launcher")
+        onAiRequested: window.toggleSystemPanel("ai")
         onAppRequested: (appId) => window.openApplication(appId)
+    }
+
+    Connections {
+        target: mokoWindowManager
+        function onGlobalActionRequested(action) {
+            if (action === "screenshot") {
+                mokoScreenshotController.captureFullScreen()
+            } else if (action === "notification-center") {
+                window.toggleSystemPanel("notification-center")
+            } else if (action === "launcher") {
+                window.toggleSystemPanel("launcher")
+            } else if (action === "ai") {
+                window.toggleSystemPanel("ai")
+            }
+        }
+    }
+
+    Connections {
+        target: mokoNotificationModel
+        function onNotificationReceived(summary, body) {
+            toast.show(body.length > 0 ? summary + ": " + body : summary)
+        }
+    }
+
+    Connections {
+        target: mokoScreenshotController
+        function onScreenshotSaved(path) {
+            mokoNotificationModel.addLocalNotification("Screenshot saved", path)
+        }
+        function onScreenshotFailed(message) {
+            toast.show(message)
+        }
     }
 
     Connections {
@@ -174,25 +265,35 @@ ApplicationWindow {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 116
-        Text { id: toastText; anchors.centerIn: parent; color: "white"; font.pixelSize: 12 }
+        Text {
+            id: toastText
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: 20
+            color: "white"
+            font.pixelSize: 12
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+        }
         Timer { id: hideTimer; interval: 1800; onTriggered: toast.visible = false }
     }
 
-    Shortcut { sequence: "Meta+Space"; onActivated: launcherVisible = !launcherVisible }
-    Shortcut { sequence: "Meta+A"; onActivated: aiVisible = !aiVisible }
+    Shortcut { sequence: "Meta+Space"; onActivated: window.toggleSystemPanel("launcher") }
+    Shortcut { sequence: "Meta+A"; onActivated: window.toggleSystemPanel("ai") }
+    Shortcut { sequence: "Meta+N"; onActivated: window.toggleSystemPanel("notification-center") }
+    Shortcut { sequence: "Ctrl+Space"; onActivated: mokoWindowManager.toggleKeyboardLayout() }
+    Shortcut { sequence: "Print"; onActivated: mokoScreenshotController.captureFullScreen() }
     Shortcut {
         sequence: "Ctrl+Alt+A"
         onActivated: {
-            aiVisible = true
+            if (window.activeSystemPanel !== "ai")
+                window.toggleSystemPanel("ai")
             aiPanel.focusInput()
         }
     }
     Shortcut {
         sequence: "Escape"
-        onActivated: {
-            launcherVisible = false
-            aiVisible = false
-            controlCenterVisible = false
-        }
+        onActivated: window.dismissSystemPanels()
     }
 }

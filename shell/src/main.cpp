@@ -2,6 +2,8 @@
 #include "applicationregistry.h"
 #include "applicationservice.h"
 #include "aicontroller.h"
+#include "notificationmodel.h"
+#include "screenshotcontroller.h"
 #include "systemcontrol.h"
 #include "windowmanager.h"
 
@@ -56,6 +58,7 @@ int main(int argc, char *argv[])
     parser.addOption({"windowed", "Run the developer preview in a window."});
     parser.addOption({"control-center", "Open Control Center for validation."});
     parser.addOption({"control-center-page", "Open a Control Center page (0-4).", "page", "0"});
+    parser.addOption({"notification-center", "Open Notification Center for validation."});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
     parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
@@ -73,6 +76,8 @@ int main(int argc, char *argv[])
     dockApplications.setSourceModel(&applicationRegistry);
     ApplicationService applicationService(&applicationRegistry);
     AiController aiController;
+    NotificationModel notificationModel;
+    ScreenshotController screenshotController;
     SystemControl systemControl;
     WindowManager windowManager;
     QObject::connect(&windowManager,
@@ -91,6 +96,16 @@ int main(int argc, char *argv[])
             qWarning("Could not export MOKO application service: %s",
                      qPrintable(sessionBus.lastError().message()));
         }
+        if (!sessionBus.registerService(QStringLiteral("org.freedesktop.Notifications"))) {
+            qWarning("Could not own org.freedesktop.Notifications: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        } else if (!sessionBus.registerObject(QStringLiteral("/org/freedesktop/Notifications"),
+                                              &notificationModel,
+                                              QDBusConnection::ExportAllSlots
+                                                  | QDBusConnection::ExportAllSignals)) {
+            qWarning("Could not export MOKO notification service: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        }
     }
 
     QQmlApplicationEngine engine;
@@ -103,6 +118,10 @@ int main(int argc, char *argv[])
                                              &dockApplications);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoAiController"),
                                              &aiController);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoNotificationModel"),
+                                             &notificationModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoScreenshotController"),
+                                             &screenshotController);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoSystemControl"),
                                              &systemControl);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoWindowManager"),
@@ -129,11 +148,29 @@ int main(int argc, char *argv[])
     if (!window)
         return 1;
     if (parser.isSet("control-center")) {
+        window->setProperty("activeSystemPanel", QStringLiteral("control-center"));
+        window->setProperty("launcherVisible", false);
+        window->setProperty("aiVisible", false);
         window->setProperty("controlCenterVisible", true);
         bool pageOk = false;
         const int page = parser.value("control-center-page").toInt(&pageOk);
         if (pageOk && page >= 0 && page <= 4)
             window->setProperty("controlCenterPage", page);
+    }
+    if (parser.isSet("notification-center")) {
+        notificationModel.Notify(QStringLiteral("MOKO Browser"), 0, {},
+                                 QStringLiteral("Download complete"),
+                                 QStringLiteral("The file is available in Downloads."),
+                                 {QStringLiteral("open"), QStringLiteral("Open")}, {}, 0);
+        notificationModel.Notify(QStringLiteral("MOKO OS"), 0, {},
+                                 QStringLiteral("Screenshot saved"),
+                                 QStringLiteral("Your screenshot was saved in Pictures."),
+                                 {}, {}, 0);
+        window->setProperty("activeSystemPanel", QStringLiteral("notification-center"));
+        window->setProperty("launcherVisible", false);
+        window->setProperty("aiVisible", false);
+        window->setProperty("controlCenterVisible", false);
+        window->setProperty("notificationCenterVisible", true);
     }
 
     // BOOTSTRAP: Cage does not raise independent top-levels above the fullscreen shell.

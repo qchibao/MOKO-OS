@@ -34,6 +34,8 @@ public:
     Q_INVOKABLE bool exportJson();
     Q_INVOKABLE bool exportText();
     Q_INVOKABLE bool exportAll();
+    Q_INVOKABLE bool exportJsonToPath(const QString &path);
+    Q_INVOKABLE bool exportTextToPath(const QString &path);
 
     bool exportJsonToDirectory(const QString &directory);
     bool exportTextToDirectory(const QString &directory);
@@ -95,6 +97,7 @@ private:
     void rebuildReport();
     void updateOverallStatus();
     bool writeReport(const QString &format, const QString &directory);
+    bool writeReportPath(const QString &format, const QString &path);
     QByteArray textReport() const;
     void setStatusMessage(const QString &message);
 

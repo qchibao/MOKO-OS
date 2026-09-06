@@ -14,6 +14,7 @@ pipewire
 wireplumber
 alsa-utils
 brightnessctl
+grim
 bluez
 cage
 libwlroots-0.18

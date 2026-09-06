@@ -84,6 +84,30 @@ Item {
                     ctx.lineTo(cx + Math.cos(angle) * w * .43, cy + Math.sin(angle) * w * .43)
                     ctx.stroke()
                 }
+            } else if (root.kind === "notification") {
+                ctx.beginPath()
+                ctx.moveTo(w * .28, h * .68)
+                ctx.quadraticCurveTo(w * .35, h * .57, w * .35, h * .40)
+                ctx.quadraticCurveTo(w * .35, h * .20, cx, h * .20)
+                ctx.quadraticCurveTo(w * .65, h * .20, w * .65, h * .40)
+                ctx.quadraticCurveTo(w * .65, h * .57, w * .72, h * .68)
+                ctx.moveTo(w * .23, h * .70)
+                ctx.lineTo(w * .77, h * .70)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.arc(cx, h * .78, w * .06, 0, Math.PI * 2)
+                ctx.fill()
+            } else if (root.kind === "screenshot") {
+                ctx.strokeRect(w * .17, h * .29, w * .66, h * .48)
+                ctx.beginPath()
+                ctx.moveTo(w * .32, h * .29)
+                ctx.lineTo(w * .39, h * .20)
+                ctx.lineTo(w * .59, h * .20)
+                ctx.lineTo(w * .67, h * .29)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.arc(cx, h * .53, w * .14, 0, Math.PI * 2)
+                ctx.stroke()
             }
         }
 

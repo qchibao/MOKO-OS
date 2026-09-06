@@ -83,6 +83,10 @@ Item {
                 fill("#FFFFFF"); roundRect(w*.17,h*.17,w*.66,h*.66,w*.10); ctx.fill()
                 fill("#FF5E67"); ctx.fillRect(w*.17,h*.17,w*.66,h*.16)
                 fill("#172033"); ctx.font = `${Math.floor(w*.34)}px sans-serif`; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("28",cx,h*.56)
+            } else if (kind === "notification") {
+                stroke(primary,w*.06); ctx.beginPath(); ctx.moveTo(w*.30,h*.64); ctx.quadraticCurveTo(w*.34,h*.54,w*.34,h*.40); ctx.quadraticCurveTo(w*.34,h*.22,cx,h*.22); ctx.quadraticCurveTo(w*.66,h*.22,w*.66,h*.40); ctx.quadraticCurveTo(w*.66,h*.54,w*.70,h*.64); ctx.stroke()
+                ctx.beginPath(); ctx.moveTo(w*.25,h*.67); ctx.lineTo(w*.75,h*.67); ctx.stroke()
+                fill(secondary); ctx.beginPath(); ctx.arc(cx,h*.75,w*.07,0,Math.PI*2); ctx.fill()
             } else {
                 stroke(primary,w*.065); ctx.beginPath(); ctx.arc(cx,cy,w*.27,0,Math.PI*2); ctx.stroke()
                 fill(tertiary); ctx.beginPath(); ctx.arc(cx,cy,w*.09,0,Math.PI*2); ctx.fill()

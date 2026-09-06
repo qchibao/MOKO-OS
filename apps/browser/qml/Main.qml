@@ -21,6 +21,7 @@ ApplicationWindow {
     property int findMatches: 0
     property int findActiveMatch: 0
     property bool validationDownloadStarted: false
+    property string fileDialogPurpose: "open"
 
     function currentView() {
         return currentTab >= 0 ? webViews.itemAt(currentTab) : null
@@ -75,6 +76,22 @@ ApplicationWindow {
             findMatches = result.numberOfMatches
             findActiveMatch = result.activeMatch
         })
+    }
+
+    function chooseLocalFile() {
+        fileDialogPurpose = "open"
+        fileDialog.mode = "open"
+        fileDialog.dialogTitle = "Open in MOKO Browser"
+        fileDialog.suggestedName = ""
+        fileDialog.openAt(mokoFilePicker.currentPath)
+    }
+
+    function chooseDownloadFolder() {
+        fileDialogPurpose = "downloads"
+        fileDialog.mode = "folder"
+        fileDialog.dialogTitle = "Choose Download Folder"
+        fileDialog.suggestedName = ""
+        fileDialog.openAt(mokoBrowserDownloads.downloadDirectory)
     }
 
     component MokoToolButton: Button {
@@ -317,6 +334,12 @@ ApplicationWindow {
                             currentView().reload()
                     }
                 }
+                MokoToolButton {
+                    text: "O"
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Open local file"
+                    onClicked: window.chooseLocalFile()
+                }
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -541,6 +564,11 @@ ApplicationWindow {
                             text: "Open folder"
                             onClicked: mokoBrowser.showDownloadsInFiles()
                         }
+                        PanelButton {
+                            visible: window.sidePanel === "downloads"
+                            text: "Location"
+                            onClicked: window.chooseDownloadFolder()
+                        }
                         MokoToolButton {
                             text: "X"
                             implicitWidth: 30
@@ -712,6 +740,22 @@ ApplicationWindow {
         onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
     }
 
+    MokoFileDialog {
+        id: fileDialog
+        picker: mokoFilePicker
+        onPathAccepted: function(path) {
+            if (window.fileDialogPurpose === "downloads") {
+                mokoBrowserDownloads.setDownloadDirectory(path)
+                return
+            }
+            const target = mokoBrowser.localFileUrl(path)
+            if (target.toString().length > 0 && window.currentView()) {
+                window.currentView().url = target
+                window.currentView().forceActiveFocus()
+            }
+        }
+    }
+
     Component.onCompleted: createTab(mokoBrowser.initialUrl)
 
     Shortcut { sequence: "Ctrl+L"; onActivated: { addressField.forceActiveFocus(); addressField.selectAll() } }
@@ -719,6 +763,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+W"; onActivated: closeTab(currentTab) }
     Shortcut { sequence: "Ctrl+R"; onActivated: if (currentView()) currentView().reload() }
     Shortcut { sequence: "Ctrl+F"; onActivated: { findVisible = true; findField.forceActiveFocus(); findField.selectAll() } }
+    Shortcut { sequence: "Ctrl+O"; onActivated: window.chooseLocalFile() }
     Shortcut { sequence: "Alt+Left"; onActivated: if (currentView() && currentView().canGoBack) currentView().goBack() }
     Shortcut { sequence: "Alt+Right"; onActivated: if (currentView() && currentView().canGoForward) currentView().goForward() }
     Shortcut { sequence: "Ctrl+Shift+H"; onActivated: togglePanel("history") }

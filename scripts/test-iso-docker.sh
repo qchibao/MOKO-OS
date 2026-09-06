@@ -17,6 +17,7 @@ SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
 WINDOW_WORKFLOW=${MOKO_WINDOW_WORKFLOW:-0}
 CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
 INPUT_TEST=${MOKO_INPUT_TEST:-0}
+USABILITY_TEST=${MOKO_USABILITY_TEST:-0}
 BROWSER_TEST=${MOKO_BROWSER_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
@@ -60,13 +61,17 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST BROWSER_TEST; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST USABILITY_TEST BROWSER_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
     exit 1
   }
 done
+if [[ "$USABILITY_TEST" == 1 && "$BOOT_MODE" != desktop ]]; then
+  echo "MOKO_USABILITY_TEST requires the normal desktop profile." >&2
+  exit 1
+fi
 if [[ "$BROWSER_TEST" == 1 ]]; then
   [[ "$BOOT_MODE" == desktop ]] || {
     echo "MOKO_BROWSER_TEST requires the normal desktop profile." >&2
@@ -212,8 +217,11 @@ pointer_drag() {
   local end_y=$4
   local midpoint_x=$(((start_x + end_x) / 2))
   local midpoint_y=$(((start_y + end_y) / 2))
+  # Give the Wayland client a distinct enter/motion pair before the press.
+  pointer_move "$((start_x - 4))" "$((start_y - 4))"
+  sleep 0.5
   pointer_move "$start_x" "$start_y"
-  sleep 1
+  sleep 1.5
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
   sleep 1
   pointer_move "$midpoint_x" "$midpoint_y"
@@ -345,7 +353,7 @@ docker run --rm --platform linux/amd64 \
 
     for package in \
       live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
-      brightnessctl bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
+      brightnessctl grim bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
       qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
@@ -415,7 +423,13 @@ docker run --rm --platform linux/amd64 \
     grep -Fxq "Hidden=true" /tmp/zutty.desktop
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-launch-monitor \
-      | grep -Fq "MOKO_INPUT_*"
+      > /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_INPUT_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_DESKTOP_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_GLOBAL_ACTION" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_SHELL_OVERLAY" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_SCREENSHOT" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_NOTIFICATION_*" /tmp/moko-live-launch-monitor
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       | grep -Fq "method name=\"providerStatus\""
@@ -625,6 +639,55 @@ for run in $(seq 1 "$RUNS"); do
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$INPUT_SCREENSHOT_NAME")" -gt 10000
     sleep 5
     pointer_click 1120 20
+  fi
+
+  if [[ "$run" == 1 && "$USABILITY_TEST" == 1 ]]; then
+    grep -Fq "MOKO_DESKTOP_CONFIG scale=100 scale_capabilities=1 keyboard_layout=0" "$SERIAL_PATH" || {
+      tail -120 "$SERIAL_PATH" >&2
+      echo "QEMU output did not reject unsafe 200% scaling." >&2
+      exit 1
+    }
+
+    marker=$(serial_line_count)
+    monitor "sendkey ctrl-spc"
+    wait_for_serial_since "$marker" \
+      "MOKO_DESKTOP_CONFIG scale=100 scale_capabilities=1 keyboard_layout=1" 20 \
+      "Ctrl+Space did not select the Vietnamese keyboard layout."
+
+    marker=$(serial_line_count)
+    monitor "sendkey ctrl-spc"
+    wait_for_serial_since "$marker" \
+      "MOKO_DESKTOP_CONFIG scale=100 scale_capabilities=1 keyboard_layout=0" 20 \
+      "Ctrl+Space did not restore the English keyboard layout."
+
+    marker=$(serial_line_count)
+    monitor "sendkey meta_l-n"
+    wait_for_serial_since "$marker" \
+      "MOKO_GLOBAL_ACTION action=3" 20 \
+      "Meta+N did not reach the compositor-owned Notification Center action."
+    wait_for_serial_since "$marker" \
+      "MOKO_NOTIFICATION_CENTER state=open count=[0-9]+ unread=[0-9]+ uid=1000" 20 \
+      "Notification Center did not open in the running Shell."
+    USABILITY_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-usability.png"
+    # TCG can emit the QML state marker before the updated frame is presented.
+    sleep 5
+    monitor "screendump /artifacts/$USABILITY_SCREENSHOT_NAME -f png"
+    test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$USABILITY_SCREENSHOT_NAME")" -gt 10000
+
+    marker=$(serial_line_count)
+    monitor "sendkey esc"
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=hidden" 20 \
+      "Escape did not dismiss the Shell overlay."
+
+    marker=$(serial_line_count)
+    monitor "sendkey print"
+    wait_for_serial_since "$marker" \
+      "MOKO_GLOBAL_ACTION action=4" 20 \
+      "Print did not reach the compositor-owned screenshot action."
+    wait_for_serial_since "$marker" \
+      "MOKO_SCREENSHOT state=saved file=Screenshot.*\.png uid=1000" 30 \
+      "grim did not save a screenshot from the unprivileged Live session."
   fi
 
   if [[ "$BOOT_MODE" == hardware-diagnostics ]]; then

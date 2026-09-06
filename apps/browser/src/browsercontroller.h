@@ -27,6 +27,7 @@ public:
     QString statusMessage() const;
 
     Q_INVOKABLE QUrl urlFromInput(const QString &input) const;
+    Q_INVOKABLE QUrl localFileUrl(const QString &path) const;
     Q_INVOKABLE void recordLoad(const QString &title, const QUrl &url,
                                 bool succeeded, const QString &error = {});
     Q_INVOKABLE void reportJavaScript(const QUrl &url, const QVariant &result);

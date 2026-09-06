@@ -29,7 +29,10 @@ if(BUILD_TESTING)
     target_include_directories(moko-files-tests PRIVATE src)
     target_link_libraries(moko-files-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME moko-files-tests COMMAND moko-files-tests)
-    set_tests_properties(moko-files-tests PROPERTIES TIMEOUT 20)
+    set_tests_properties(moko-files-tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 20
+    )
 
     add_test(NAME moko-files-smoke COMMAND moko-files --smoke-test)
     set_tests_properties(moko-files-smoke PROPERTIES

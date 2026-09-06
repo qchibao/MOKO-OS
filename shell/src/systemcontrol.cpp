@@ -246,6 +246,9 @@ int SystemControl::batteryPercent() const { return m_batteryPercent; }
 int SystemControl::batteryHealth() const { return m_batteryHealth; }
 QString SystemControl::batteryState() const { return m_batteryState; }
 QString SystemControl::batteryTime() const { return m_batteryTime; }
+QString SystemControl::batteryTechnology() const { return m_batteryTechnology; }
+QString SystemControl::batteryCycleCount() const { return m_batteryCycleCount; }
+QString SystemControl::batteryEnergy() const { return m_batteryEnergy; }
 bool SystemControl::powerModeAvailable() const { return m_powerModeAvailable; }
 QString SystemControl::powerMode() const { return m_powerMode; }
 QStringList SystemControl::powerModes() const { return m_powerModes; }
@@ -985,6 +988,9 @@ void SystemControl::refreshPower()
     m_batteryHealth = -1;
     m_batteryState = QStringLiteral("Not detected");
     m_batteryTime.clear();
+    m_batteryTechnology.clear();
+    m_batteryCycleCount.clear();
+    m_batteryEnergy.clear();
     const QDir supplies(QDir(sysfsRoot).filePath(QStringLiteral("class/power_supply")));
     for (const QString &entry : supplies.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         const QString base = supplies.filePath(entry);
@@ -1006,6 +1012,19 @@ void SystemControl::refreshPower()
             rate = readIntegerFile(base + QStringLiteral("/current_now"));
         }
         m_batteryHealth = MokoSystemControl::percentage(full, design);
+        m_batteryTechnology = readTextFile(base + QStringLiteral("/technology"));
+        const qint64 cycles = readIntegerFile(base + QStringLiteral("/cycle_count"));
+        if (cycles >= 0)
+            m_batteryCycleCount = QString::number(cycles);
+        if (remaining >= 0 && full > 0) {
+            const bool energyUnits = QFileInfo::exists(base + QStringLiteral("/energy_now"));
+            const double divisor = energyUnits ? 1000000.0 : 1000.0;
+            const QString unit = energyUnits ? QStringLiteral("Wh") : QStringLiteral("mAh");
+            m_batteryEnergy = QStringLiteral("%1 / %2 %3")
+                                  .arg(remaining / divisor, 0, 'f', 1)
+                                  .arg(full / divisor, 0, 'f', 1)
+                                  .arg(unit);
+        }
         if (remaining > 0 && rate > 0) {
             const qint64 relevant = m_batteryState.compare(QStringLiteral("Charging"),
                                                            Qt::CaseInsensitive) == 0

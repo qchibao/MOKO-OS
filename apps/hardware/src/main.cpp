@@ -1,5 +1,6 @@
 #include "hardwareprobe.h"
 #include "livemarker.h"
+#include "mokofilepickermodel.h"
 
 #include <QCommandLineParser>
 #include <QFileInfo>
@@ -56,6 +57,7 @@ int main(int argc, char *argv[])
     }
 
     HardwareProbe probe;
+    MokoFilePickerModel filePicker;
     if (parser.isSet(QStringLiteral("export-directory")))
         probe.setExportDirectory(parser.value(QStringLiteral("export-directory")));
     QObject::connect(&probe, &HardwareProbe::exportWritten, &app,
@@ -67,6 +69,7 @@ int main(int argc, char *argv[])
     bool qmlWarningsFound = false;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("mokoHardware"), &probe);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoFilePicker"), &filePicker);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         qmlWarningsFound = qmlWarningsFound || !warnings.isEmpty();
     });

@@ -44,6 +44,7 @@
 #include <wayland-server-core.h>
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
+#include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
@@ -56,10 +57,12 @@
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_pointer_gestures_v1.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
+#include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/edges.h>
 #include <wlr/util/log.h>
@@ -70,6 +73,9 @@
 #define MOKO_BOTTOM_RESERVED 112
 #define MOKO_SNAP_DISTANCE 24
 #define MOKO_DEFAULT_POINTER_ACCELERATION 200
+#define MOKO_DEFAULT_OUTPUT_SCALE 100
+#define MOKO_MIN_LOGICAL_WIDTH 1280
+#define MOKO_MIN_LOGICAL_HEIGHT 720
 
 enum moko_cursor_mode {
     MOKO_CURSOR_PASSTHROUGH,
@@ -161,6 +167,7 @@ struct moko_server {
     struct wlr_scene_tree *background_tree;
     struct wlr_scene_tree *window_tree;
     struct wlr_scene_output_layout *scene_layout;
+    struct wlr_xdg_output_manager_v1 *xdg_output_manager;
 
     struct wlr_xdg_shell *xdg_shell;
     struct wl_listener new_xdg_toplevel;
@@ -176,6 +183,10 @@ struct moko_server {
 
     struct wl_global *window_manager_global;
     struct wl_list window_manager_resources;
+    uint32_t output_scale_percent;
+    uint32_t keyboard_layout;
+    bool shell_overlay_visible;
+    struct moko_toplevel *shell_overlay_restore;
 
     struct wl_list pointer_devices;
     bool natural_scroll_enabled;
@@ -216,6 +227,11 @@ struct moko_server {
     struct wl_list outputs;
     struct wl_listener new_output;
 };
+
+static void set_shell_overlay(struct moko_server *server, bool visible);
+static void broadcast_desktop_config(struct moko_server *server);
+static void focus_fallback(struct moko_server *server, struct moko_toplevel *exclude);
+static bool apply_output_scale(struct moko_server *server, uint32_t scale_percent);
 
 static const struct moko_work_area_config work_area_config = {
     .top_reserved = MOKO_TOP_RESERVED,
@@ -473,6 +489,74 @@ static void broadcast_input_config(struct moko_server *server)
                  snapshot.pointer_acceleration);
 }
 
+static bool resolution_supports_scale(int width, int height, uint32_t scale_percent)
+{
+    if (scale_percent == 100)
+        return true;
+    return scale_percent == 200
+        && width / 2 >= MOKO_MIN_LOGICAL_WIDTH
+        && height / 2 >= MOKO_MIN_LOGICAL_HEIGHT;
+}
+
+static bool output_supports_scale(const struct wlr_output *output, uint32_t scale_percent)
+{
+    return output != NULL
+        && resolution_supports_scale(output->width, output->height, scale_percent);
+}
+
+static uint32_t output_scale_capabilities(struct moko_server *server)
+{
+    uint32_t capabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
+    bool has_output = false;
+    bool scale_200 = true;
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        has_output = true;
+        scale_200 = scale_200 && output_supports_scale(output->wlr_output, 200);
+    }
+    if (has_output && scale_200)
+        capabilities |= MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_200;
+    return capabilities;
+}
+
+static void send_desktop_config_to_resource(struct moko_server *server,
+                                            struct wl_resource *resource)
+{
+    if (wl_resource_get_version(resource) < 3)
+        return;
+    moko_window_manager_v1_send_desktop_config(resource,
+                                               server->output_scale_percent,
+                                               output_scale_capabilities(server),
+                                               server->keyboard_layout);
+}
+
+static void broadcast_desktop_config(struct moko_server *server)
+{
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources) {
+        if (wl_resource_get_version(resource) < 3)
+            continue;
+        send_desktop_config_to_resource(server, resource);
+        moko_window_manager_v1_send_done(resource);
+    }
+    report_event("MOKO_DESKTOP_CONFIG scale=%u scale_capabilities=%u keyboard_layout=%u",
+                 server->output_scale_percent,
+                 output_scale_capabilities(server),
+                 server->keyboard_layout);
+}
+
+static void request_global_action(struct moko_server *server, uint32_t action)
+{
+    if (action != MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_SCREENSHOT)
+        set_shell_overlay(server, true);
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources) {
+        if (wl_resource_get_version(resource) >= 3)
+            moko_window_manager_v1_send_global_action(resource, action);
+    }
+    report_event("MOKO_GLOBAL_ACTION action=%u", action);
+}
+
 static const char *toplevel_app_id(const struct moko_toplevel *toplevel)
 {
     const char *app_id = toplevel->xdg_toplevel->app_id;
@@ -718,6 +802,15 @@ static void focus_toplevel(struct moko_toplevel *toplevel)
     if (toplevel == NULL || !toplevel->mapped)
         return;
     struct moko_server *server = toplevel->server;
+    if (!toplevel->is_shell && server->shell_overlay_visible
+        && server->shell_toplevel != NULL) {
+        wlr_scene_node_reparent(&server->shell_toplevel->scene_tree->node,
+                                server->background_tree);
+        wlr_scene_node_lower_to_bottom(&server->shell_toplevel->scene_tree->node);
+        server->shell_overlay_visible = false;
+        server->shell_overlay_restore = NULL;
+        report_event("MOKO_SHELL_OVERLAY state=hidden reason=app-focus");
+    }
     if (toplevel->minimized)
         set_minimized(toplevel, false);
 
@@ -746,6 +839,39 @@ static void focus_toplevel(struct moko_toplevel *toplevel)
                                        &keyboard->modifiers);
     }
     broadcast_toplevel(toplevel);
+}
+
+static void set_shell_overlay(struct moko_server *server, bool visible)
+{
+    struct moko_toplevel *shell = server->shell_toplevel;
+    if (shell == NULL || !shell->mapped)
+        return;
+
+    if (visible) {
+        if (!server->shell_overlay_visible)
+            server->shell_overlay_restore = server->active_toplevel;
+        server->shell_overlay_visible = true;
+        wlr_scene_node_reparent(&shell->scene_tree->node, &server->scene->tree);
+        wlr_scene_node_raise_to_top(&shell->scene_tree->node);
+        focus_toplevel(shell);
+        report_event("MOKO_SHELL_OVERLAY state=shown");
+        return;
+    }
+
+    if (!server->shell_overlay_visible)
+        return;
+    server->shell_overlay_visible = false;
+    wlr_scene_node_reparent(&shell->scene_tree->node, server->background_tree);
+    wlr_scene_node_lower_to_bottom(&shell->scene_tree->node);
+    deactivate_toplevel(shell);
+
+    struct moko_toplevel *restore = server->shell_overlay_restore;
+    server->shell_overlay_restore = NULL;
+    if (restore != NULL && restore->mapped && !restore->minimized)
+        focus_toplevel(restore);
+    else
+        focus_fallback(server, shell);
+    report_event("MOKO_SHELL_OVERLAY state=hidden");
 }
 
 static struct moko_toplevel *first_available_toplevel(struct moko_server *server,
@@ -1173,18 +1299,92 @@ static void request_brightness_step(struct moko_server *server, int32_t delta)
     report_event("MOKO_SYSTEM_KEY action=brightness delta=%d", delta);
 }
 
+static struct xkb_keymap *create_desktop_keymap(void)
+{
+    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (context == NULL)
+        return NULL;
+    const struct xkb_rule_names names = {
+        .layout = "us,vn",
+    };
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(
+        context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    xkb_context_unref(context);
+    return keymap;
+}
+
+static bool apply_keyboard_layout(struct moko_server *server, uint32_t layout)
+{
+    if (layout > MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE)
+        return false;
+
+    struct xkb_keymap *keymap = create_desktop_keymap();
+    if (keymap == NULL) {
+        wlr_log(WLR_ERROR, "Could not compile the English/Vietnamese keymap");
+        return false;
+    }
+
+    bool applied = true;
+    struct moko_keyboard *keyboard;
+    wl_list_for_each(keyboard, &server->keyboards, link) {
+        if (!wlr_keyboard_set_keymap(keyboard->wlr_keyboard, keymap)) {
+            applied = false;
+            continue;
+        }
+        const struct wlr_keyboard_modifiers modifiers = keyboard->wlr_keyboard->modifiers;
+        wlr_keyboard_notify_modifiers(keyboard->wlr_keyboard,
+                                      modifiers.depressed,
+                                      modifiers.latched,
+                                      modifiers.locked,
+                                      layout);
+    }
+    xkb_keymap_unref(keymap);
+    if (!applied)
+        return false;
+
+    server->keyboard_layout = layout;
+    broadcast_desktop_config(server);
+    return true;
+}
+
 static bool handle_keybinding(struct moko_server *server,
                               xkb_keysym_t symbol,
                               uint32_t modifiers)
 {
     const bool alt_or_logo = modifiers & (WLR_MODIFIER_ALT | WLR_MODIFIER_LOGO);
     const bool logo = modifiers & WLR_MODIFIER_LOGO;
+    const bool control = modifiers & WLR_MODIFIER_CTRL;
     if (symbol == XKB_KEY_XF86MonBrightnessUp) {
         request_brightness_step(server, 5);
         return true;
     }
     if (symbol == XKB_KEY_XF86MonBrightnessDown) {
         request_brightness_step(server, -5);
+        return true;
+    }
+    if (symbol == XKB_KEY_Print) {
+        request_global_action(server, MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_SCREENSHOT);
+        return true;
+    }
+    if (control && symbol == XKB_KEY_space) {
+        const uint32_t layout = server->keyboard_layout
+                == MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH
+            ? MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+            : MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH;
+        apply_keyboard_layout(server, layout);
+        return true;
+    }
+    if (logo && symbol == XKB_KEY_space) {
+        request_global_action(server, MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_LAUNCHER);
+        return true;
+    }
+    if (logo && (symbol == XKB_KEY_a || symbol == XKB_KEY_A)) {
+        request_global_action(server, MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_AI);
+        return true;
+    }
+    if (logo && (symbol == XKB_KEY_n || symbol == XKB_KEY_N)) {
+        request_global_action(server,
+                              MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_NOTIFICATION_CENTER);
         return true;
     }
     if (alt_or_logo && symbol == XKB_KEY_Tab) {
@@ -1234,6 +1434,12 @@ static void keyboard_modifiers(struct wl_listener *listener, void *data)
     wlr_seat_set_keyboard(keyboard->server->seat, keyboard->wlr_keyboard);
     wlr_seat_keyboard_notify_modifiers(keyboard->server->seat,
                                        &keyboard->wlr_keyboard->modifiers);
+    const uint32_t group = keyboard->wlr_keyboard->modifiers.group;
+    if (group <= MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+        && keyboard->server->keyboard_layout != group) {
+        keyboard->server->keyboard_layout = group;
+        broadcast_desktop_config(keyboard->server);
+    }
 }
 
 static void keyboard_key(struct wl_listener *listener, void *data)
@@ -1279,12 +1485,21 @@ static void add_keyboard(struct moko_server *server, struct wlr_input_device *de
     keyboard->server = server;
     keyboard->wlr_keyboard = wlr_keyboard;
 
-    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    struct xkb_keymap *keymap = xkb_keymap_new_from_names(
-        context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
-    wlr_keyboard_set_keymap(wlr_keyboard, keymap);
+    struct xkb_keymap *keymap = create_desktop_keymap();
+    if (keymap == NULL || !wlr_keyboard_set_keymap(wlr_keyboard, keymap)) {
+        wlr_log(WLR_ERROR, "Could not configure keyboard %s", device->name);
+        if (keymap != NULL)
+            xkb_keymap_unref(keymap);
+        free(keyboard);
+        return;
+    }
     xkb_keymap_unref(keymap);
-    xkb_context_unref(context);
+    const struct wlr_keyboard_modifiers modifiers = wlr_keyboard->modifiers;
+    wlr_keyboard_notify_modifiers(wlr_keyboard,
+                                  modifiers.depressed,
+                                  modifiers.latched,
+                                  modifiers.locked,
+                                  server->keyboard_layout);
     wlr_keyboard_set_repeat_info(wlr_keyboard, 25, 600);
 
     keyboard->modifiers.notify = keyboard_modifiers;
@@ -1399,7 +1614,74 @@ static void position_shell(struct moko_server *server)
     server->shell_toplevel->fullscreen = true;
     wlr_xdg_toplevel_set_fullscreen(server->shell_toplevel->xdg_toplevel, true);
     apply_geometry(server->shell_toplevel, output_box(server, NULL));
-    wlr_scene_node_lower_to_bottom(&server->shell_toplevel->scene_tree->node);
+    if (!server->shell_overlay_visible)
+        wlr_scene_node_lower_to_bottom(&server->shell_toplevel->scene_tree->node);
+}
+
+static void relayout_desktop(struct moko_server *server)
+{
+    position_shell(server);
+    struct moko_toplevel *toplevel;
+    wl_list_for_each(toplevel, &server->toplevels, link) {
+        if (!toplevel->mapped)
+            continue;
+        const struct moko_rect output = output_box(server, toplevel_output(toplevel));
+        const struct moko_rect area = moko_work_area(output, work_area_config);
+        if (toplevel->fullscreen) {
+            apply_geometry(toplevel, output);
+        } else if (toplevel->maximized) {
+            apply_geometry(toplevel, area);
+        } else if (toplevel->snap_side != MOKO_SNAP_NONE) {
+            apply_geometry(toplevel,
+                           moko_snap_rect(area, toplevel->snap_side == MOKO_SNAP_RIGHT));
+        } else {
+            const struct moko_rect geometry = current_geometry(toplevel);
+            apply_geometry(toplevel,
+                           moko_centered_rect(area,
+                                              geometry.width,
+                                              geometry.height,
+                                              0));
+            capture_restore_geometry(toplevel);
+        }
+        broadcast_toplevel(toplevel);
+    }
+}
+
+static bool apply_output_scale(struct moko_server *server, uint32_t scale_percent)
+{
+    if (scale_percent != 100 && scale_percent != 200)
+        return false;
+    const uint32_t capability = scale_percent == 200
+        ? MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_200
+        : MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
+    if ((output_scale_capabilities(server) & capability) == 0)
+        return false;
+
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        struct wlr_output_state state;
+        wlr_output_state_init(&state);
+        wlr_output_state_set_scale(&state, scale_percent / 100.0f);
+        const bool supported = wlr_output_test_state(output->wlr_output, &state);
+        wlr_output_state_finish(&state);
+        if (!supported)
+            return false;
+    }
+
+    wl_list_for_each(output, &server->outputs, link) {
+        struct wlr_output_state state;
+        wlr_output_state_init(&state);
+        wlr_output_state_set_scale(&state, scale_percent / 100.0f);
+        const bool committed = wlr_output_commit_state(output->wlr_output, &state);
+        wlr_output_state_finish(&state);
+        if (!committed)
+            return false;
+    }
+
+    server->output_scale_percent = scale_percent;
+    relayout_desktop(server);
+    broadcast_desktop_config(server);
+    return true;
 }
 
 static void output_destroy(struct wl_listener *listener, void *data)
@@ -1410,6 +1692,7 @@ static void output_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&output->request_state.link);
     wl_list_remove(&output->destroy.link);
     wl_list_remove(&output->link);
+    broadcast_desktop_config(output->server);
     free(output);
 }
 
@@ -1426,6 +1709,10 @@ static void new_output(struct wl_listener *listener, void *data)
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, true);
     struct wlr_output_mode *mode = wlr_output_preferred_mode(wlr_output);
+    const bool reset_unsafe_scale = server->output_scale_percent == 200
+        && mode != NULL && !resolution_supports_scale(mode->width, mode->height, 200);
+    const uint32_t initial_scale = reset_unsafe_scale ? 100 : server->output_scale_percent;
+    wlr_output_state_set_scale(&state, initial_scale / 100.0f);
     if (mode != NULL)
         wlr_output_state_set_mode(&state, mode);
     if (!wlr_output_commit_state(wlr_output, &state))
@@ -1449,7 +1736,12 @@ static void new_output(struct wl_listener *listener, void *data)
         server->output_layout, wlr_output);
     struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
     wlr_scene_output_layout_add_output(server->scene_layout, layout_output, scene_output);
-    position_shell(server);
+    if (reset_unsafe_scale)
+        apply_output_scale(server, 100);
+    else {
+        position_shell(server);
+        broadcast_desktop_config(server);
+    }
 }
 
 static void classify_toplevel(struct moko_toplevel *toplevel)
@@ -1520,9 +1812,12 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     if (!toplevel->mapped)
         return;
     toplevel->mapped = false;
+    if (toplevel->server->shell_overlay_restore == toplevel)
+        toplevel->server->shell_overlay_restore = NULL;
     if (toplevel->is_shell) {
         if (toplevel->server->shell_toplevel == toplevel)
             toplevel->server->shell_toplevel = NULL;
+        toplevel->server->shell_overlay_visible = false;
     } else {
         struct wl_resource *resource;
         wl_resource_for_each(resource, &toplevel->server->window_manager_resources) {
@@ -1572,6 +1867,8 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
 {
     (void)data;
     struct moko_toplevel *toplevel = wl_container_of(listener, toplevel, destroy);
+    if (toplevel->server->shell_overlay_restore == toplevel)
+        toplevel->server->shell_overlay_restore = NULL;
     wl_list_remove(&toplevel->map.link);
     wl_list_remove(&toplevel->unmap.link);
     wl_list_remove(&toplevel->commit.link);
@@ -1878,6 +2175,42 @@ static void manager_set_pointer_acceleration(struct wl_client *client,
     broadcast_input_config(server);
 }
 
+static void manager_set_output_scale(struct wl_client *client,
+                                     struct wl_resource *resource,
+                                     uint32_t scale_percent)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    if (!apply_output_scale(server, scale_percent)) {
+        report_event("MOKO_DESKTOP_CONFIG action=set-scale value=%u ok=0",
+                     scale_percent);
+        return;
+    }
+    report_event("MOKO_DESKTOP_CONFIG action=set-scale value=%u ok=1",
+                 scale_percent);
+}
+
+static void manager_set_keyboard_layout(struct wl_client *client,
+                                        struct wl_resource *resource,
+                                        uint32_t layout)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    const bool applied = apply_keyboard_layout(server, layout);
+    report_event("MOKO_DESKTOP_CONFIG action=set-keyboard-layout value=%u ok=%d",
+                 layout,
+                 applied ? 1 : 0);
+}
+
+static void manager_set_shell_overlay(struct wl_client *client,
+                                      struct wl_resource *resource,
+                                      uint32_t visible)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    set_shell_overlay(server, visible != 0);
+}
+
 static const struct moko_window_manager_v1_interface window_manager_implementation = {
     .destroy = manager_destroy,
     .activate = manager_activate,
@@ -1888,6 +2221,9 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .close = manager_close,
     .set_natural_scroll = manager_set_natural_scroll,
     .set_pointer_acceleration = manager_set_pointer_acceleration,
+    .set_output_scale = manager_set_output_scale,
+    .set_keyboard_layout = manager_set_keyboard_layout,
+    .set_shell_overlay = manager_set_shell_overlay,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
@@ -1916,6 +2252,7 @@ static void bind_window_manager(struct wl_client *client,
     wl_list_for_each(toplevel, &server->toplevels, link)
         send_toplevel_to_resource(resource, toplevel);
     send_input_config_to_resource(server, resource);
+    send_desktop_config_to_resource(server, resource);
     moko_window_manager_v1_send_done(resource);
 }
 
@@ -1968,6 +2305,8 @@ int main(int argc, char **argv)
     server.next_window_id = 100;
     server.natural_scroll_enabled = true;
     server.pointer_acceleration = MOKO_DEFAULT_POINTER_ACCELERATION;
+    server.output_scale_percent = MOKO_DEFAULT_OUTPUT_SCALE;
+    server.keyboard_layout = MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH;
     wl_list_init(&server.outputs);
     wl_list_init(&server.toplevels);
     wl_list_init(&server.keyboards);
@@ -2004,8 +2343,18 @@ int main(int argc, char **argv)
     wlr_compositor_create(server.display, 5, server.renderer);
     wlr_subcompositor_create(server.display);
     wlr_data_device_manager_create(server.display);
+    if (wlr_screencopy_manager_v1_create(server.display) == NULL) {
+        wlr_log(WLR_ERROR, "Failed to create screencopy manager");
+        return 1;
+    }
 
     server.output_layout = wlr_output_layout_create(server.display);
+    server.xdg_output_manager = wlr_xdg_output_manager_v1_create(server.display,
+                                                                 server.output_layout);
+    if (server.xdg_output_manager == NULL) {
+        wlr_log(WLR_ERROR, "Failed to create xdg-output manager");
+        return 1;
+    }
     server.new_output.notify = new_output;
     wl_signal_add(&server.backend->events.new_output, &server.new_output);
     server.scene = wlr_scene_create();
@@ -2026,7 +2375,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    2,
+                                                    3,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {

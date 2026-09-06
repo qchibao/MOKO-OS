@@ -1,19 +1,29 @@
 #include "filemodel.h"
 
 #include <QDesktopServices>
+#include <QClipboard>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QMimeDatabase>
+#include <QMimeData>
 #include <QLocale>
 #include <QUrl>
 #include <QUuid>
 
 #include <algorithm>
+#include <utility>
 
 FileModel::FileModel(QObject *parent, const QString &initialPath)
     : QAbstractListModel(parent)
 {
+    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr) {
+        connect(QGuiApplication::clipboard(), &QClipboard::dataChanged,
+                this, &FileModel::readSystemClipboard);
+        readSystemClipboard();
+    }
     const QString start = initialPath.isEmpty() ? QDir::homePath() : initialPath;
     navigateInternal(start, true);
 }
@@ -101,7 +111,7 @@ bool FileModel::canGoForward() const
 
 bool FileModel::canPaste() const
 {
-    return !m_clipboardSource.isEmpty();
+    return !m_clipboardSources.isEmpty();
 }
 
 QString FileModel::clipboardMode() const
@@ -258,10 +268,8 @@ bool FileModel::stageCopy(int row)
 {
     if (!validRow(row))
         return fail(QStringLiteral("Select an item to copy."));
-    m_clipboardSource = m_entries.at(row).path;
-    m_clipboardMode = QStringLiteral("copy");
+    stageClipboard(row, QStringLiteral("copy"));
     setStatusMessage(QStringLiteral("Ready to copy %1").arg(m_entries.at(row).name));
-    emit clipboardChanged();
     return true;
 }
 
@@ -269,10 +277,8 @@ bool FileModel::stageMove(int row)
 {
     if (!validRow(row))
         return fail(QStringLiteral("Select an item to move."));
-    m_clipboardSource = m_entries.at(row).path;
-    m_clipboardMode = QStringLiteral("move");
+    stageClipboard(row, QStringLiteral("move"));
     setStatusMessage(QStringLiteral("Ready to move %1").arg(m_entries.at(row).name));
-    emit clipboardChanged();
     return true;
 }
 
@@ -280,45 +286,64 @@ bool FileModel::paste()
 {
     if (!canPaste())
         return fail(QStringLiteral("Nothing is ready to paste."));
-    const QFileInfo sourceInfo(m_clipboardSource);
-    if (!sourceInfo.exists() && !sourceInfo.isSymLink()) {
-        m_clipboardSource.clear();
-        m_clipboardMode.clear();
-        emit clipboardChanged();
-        return fail(QStringLiteral("The source item no longer exists."));
+    const QStringList sources = m_clipboardSources;
+    if (sources.isEmpty())
+        return fail(QStringLiteral("Nothing is ready to paste."));
+
+    struct PlannedOperation {
+        QString source;
+        QString destination;
+        QString name;
+    };
+    QVector<PlannedOperation> operations;
+    operations.reserve(sources.size());
+    for (const QString &source : sources) {
+        const QFileInfo sourceInfo(source);
+        if (!sourceInfo.exists() && !sourceInfo.isSymLink()) {
+            m_clipboardSources.clear();
+            m_clipboardMode.clear();
+            emit clipboardChanged();
+            return fail(QStringLiteral("A source item no longer exists."));
+        }
+
+        const QString destination = QDir(m_currentPath).filePath(sourceInfo.fileName());
+        const QString sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
+        const QString destinationPath = QDir::cleanPath(QFileInfo(destination).absoluteFilePath());
+        if (sourceInfo.isDir() && destinationPath.startsWith(sourcePath + u'/'))
+            return fail(QStringLiteral("A folder cannot be copied or moved inside itself."));
+        if (destinationPath == sourcePath)
+            return fail(QStringLiteral("Choose a different destination folder."));
+        if (QFileInfo::exists(destination)) {
+            return fail(QStringLiteral("An item named %1 already exists here.")
+                            .arg(sourceInfo.fileName()));
+        }
+        operations.append({sourcePath, destinationPath, sourceInfo.fileName()});
     }
 
-    const QString destination = QDir(m_currentPath).filePath(sourceInfo.fileName());
-    const QString sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
-    const QString destinationPath = QDir::cleanPath(QFileInfo(destination).absoluteFilePath());
-    if (sourceInfo.isDir()
-        && destinationPath.startsWith(sourcePath + u'/')) {
-        return fail(QStringLiteral("A folder cannot be copied or moved inside itself."));
-    }
-    if (destinationPath == sourcePath)
-        return fail(QStringLiteral("Choose a different destination folder."));
-    if (QFileInfo::exists(destination))
-        return fail(QStringLiteral("An item named %1 already exists here.").arg(sourceInfo.fileName()));
-
-    QString error;
-    bool succeeded = false;
-    if (m_clipboardMode == QStringLiteral("move")) {
-        succeeded = QFile::rename(m_clipboardSource, destination);
+    for (const PlannedOperation &operation : operations) {
+        QString error;
+        bool succeeded = false;
+        if (m_clipboardMode == QStringLiteral("move")) {
+            succeeded = QFile::rename(operation.source, operation.destination);
+            if (!succeeded)
+                error = QStringLiteral("Move failed. Cross-device moves are not performed automatically.");
+        } else {
+            succeeded = copyPath(operation.source, operation.destination, &error);
+        }
         if (!succeeded)
-            error = QStringLiteral("Move failed. Cross-device moves are not performed automatically.");
-    } else {
-        succeeded = copyPath(m_clipboardSource, destination, &error);
+            return fail(error.isEmpty() ? QStringLiteral("The operation failed.") : error);
     }
-    if (!succeeded)
-        return fail(error.isEmpty() ? QStringLiteral("The operation failed.") : error);
 
-    setStatusMessage(QStringLiteral("%1 %2")
+    setStatusMessage(QStringLiteral("%1 %2 item%3")
                          .arg(m_clipboardMode == QStringLiteral("move") ? QStringLiteral("Moved")
-                                                                         : QStringLiteral("Copied"),
-                              sourceInfo.fileName()));
+                                                                         : QStringLiteral("Copied"))
+                         .arg(operations.size())
+                         .arg(operations.size() == 1 ? QString() : QStringLiteral("s")));
     if (m_clipboardMode == QStringLiteral("move")) {
-        m_clipboardSource.clear();
+        m_clipboardSources.clear();
         m_clipboardMode.clear();
+        if (qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr)
+            QGuiApplication::clipboard()->clear(QClipboard::Clipboard);
         emit clipboardChanged();
     }
     return reloadEntries();
@@ -357,6 +382,76 @@ void FileModel::cancelDelete()
 {
     m_pendingDeletePath.clear();
     m_pendingDeleteToken.clear();
+}
+
+void FileModel::stageClipboard(int row, const QString &mode)
+{
+    m_clipboardSources = {m_entries.at(row).path};
+    m_clipboardMode = mode;
+    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr) {
+        auto *mimeData = new QMimeData;
+        const QUrl url = QUrl::fromLocalFile(m_clipboardSources.constFirst());
+        mimeData->setUrls({url});
+        const QByteArray operation = mode == QStringLiteral("move") ? QByteArray("cut\n")
+                                                                     : QByteArray("copy\n");
+        mimeData->setData(QStringLiteral("x-special/gnome-copied-files"),
+                          operation + url.toEncoded() + '\n');
+        QGuiApplication::clipboard()->setMimeData(mimeData, QClipboard::Clipboard);
+    }
+    emit clipboardChanged();
+}
+
+void FileModel::readSystemClipboard()
+{
+    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance()) == nullptr)
+        return;
+    QString mode;
+    const QStringList paths = clipboardPaths(
+        QGuiApplication::clipboard()->mimeData(QClipboard::Clipboard), &mode);
+    if (m_clipboardSources == paths && m_clipboardMode == mode)
+        return;
+    m_clipboardSources = paths;
+    m_clipboardMode = mode;
+    emit clipboardChanged();
+}
+
+QStringList FileModel::clipboardPaths(const QMimeData *mimeData, QString *mode) const
+{
+    if (mode != nullptr)
+        mode->clear();
+    if (mimeData == nullptr)
+        return {};
+
+    QList<QUrl> urls;
+    QString operation = QStringLiteral("copy");
+    const QString copiedFilesMime = QStringLiteral("x-special/gnome-copied-files");
+    if (mimeData->hasFormat(copiedFilesMime)) {
+        const QList<QByteArray> lines = mimeData->data(copiedFilesMime).split('\n');
+        if (!lines.isEmpty() && lines.constFirst().trimmed() == QByteArray("cut"))
+            operation = QStringLiteral("move");
+        for (int index = 1; index < lines.size(); ++index) {
+            const QByteArray line = lines.at(index).trimmed();
+            if (!line.isEmpty())
+                urls.append(QUrl::fromEncoded(line));
+        }
+    } else if (mimeData->hasUrls()) {
+        urls = mimeData->urls();
+    }
+
+    QStringList paths;
+    for (const QUrl &url : std::as_const(urls)) {
+        if (!url.isLocalFile())
+            continue;
+        const QFileInfo info(QDir::cleanPath(url.toLocalFile()));
+        if ((!info.exists() && !info.isSymLink()) || paths.contains(info.absoluteFilePath()))
+            continue;
+        paths.append(info.absoluteFilePath());
+        if (paths.size() >= 64)
+            break;
+    }
+    if (!paths.isEmpty() && mode != nullptr)
+        *mode = operation;
+    return paths;
 }
 
 bool FileModel::navigateInternal(const QString &path, bool addHistory)

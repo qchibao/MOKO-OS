@@ -11,7 +11,7 @@ class BrowserDownloadModel final : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
-    Q_PROPERTY(QString downloadDirectory READ downloadDirectory CONSTANT)
+    Q_PROPERTY(QString downloadDirectory READ downloadDirectory NOTIFY downloadDirectoryChanged)
 
 public:
     enum Role {
@@ -41,6 +41,7 @@ public:
     Q_INVOKABLE bool cancel(int row);
     Q_INVOKABLE bool open(int row);
     Q_INVOKABLE bool showInFiles(int row = -1);
+    Q_INVOKABLE bool setDownloadDirectory(const QString &directory);
     Q_INVOKABLE QVariantMap entry(int row) const;
     Q_INVOKABLE void clearFinished();
 
@@ -51,6 +52,7 @@ signals:
     void countChanged();
     void statusMessage(const QString &message);
     void downloadCompleted(const QString &path, qint64 bytes);
+    void downloadDirectoryChanged();
 
 private:
     struct Entry {

@@ -581,6 +581,21 @@ ApplicationWindow {
     }
 
     Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut {
+        sequence: "Ctrl+C"
+        enabled: window.selectedIndex >= 0
+        onActivated: mokoFiles.stageCopy(window.selectedIndex)
+    }
+    Shortcut {
+        sequence: "Ctrl+X"
+        enabled: window.selectedIndex >= 0
+        onActivated: mokoFiles.stageMove(window.selectedIndex)
+    }
+    Shortcut {
+        sequence: "Ctrl+V"
+        enabled: mokoFiles.canPaste
+        onActivated: mokoFiles.paste()
+    }
     Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
     Shortcut {
         sequence: "F11"

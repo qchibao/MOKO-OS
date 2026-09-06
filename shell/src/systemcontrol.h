@@ -50,6 +50,9 @@ class SystemControl final : public QObject
     Q_PROPERTY(int batteryHealth READ batteryHealth NOTIFY powerChanged)
     Q_PROPERTY(QString batteryState READ batteryState NOTIFY powerChanged)
     Q_PROPERTY(QString batteryTime READ batteryTime NOTIFY powerChanged)
+    Q_PROPERTY(QString batteryTechnology READ batteryTechnology NOTIFY powerChanged)
+    Q_PROPERTY(QString batteryCycleCount READ batteryCycleCount NOTIFY powerChanged)
+    Q_PROPERTY(QString batteryEnergy READ batteryEnergy NOTIFY powerChanged)
     Q_PROPERTY(bool powerModeAvailable READ powerModeAvailable NOTIFY powerChanged)
     Q_PROPERTY(QString powerMode READ powerMode NOTIFY powerChanged)
     Q_PROPERTY(QStringList powerModes READ powerModes NOTIFY powerChanged)
@@ -98,6 +101,9 @@ public:
     int batteryHealth() const;
     QString batteryState() const;
     QString batteryTime() const;
+    QString batteryTechnology() const;
+    QString batteryCycleCount() const;
+    QString batteryEnergy() const;
     bool powerModeAvailable() const;
     QString powerMode() const;
     QStringList powerModes() const;
@@ -193,6 +199,9 @@ private:
     int m_batteryHealth = -1;
     QString m_batteryState = QStringLiteral("Not detected");
     QString m_batteryTime;
+    QString m_batteryTechnology;
+    QString m_batteryCycleCount;
+    QString m_batteryEnergy;
     bool m_powerModeAvailable = false;
     QString m_powerMode;
     QStringList m_powerModes;

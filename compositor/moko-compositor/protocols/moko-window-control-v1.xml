@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="2">
+  <interface name="moko_window_manager_v1" version="3">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -103,6 +103,50 @@
       <arg name="pointer_acceleration" type="int"/>
     </event>
 
+    <request name="set_output_scale" since="3">
+      <description summary="set a bounded desktop output scale">
+        Accepts only the compositor-supported integer percentages. The v0.1.1
+        implementation supports 100 and 200 percent and rejects other values.
+      </description>
+      <arg name="scale_percent" type="uint"/>
+    </request>
+
+    <request name="set_keyboard_layout" since="3">
+      <description summary="select an allowlisted keyboard layout">
+        Selects one of the keyboard_layout enum values. No arbitrary XKB rule,
+        model, layout, variant or option string crosses this protocol.
+      </description>
+      <arg name="layout" type="uint" enum="keyboard_layout"/>
+    </request>
+
+    <request name="set_shell_overlay" since="3">
+      <description summary="show or dismiss the MOKO Shell overlay">
+        Raises the already mapped MOKO Shell for bounded system surfaces such
+        as Launcher and Notification Center, then restores the previous app.
+      </description>
+      <arg name="visible" type="uint"/>
+    </request>
+
+    <event name="desktop_config" since="3">
+      <description summary="actual desktop configuration and capabilities">
+        Reports compositor-owned configuration after startup and after each
+        accepted change. Scale capabilities reflect every connected output so
+        a global scale cannot make the Shell smaller than its supported logical
+        desktop size.
+      </description>
+      <arg name="scale_percent" type="uint"/>
+      <arg name="scale_capabilities" type="uint" enum="output_scale_capability"/>
+      <arg name="keyboard_layout" type="uint" enum="keyboard_layout"/>
+    </event>
+
+    <event name="global_action" since="3">
+      <description summary="request a fixed Shell-owned global action">
+        Sent only for compositor-owned shortcuts. The action is a bounded enum
+        and cannot contain a command, path or user-provided string.
+      </description>
+      <arg name="action" type="uint" enum="global_action"/>
+    </event>
+
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>
       <entry name="maximized" value="2"/>
@@ -138,6 +182,23 @@
       <entry name="adaptive_acceleration_enabled" value="16"/>
       <entry name="disable_while_typing_enabled" value="32"/>
       <entry name="drag_enabled" value="64"/>
+    </enum>
+
+    <enum name="keyboard_layout">
+      <entry name="english" value="0" summary="English (US)"/>
+      <entry name="vietnamese" value="1" summary="Vietnamese"/>
+    </enum>
+
+    <enum name="output_scale_capability" bitfield="true">
+      <entry name="scale_100" value="1" summary="100 percent scale"/>
+      <entry name="scale_200" value="2" summary="200 percent scale"/>
+    </enum>
+
+    <enum name="global_action">
+      <entry name="launcher" value="1"/>
+      <entry name="ai" value="2"/>
+      <entry name="notification_center" value="3"/>
+      <entry name="screenshot" value="4"/>
     </enum>
   </interface>
 </protocol>

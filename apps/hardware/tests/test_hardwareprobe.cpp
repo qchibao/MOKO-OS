@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QTemporaryDir>
@@ -69,6 +70,9 @@ void HardwareProbeTest::exportsPrivacySafeJsonAndText()
     QVERIFY(output.isValid());
     QVERIFY(probe.exportJsonToDirectory(output.path()));
     QVERIFY(probe.exportTextToDirectory(output.path()));
+    const QString customJson = output.filePath(QStringLiteral("custom-report.json"));
+    QVERIFY(probe.exportJsonToPath(customJson));
+    QVERIFY(QFileInfo::exists(customJson));
 
     QFile jsonFile(output.filePath(QStringLiteral("moko-hardware-report.json")));
     QVERIFY(jsonFile.open(QIODevice::ReadOnly));

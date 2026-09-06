@@ -54,6 +54,10 @@ struct test_state {
     bool input_config_received;
     uint32_t input_device_count;
     uint32_t input_capabilities;
+    bool desktop_config_received;
+    uint32_t output_scale;
+    uint32_t output_scale_capabilities;
+    uint32_t keyboard_layout;
 };
 
 static int create_anonymous_file(size_t size)
@@ -236,12 +240,37 @@ static void manager_input_config(void *data,
     state->input_capabilities = capabilities;
 }
 
+static void manager_desktop_config(void *data,
+                                   struct moko_window_manager_v1 *manager,
+                                   uint32_t output_scale,
+                                   uint32_t scale_capabilities,
+                                   uint32_t keyboard_layout)
+{
+    (void)manager;
+    struct test_state *state = data;
+    state->desktop_config_received = true;
+    state->output_scale = output_scale;
+    state->output_scale_capabilities = scale_capabilities;
+    state->keyboard_layout = keyboard_layout;
+}
+
+static void manager_global_action(void *data,
+                                  struct moko_window_manager_v1 *manager,
+                                  uint32_t action)
+{
+    (void)data;
+    (void)manager;
+    (void)action;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
     .done = manager_done,
     .brightness_step = manager_brightness_step,
     .input_config = manager_input_config,
+    .desktop_config = manager_desktop_config,
+    .global_action = manager_global_action,
 };
 
 static void registry_global(void *data,
@@ -263,7 +292,7 @@ static void registry_global(void *data,
     } else if (strcmp(interface, moko_window_manager_v1_interface.name) == 0) {
         state->window_manager = wl_registry_bind(registry, name,
                                                  &moko_window_manager_v1_interface,
-                                                 version < 2 ? version : 2);
+                                                 version < 3 ? version : 3);
         moko_window_manager_v1_add_listener(state->window_manager, &manager_listener, state);
     }
 }
@@ -386,10 +415,44 @@ int main(void)
         fputs("Headless compositor reported unexpected touchpad hardware.\n", stderr);
         goto cleanup;
     }
+    if (!state.desktop_config_received || state.output_scale != 100
+        || state.keyboard_layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH
+        || (state.output_scale_capabilities
+            & MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100) == 0
+        || (state.output_scale_capabilities
+            & MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_200) != 0) {
+        fprintf(stderr,
+                "Unexpected desktop config: received=%d scale=%u capabilities=%u layout=%u.\n",
+                state.desktop_config_received,
+                state.output_scale,
+                state.output_scale_capabilities,
+                state.keyboard_layout);
+        goto cleanup;
+    }
     moko_window_manager_v1_set_natural_scroll(state.window_manager, 0);
     moko_window_manager_v1_set_pointer_acceleration(state.window_manager, 5000);
     if (!dispatch_roundtrips(&state, 2) || !state.input_config_received) {
         fputs("Runtime input configuration requests failed.\n", stderr);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_output_scale(state.window_manager, 150);
+    moko_window_manager_v1_set_output_scale(state.window_manager, 200);
+    if (!dispatch_roundtrips(&state, 2) || state.output_scale != 100) {
+        fputs("Unsupported output scale changed the desktop configuration.\n", stderr);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_keyboard_layout(
+        state.window_manager, MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE);
+    if (!dispatch_roundtrips(&state, 2)
+        || state.keyboard_layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE) {
+        fputs("Vietnamese keyboard layout request was not applied.\n", stderr);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_keyboard_layout(
+        state.window_manager, MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH);
+    if (!dispatch_roundtrips(&state, 2)
+        || state.keyboard_layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH) {
+        fputs("English keyboard layout request was not restored.\n", stderr);
         goto cleanup;
     }
 
@@ -402,6 +465,12 @@ int main(void)
                 shell.configured_width,
                 shell.configured_height,
                 shell.fullscreen_configured);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_shell_overlay(state.window_manager, 1);
+    moko_window_manager_v1_set_shell_overlay(state.window_manager, 0);
+    if (!dispatch_roundtrips(&state, 2)) {
+        fputs("Shell overlay requests failed.\n", stderr);
         goto cleanup;
     }
 

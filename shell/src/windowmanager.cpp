@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSettings>
 #include <QSocketNotifier>
 #include <QtMath>
 
@@ -39,7 +40,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 2U);
+        native->owner->m_protocolVersion = qMin(version, 3U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -94,6 +95,41 @@ struct WindowManagerCallbacks
                                          state,
                                          pointerAcceleration);
     }
+
+    static void managerDesktopConfig(void *data,
+                                     moko_window_manager_v1 *,
+                                     uint32_t outputScale,
+                                     uint32_t scaleCapabilities,
+                                     uint32_t keyboardLayout)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->updateDesktopConfig(outputScale, scaleCapabilities, keyboardLayout);
+    }
+
+    static void managerGlobalAction(void *data,
+                                    moko_window_manager_v1 *,
+                                    uint32_t action)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        QString name;
+        switch (action) {
+        case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_LAUNCHER:
+            name = QStringLiteral("launcher");
+            break;
+        case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_AI:
+            name = QStringLiteral("ai");
+            break;
+        case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_NOTIFICATION_CENTER:
+            name = QStringLiteral("notification-center");
+            break;
+        case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_SCREENSHOT:
+            name = QStringLiteral("screenshot");
+            break;
+        default:
+            return;
+        }
+        emit native->owner->globalActionRequested(name);
+    }
 };
 
 namespace {
@@ -109,6 +145,8 @@ const moko_window_manager_v1_listener managerListener = {
     .done = WindowManagerCallbacks::managerDone,
     .brightness_step = WindowManagerCallbacks::managerBrightnessStep,
     .input_config = WindowManagerCallbacks::managerInputConfig,
+    .desktop_config = WindowManagerCallbacks::managerDesktopConfig,
+    .global_action = WindowManagerCallbacks::managerGlobalAction,
 };
 
 void writeLiveInputEvent(const QString &message)
@@ -155,6 +193,18 @@ WindowManager::WindowManager(QObject *parent)
                                      QSocketNotifier::Read,
                                      this);
     connect(m_notifier, &QSocketNotifier::activated, this, &WindowManager::dispatchWayland);
+
+    if (desktopProtocolAvailable()) {
+        QSettings settings;
+        const int savedScale = settings.value(QStringLiteral("desktop/outputScale"),
+                                              m_outputScale).toInt();
+        const int savedLayout = settings.value(QStringLiteral("desktop/keyboardLayout"),
+                                               m_keyboardLayout).toInt();
+        if (savedScale != m_outputScale)
+            setOutputScale(savedScale);
+        if (savedLayout != m_keyboardLayout)
+            setKeyboardLayout(savedLayout);
+    }
 }
 
 WindowManager::~WindowManager()
@@ -240,6 +290,20 @@ bool WindowManager::dragEnabled() const
 bool WindowManager::gesturesAvailable() const
 {
     return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_GESTURES) != 0;
+}
+
+bool WindowManager::desktopProtocolAvailable() const { return m_protocolVersion >= 3; }
+int WindowManager::outputScale() const { return m_outputScale; }
+bool WindowManager::outputScale200Available() const
+{
+    return (m_outputScaleCapabilities
+            & MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_200) != 0;
+}
+int WindowManager::keyboardLayout() const { return m_keyboardLayout; }
+QString WindowManager::keyboardLayoutName() const
+{
+    return m_keyboardLayout == MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+        ? QStringLiteral("Vietnamese") : QStringLiteral("English");
 }
 
 bool WindowManager::isRunning(const QString &appId) const
@@ -353,6 +417,53 @@ bool WindowManager::setPointerAcceleration(int speed)
     return true;
 }
 
+bool WindowManager::setOutputScale(int scalePercent)
+{
+    if (!desktopProtocolAvailable() || (scalePercent != 100 && scalePercent != 200)
+        || (scalePercent == 200 && !outputScale200Available())
+        || m_native->manager == nullptr) {
+        return false;
+    }
+    moko_window_manager_v1_set_output_scale(m_native->manager,
+                                            static_cast<uint32_t>(scalePercent));
+    if (!flushRequest())
+        return false;
+    QSettings().setValue(QStringLiteral("desktop/outputScale"), scalePercent);
+    return true;
+}
+
+bool WindowManager::setKeyboardLayout(int layout)
+{
+    if (!desktopProtocolAvailable()
+        || (layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH
+            && layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE)
+        || m_native->manager == nullptr) {
+        return false;
+    }
+    moko_window_manager_v1_set_keyboard_layout(m_native->manager,
+                                               static_cast<uint32_t>(layout));
+    if (!flushRequest())
+        return false;
+    QSettings().setValue(QStringLiteral("desktop/keyboardLayout"), layout);
+    return true;
+}
+
+bool WindowManager::toggleKeyboardLayout()
+{
+    return setKeyboardLayout(m_keyboardLayout
+                                 == MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH
+                             ? MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+                             : MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH);
+}
+
+bool WindowManager::setShellOverlay(bool visible)
+{
+    if (!desktopProtocolAvailable() || m_native->manager == nullptr)
+        return false;
+    moko_window_manager_v1_set_shell_overlay(m_native->manager, visible ? 1 : 0);
+    return flushRequest();
+}
+
 void WindowManager::reportInputPanelOpened() const
 {
     writeLiveInputEvent(QStringLiteral(
@@ -403,10 +514,14 @@ void WindowManager::disconnectWayland()
         m_inputCapabilities = 0;
         m_inputState = 0;
         m_pointerAcceleration = 0;
+        m_outputScale = 100;
+        m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
+        m_keyboardLayout = 0;
         ++m_revision;
         emit connectedChanged();
         emit windowsChanged();
         emit inputChanged();
+        emit desktopChanged();
     }
 }
 
@@ -454,6 +569,37 @@ void WindowManager::updateInputConfig(quint32 deviceCount,
     m_inputState = state;
     m_pointerAcceleration = speed;
     emit inputChanged();
+}
+
+void WindowManager::updateDesktopConfig(quint32 outputScale,
+                                        quint32 scaleCapabilities,
+                                        quint32 keyboardLayout)
+{
+    const int scale = outputScale == 200 ? 200 : 100;
+    const int layout = keyboardLayout
+            == MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+        ? MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_VIETNAMESE
+        : MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH;
+    const quint32 capabilities = scaleCapabilities
+        & (MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100
+           | MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_200);
+    if (m_outputScale == scale && m_outputScaleCapabilities == capabilities
+        && m_keyboardLayout == layout) {
+        return;
+    }
+    m_outputScale = scale;
+    m_outputScaleCapabilities = capabilities;
+    m_keyboardLayout = layout;
+    emit desktopChanged();
+}
+
+bool WindowManager::flushRequest()
+{
+    if (wl_display_flush(m_native->display) < 0 && errno != EAGAIN) {
+        disconnectWayland();
+        return false;
+    }
+    return true;
 }
 
 const WindowManager::WindowInfo *WindowManager::windowForApplication(const QString &appId) const

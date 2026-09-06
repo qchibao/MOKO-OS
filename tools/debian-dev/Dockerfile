@@ -10,6 +10,7 @@ RUN apt-get update \
         cmake \
         dbus \
         ethtool \
+        grim \
         libgl1-mesa-dri \
         libwayland-dev \
         libwlroots-0.18-dev \

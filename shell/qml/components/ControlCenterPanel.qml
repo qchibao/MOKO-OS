@@ -619,6 +619,42 @@ GlassPanel {
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
                     }
+
+                    Separator {}
+
+                    SectionTitle {
+                        title: "Interface scale"
+                        detail: root.windowManager && root.windowManager.desktopProtocolAvailable
+                                ? root.windowManager.outputScale + "%" : "Unavailable"
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        MokoActionButton {
+                            Layout.fillWidth: true
+                            text: "100%"
+                            accent: root.windowManager && root.windowManager.outputScale === 100
+                            enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
+                            onClicked: root.windowManager.setOutputScale(100)
+                        }
+                        MokoActionButton {
+                            Layout.fillWidth: true
+                            text: "200%"
+                            accent: root.windowManager && root.windowManager.outputScale === 200
+                            enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
+                                     && root.windowManager.outputScale200Available
+                            onClicked: root.windowManager.setOutputScale(200)
+                        }
+                    }
+                    EmptyState {
+                        visible: !root.windowManager || !root.windowManager.desktopProtocolAvailable
+                        message: "Scaling requires the MOKO desktop compositor."
+                    }
+                    EmptyState {
+                        visible: root.windowManager && root.windowManager.desktopProtocolAvailable
+                                 && !root.windowManager.outputScale200Available
+                        message: "200% scaling requires at least 2560 x 1440 pixels."
+                    }
                 }
             }
 
@@ -662,6 +698,45 @@ GlassPanel {
                                 color: "#748394"
                                 font.pixelSize: 10
                             }
+                        }
+                    }
+                    RowLayout {
+                        visible: root.control && root.control.batteryAvailable
+                                 && root.control.batteryTechnology.length > 0
+                        Layout.fillWidth: true
+                        Text { text: "Technology"; color: "#556577"; font.pixelSize: 11 }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: root.control ? root.control.batteryTechnology : ""
+                            color: "#334252"
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.control && root.control.batteryAvailable
+                                 && root.control.batteryCycleCount.length > 0
+                        Layout.fillWidth: true
+                        Text { text: "Cycle count"; color: "#556577"; font.pixelSize: 11 }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: root.control ? root.control.batteryCycleCount : ""
+                            color: "#334252"
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+                    }
+                    RowLayout {
+                        visible: root.control && root.control.batteryAvailable
+                                 && root.control.batteryEnergy.length > 0
+                        Layout.fillWidth: true
+                        Text { text: "Current / full"; color: "#556577"; font.pixelSize: 11 }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: root.control ? root.control.batteryEnergy : ""
+                            color: "#334252"
+                            font.pixelSize: 11
+                            font.bold: true
                         }
                     }
                     EmptyState {
@@ -742,6 +817,31 @@ GlassPanel {
                                  ? "No compatible trackpad is connected."
                                  : "Input settings require the MOKO desktop compositor."
                     }
+
+                    SectionTitle {
+                        title: "Keyboard"
+                        detail: root.windowManager && root.windowManager.desktopProtocolAvailable
+                                ? root.windowManager.keyboardLayoutName : "Unavailable"
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        MokoActionButton {
+                            Layout.fillWidth: true
+                            text: "English"
+                            accent: root.windowManager && root.windowManager.keyboardLayout === 0
+                            enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
+                            onClicked: root.windowManager.setKeyboardLayout(0)
+                        }
+                        MokoActionButton {
+                            Layout.fillWidth: true
+                            text: "Vietnamese"
+                            accent: root.windowManager && root.windowManager.keyboardLayout === 1
+                            enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
+                            onClicked: root.windowManager.setKeyboardLayout(1)
+                        }
+                    }
+                    Separator {}
 
                     RowLayout {
                         visible: root.windowManager && root.windowManager.touchpadAvailable

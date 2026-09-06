@@ -17,6 +17,7 @@ ApplicationWindow {
     property var sections: mokoHardware.sectionIds()
     property string selectedSection: sections.length ? sections[0] : "system"
     property bool developerMode: false
+    property string exportFormat: "json"
     property var currentRows: []
     property int dataRevision: 0
 
@@ -62,6 +63,16 @@ ApplicationWindow {
     function selectSection(sectionId) {
         selectedSection = sectionId
         refreshRows()
+    }
+
+    function chooseReportPath(format) {
+        exportFormat = format
+        reportDialog.mode = "save"
+        reportDialog.dialogTitle = format === "json" ? "Save JSON Hardware Report"
+                                                     : "Save Text Hardware Report"
+        reportDialog.suggestedName = format === "json" ? "moko-hardware-report.json"
+                                                        : "moko-hardware-report.txt"
+        reportDialog.openAt(mokoHardware.exportDirectory)
     }
 
     onDeveloperModeChanged: refreshRows()
@@ -150,13 +161,13 @@ ApplicationWindow {
                     text: "Export JSON"
                     ToolTip.visible: hovered
                     ToolTip.text: "Export moko-hardware-report.json"
-                    onClicked: mokoHardware.exportJson()
+                    onClicked: window.chooseReportPath("json")
                 }
                 HeaderButton {
                     text: "Export Text"
                     ToolTip.visible: hovered
                     ToolTip.text: "Export moko-hardware-report.txt"
-                    onClicked: mokoHardware.exportText()
+                    onClicked: window.chooseReportPath("txt")
                 }
                 HeaderButton {
                     text: "-"
@@ -389,6 +400,17 @@ ApplicationWindow {
         z: 100
         cursorShape: Qt.SizeFDiagCursor
         onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
+    }
+
+    MokoFileDialog {
+        id: reportDialog
+        picker: mokoFilePicker
+        onPathAccepted: function(path) {
+            if (window.exportFormat === "json")
+                mokoHardware.exportJsonToPath(path)
+            else
+                mokoHardware.exportTextToPath(path)
+        }
     }
 
     Shortcut { sequence: "Ctrl+E"; onActivated: mokoHardware.exportAll() }

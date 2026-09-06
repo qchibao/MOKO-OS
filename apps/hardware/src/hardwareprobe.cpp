@@ -933,6 +933,16 @@ bool HardwareProbe::exportTextToDirectory(const QString &directory)
     return writeReport(QStringLiteral("txt"), directory);
 }
 
+bool HardwareProbe::exportJsonToPath(const QString &path)
+{
+    return writeReportPath(QStringLiteral("json"), path);
+}
+
+bool HardwareProbe::exportTextToPath(const QString &path)
+{
+    return writeReportPath(QStringLiteral("txt"), path);
+}
+
 bool HardwareProbe::writeReport(const QString &format, const QString &directory)
 {
     QDir target(directory);
@@ -943,17 +953,37 @@ bool HardwareProbe::writeReport(const QString &format, const QString &directory)
     const QString fileName = format == QStringLiteral("json")
         ? QStringLiteral("moko-hardware-report.json")
         : QStringLiteral("moko-hardware-report.txt");
-    const QString path = target.filePath(fileName);
-    const QByteArray contents = format == QStringLiteral("json")
-        ? QJsonDocument(m_report).toJson(QJsonDocument::Indented) : textReport();
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size()
-        || !file.commit()) {
-        setStatusMessage(QStringLiteral("Could not write %1").arg(fileName));
+    return writeReportPath(format, target.filePath(fileName));
+}
+
+bool HardwareProbe::writeReportPath(const QString &format, const QString &path)
+{
+    const QFileInfo targetInfo(path);
+    if (format != QStringLiteral("json") && format != QStringLiteral("txt")) {
+        setStatusMessage(QStringLiteral("Unsupported report format"));
         return false;
     }
-    setStatusMessage(QStringLiteral("Exported %1").arg(fileName));
-    emit exportWritten(format, path, contents.size());
+    if (targetInfo.fileName().isEmpty() || targetInfo.isDir()) {
+        setStatusMessage(QStringLiteral("Choose a report file"));
+        return false;
+    }
+    QDir directory(targetInfo.absolutePath());
+    if (!directory.exists() || !QFileInfo(directory.absolutePath()).isWritable()) {
+        setStatusMessage(QStringLiteral("The report folder is not writable"));
+        return false;
+    }
+    const QString cleanPath = targetInfo.absoluteFilePath();
+    const QByteArray contents = format == QStringLiteral("json")
+        ? QJsonDocument(m_report).toJson(QJsonDocument::Indented) : textReport();
+    QSaveFile file(cleanPath);
+    if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size()
+        || !file.commit()) {
+        setStatusMessage(QStringLiteral("Could not write %1").arg(targetInfo.fileName()));
+        return false;
+    }
+    setExportDirectory(directory.absolutePath());
+    setStatusMessage(QStringLiteral("Exported %1").arg(targetInfo.fileName()));
+    emit exportWritten(format, cleanPath, contents.size());
     return true;
 }
 

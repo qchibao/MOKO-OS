@@ -21,6 +21,7 @@ endif()
 
 include(CTest)
 
+add_subdirectory(common)
 add_subdirectory(files)
 add_subdirectory(browser)
 add_subdirectory(hardware)

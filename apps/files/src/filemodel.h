@@ -4,6 +4,8 @@
 #include <QDateTime>
 #include <QVector>
 
+class QMimeData;
+
 class FileModel final : public QAbstractListModel
 {
     Q_OBJECT
@@ -94,6 +96,9 @@ private:
     bool validateName(const QString &name, QString *cleanName = nullptr);
     bool copyPath(const QString &source, const QString &destination, QString *error) const;
     bool removePath(const QString &path, QString *error) const;
+    void stageClipboard(int row, const QString &mode);
+    void readSystemClipboard();
+    QStringList clipboardPaths(const QMimeData *mimeData, QString *mode) const;
     void setStatusMessage(const QString &message);
     bool fail(const QString &message);
     static QString formatSize(qint64 bytes);
@@ -102,7 +107,7 @@ private:
     QString m_currentPath;
     QStringList m_history;
     int m_historyIndex = -1;
-    QString m_clipboardSource;
+    QStringList m_clipboardSources;
     QString m_clipboardMode;
     QString m_pendingDeletePath;
     QString m_pendingDeleteToken;

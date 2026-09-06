@@ -2,6 +2,13 @@ qt_add_executable(moko-hardware-diagnostics
     src/hardwareprobe.cpp
     src/hardwareprobe.h
     src/main.cpp
+    ../common/src/mokofilepickermodel.cpp
+    ../common/src/mokofilepickermodel.h
+)
+
+set(MOKO_FILE_DIALOG_QML ${CMAKE_CURRENT_SOURCE_DIR}/../common/qml/MokoFileDialog.qml)
+set_source_files_properties(${MOKO_FILE_DIALOG_QML} PROPERTIES
+    QT_RESOURCE_ALIAS MokoFileDialog.qml
 )
 
 qt_add_qml_module(moko-hardware-diagnostics
@@ -9,10 +16,10 @@ qt_add_qml_module(moko-hardware-diagnostics
     VERSION 0.1
     NO_PLUGIN
     NO_IMPORT_SCAN
-    QML_FILES qml/Main.qml
+    QML_FILES qml/Main.qml ${MOKO_FILE_DIALOG_QML}
 )
 
-target_include_directories(moko-hardware-diagnostics PRIVATE src ../common)
+target_include_directories(moko-hardware-diagnostics PRIVATE src ../common ../common/src)
 target_link_libraries(moko-hardware-diagnostics PRIVATE
     Qt6::Core
     Qt6::DBus

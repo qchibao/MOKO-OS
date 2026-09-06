@@ -1,5 +1,6 @@
 #include "browsercontroller.h"
 #include "livemarker.h"
+#include "mokofilepickermodel.h"
 
 #include <QCommandLineParser>
 #include <QFileInfo>
@@ -90,6 +91,7 @@ int main(int argc, char *argv[])
     }
 
     BrowserController browser(initialInput, smokeTest, validationDownloadUrl);
+    MokoFilePickerModel filePicker;
     bool qmlWarningsFound = false;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("mokoBrowser"), &browser);
@@ -97,6 +99,7 @@ int main(int argc, char *argv[])
                                              browser.historyModel());
     engine.rootContext()->setContextProperty(QStringLiteral("mokoBrowserDownloads"),
                                              browser.downloadModel());
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoFilePicker"), &filePicker);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         qmlWarningsFound = qmlWarningsFound || !warnings.isEmpty();
     });
