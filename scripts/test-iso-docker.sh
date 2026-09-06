@@ -545,6 +545,11 @@ docker run --rm --platform linux/amd64 \
         exit 1
       fi
     done
+    if unsquashfs -lln /tmp/filesystem.squashfs var/lib/apt/lists \
+        | awk '\''$1 ~ /^-/ { found = 1 } END { exit !found }'\''; then
+      echo "Apt index metadata found in ISO; mirror timestamps break reproducibility." >&2
+      exit 1
+    fi
   '
 
 for run in $(seq 1 "$RUNS"); do

@@ -8,6 +8,7 @@ lb config \
   --chroot-squashfs-compression-level 5 \
   --chroot-squashfs-compression-type zstd \
   --archive-areas "main contrib non-free-firmware" \
+  --apt-indices false \
   --debian-installer none \
   --iso-application "MOKO OS v0.1.1 Hardware & Usability Preview" \
   --iso-preparer "MOKO OS live-build" \
