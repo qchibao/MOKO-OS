@@ -157,6 +157,43 @@ cp out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso out/repro-build-a.iso
   out/repro-build-a.iso out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
 ```
 
+## Validated v0.1.1 release candidate
+
+The QEMU release gate completed on 2026-09-06 for source commit
+`d42b2bb70e893dbc6068ed3405fb83c8db831cf5`:
+
+```text
+ISO: out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
+SHA-256: 4bcb3baee0a268175fb5b6e0461a77010d3eaca400ce6ede9bfa4f9b81a06ed8
+Build timestamp: 2026-09-06T09:33:10Z
+Reproducibility: two clean builds were byte-identical
+```
+
+The counted gates use separate boots for long pointer-driven workflows. This
+keeps a missed emulated click from invalidating unrelated checks while every
+run still repeats ISO preflight, disk safety, graphical health and shutdown.
+The final set passed BIOS `3/3`, UEFI `3/3`, Control Center, input/usability,
+AI/Terminal, Files/Settings multi-window, Browser network/download, Safe
+Graphics, direct and Launcher Diagnostics exports, and standard-VGA
+suspend/resume. Exact artifact prefixes are recorded in
+`tasks/MOKO-011-hardware-usability.md`.
+
+Diagnostics export automation must complete the MOKO Save dialog: click one
+export button, wait for the dialog, accept the suggested filename, and only
+then require `MOKO_HW_EXPORT`. Opening the dialog by itself is not a successful
+export.
+
+Debian Chromium, the official Google Chrome amd64 `.deb`, and Tor Browser
+15.0.21 were also downloaded/installed and run as UID 1000 in disposable Live
+sessions. Chromium and Chrome retained their sandbox helpers and no
+`--no-sandbox` policy override was used; Tor Browser connected to Tor and
+rendered HTTPS. These packages are not included in the ISO and disappear at
+shutdown because Live persistence is not implemented.
+
+This is the QEMU release candidate, not final hardware certification. Complete
+`docs/LIVE_USB_CHECKLIST.md` on the Intel MacBook Pro 2015 before marking
+MOKO-011 complete. Do not enable the installer during that validation.
+
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a
 Debian 13 VM, a dedicated Linux machine, or a suitable Linux CI runner; then

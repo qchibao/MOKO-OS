@@ -14,9 +14,21 @@ Updated: 2026-09-06
 | MOKO-008 MOKO AI system action contract | DONE (validated) | Unprivileged D-Bus daemon, allowlisted action layer and provider-backed Shell UI pass real system-summary and app-launch tests; 3/3 cold-boot regression passes on ISO SHA-256 `4c1a00c43bf0060198b998c6978d7cf178d0eac0b72673572beab50a8ac4fb9f`. |
 | MOKO-009 Hardware diagnostics | DONE (validated) | Native read-only diagnostics, privacy-safe JSON/text exports and Launcher/Settings/AI integration pass in QEMU; 3/3 cold boots pass on ISO SHA-256 `9c6608a10bbb705a09c62caa0a31d4be38a514df6d550f796146329cf799749e`. |
 | MOKO-010 Live USB readiness | DONE (validated in QEMU) | The MacBook 2015 serial false-failure is fixed without weakening disk safety. Two clean builds are identical; BIOS `3/3`, UEFI, Safe Graphics, Diagnostics and shutdown pass on SHA-256 `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`. Physical MacBook retest remains pending. |
-| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Phases 1-8 are QEMU-validated: compositor, Control Center, input, AI, Browser, consumer UI, desktop usability and suspend/resume recovery. Final release regression/reproducibility work and physical MacBook validation remain. |
+| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | The complete QEMU release gate and reproducible ISO are validated. Physical MacBook Pro 2015 validation remains required before completion. |
 
 ## Current release target
-A reproducible `MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` that reaches the MOKO Hardware & Usability Preview in QEMU, preserves disk safety and supports the validated multi-window, system-control, Browser, AI and suspend/resume workflows.
+A reproducible `MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` that reaches the MOKO Hardware & Usability Preview in QEMU, preserves disk safety and supports the validated multi-window, system-control, Browser, AI and suspend/resume workflows. The remaining gate is physical validation on the Intel MacBook Pro 2015.
+
+## v0.1.1 QEMU release candidate
+
+- ISO: `out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`
+- SHA-256: `4bcb3baee0a268175fb5b6e0461a77010d3eaca400ce6ede9bfa4f9b81a06ed8`
+- ISO source commit: `d42b2bb70e893dbc6068ed3405fb83c8db831cf5`
+- Build timestamp: `2026-09-06T09:33:10Z`
+- Reproducibility: two clean builds from the same commit are byte-identical.
+- Debian tests: disk safety passed; compositor `4/4`, Shell `8/8`, AI `3/3`, apps `11/11`, Browser network and Qt multi-window sessions passed.
+- QEMU: BIOS `3/3`, UEFI `3/3`, Control Center, input/usability, AI/Terminal, Files/Settings multi-window, Browser HTTPS/JavaScript/download, Safe Graphics, Diagnostics export and suspend/resume passed.
+- Third-party compatibility: Debian Chromium, Google Chrome and Tor Browser were installed and run temporarily as UID 1000; none is bundled in the ISO.
+- Installer and persistence remain disabled; every QEMU run attached no writable disk and reported `unexpected_block_mounts=0`.
 
 The original v0.1 milestone was achieved on 2026-09-04. Validation artifacts: `out/moko-iso-smoke-20260904T144109Z-boot-*`.

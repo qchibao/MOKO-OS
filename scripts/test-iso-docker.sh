@@ -782,9 +782,15 @@ for run in $(seq 1 "$RUNS"); do
       sleep 1
     done
     grep -Fq "MOKO_APP_READY app_id=org.moko.HardwareDiagnostics state=ready" "$SERIAL_PATH"
-    pointer_click 876 119
-    pointer_click 987 119
     for format in json txt; do
+      if [[ "$format" == json ]]; then
+        pointer_click 876 119
+      else
+        pointer_click 987 119
+      fi
+      sleep 2
+      monitor "sendkey ret"
+      hardware_deadline=$((SECONDS + 45))
       while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
         if (( SECONDS >= hardware_deadline )); then
           tail -120 "$SERIAL_PATH" >&2
@@ -978,10 +984,17 @@ for run in $(seq 1 "$RUNS"); do
       sleep 3
       HARDWARE_READY_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-hardware-ready.png"
       monitor "screendump /artifacts/$HARDWARE_READY_SCREENSHOT_NAME -f png"
-      pointer_click 876 119
-      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-hardware-click.png -f png"
-      pointer_click 987 119
       for format in json txt; do
+        if [[ "$format" == json ]]; then
+          pointer_click 876 119
+          sleep 2
+          monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-hardware-click.png -f png"
+        else
+          pointer_click 987 119
+        fi
+        sleep 2
+        monitor "sendkey ret"
+        hardware_deadline=$((SECONDS + 45))
         while ! grep -E -q "MOKO_HW_EXPORT format=$format state=written bytes=[1-9][0-9]{2,} uid=1000" "$SERIAL_PATH"; do
           if (( SECONDS >= hardware_deadline )); then
             tail -120 "$SERIAL_PATH" >&2

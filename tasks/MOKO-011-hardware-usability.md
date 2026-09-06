@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-8 QEMU VALIDATED
+State: IN PROGRESS - QEMU RELEASE GATE PASSED; PHYSICAL MACBOOK VALIDATION PENDING
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -454,3 +454,93 @@ transition after S3 even after the guest reaches `reboot: Power down`. The
 resume-only harness therefore uses an allowlisted QMP cleanup after all guest
 and framebuffer assertions; normal BIOS/UEFI gates continue to require real
 ACPI poweroff with `virtio-vga`.
+
+## Final QEMU release-candidate gate
+
+The release candidate remains a non-installing, non-persistent Live image. Its
+source commit is `d42b2bb70e893dbc6068ed3405fb83c8db831cf5`; the embedded build
+timestamp is `2026-09-06T09:33:10Z`. Removing live-build apt indexes from the
+SquashFS eliminated mirror-controlled `InRelease` timestamp drift, and the ISO
+preflight now rejects any apt index that could reintroduce it. A fresh Live
+session can still run `apt-get update` and temporarily install packages.
+
+Hardware report buttons now open the shared MOKO Save dialog. The QEMU harness
+accepts each suggested filename through that dialog before requiring the JSON
+or text write marker; it no longer treats opening the dialog as an export.
+
+Validated on 2026-09-06:
+
+- final ISO: `out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`;
+- SHA-256: `4bcb3baee0a268175fb5b6e0461a77010d3eaca400ce6ede9bfa4f9b81a06ed8`;
+- two clean builds from the source commit were byte-identical;
+- live disk-safety logging regression: passed;
+- compositor CTest: `4/4`; Shell CTest: `8/8`; AI CTest: `3/3`;
+- native apps, Browser, PTY, Diagnostics and shared picker CTest: `11/11`;
+- real Browser network test and Qt compositor multi-window session: passed;
+- BIOS cold boot: `3/3`, each with disk safety, nonblank MOKO Shell,
+  `greetd_restarts=0` and ACPI shutdown;
+- UEFI cold boot: `3/3` with fresh OVMF variable stores and the same health and
+  shutdown requirements;
+- Control Center: real PipeWire output mute changed as UID 1000;
+- input/usability: truthful QEMU no-touchpad state, safe 100 percent scale,
+  English/Vietnamese switching, Notification Center and `grim` screenshot
+  passed;
+- AI/Terminal: Ready -> Processing -> Response, allowlisted Terminal launch,
+  PTY readiness, compositor map/close and shutdown passed;
+- Files/Settings multi-window: snap left/right, maximize/restore, fullscreen,
+  minimize/Dock restore, simultaneous windows, resize, move, Alt+Tab and close
+  passed through real compositor state;
+- Browser: sandbox and web security remained enabled; HTTPS, JavaScript, real
+  Debian package download and MOKO Files Downloads handoff passed in UEFI;
+- AI system information returned a real `system_summary` in UEFI;
+- Safe Graphics: Cage/software path, Files launch/return and shutdown passed;
+- Hardware Diagnostics: direct boot and Launcher paths produced the QEMU
+  report with `writable_disk_detected=0`, then saved JSON (`21133` bytes) and
+  text (`5476` bytes) reports through the MOKO dialog as UID 1000;
+- standard-VGA suspend/resume: QMP suspend/wake, compositor, Browser, AI,
+  NetworkManager, PipeWire and input recovery passed; Browser HTTPS and
+  JavaScript also passed after wake;
+- every counted QEMU run attached no writable disk, reported
+  `unexpected_block_mounts=0`, and kept the installer disabled.
+
+Primary artifacts:
+
+- BIOS `3/3`: `out/moko-iso-smoke-20260906T123532Z-bios-desktop-*`;
+- Control Center: `out/moko-iso-smoke-20260906T124715Z-bios-desktop-*`;
+- input/usability: `out/moko-iso-smoke-20260906T125150Z-bios-desktop-*`;
+- AI/Terminal: `out/moko-iso-smoke-20260906T125701Z-bios-desktop-*`;
+- multi-window: `out/moko-iso-smoke-20260906T130157Z-bios-desktop-*`;
+- UEFI `3/3` and Browser: `out/moko-iso-smoke-20260906T130832Z-uefi-desktop-*`;
+- UEFI AI: `out/moko-iso-smoke-20260906T132600Z-uefi-desktop-*`;
+- Safe Graphics: `out/moko-iso-smoke-20260906T133126Z-bios-safe-graphics-*`;
+- direct Diagnostics: `out/moko-iso-smoke-20260906T134138Z-bios-hardware-diagnostics-*`;
+- suspend/resume: `out/moko-iso-smoke-20260906T134532Z-bios-desktop-std-*`;
+- Launcher Diagnostics: `out/moko-iso-smoke-20260906T135952Z-bios-desktop-*`.
+
+## Third-party browser compatibility
+
+These applications were validated as temporary Live-session installs and are
+not bundled:
+
+- Debian Chromium `152.0.7977.82`: installed after a real `apt-get update`,
+  launched as UID 1000, mapped as a Wayland window, retained the root-owned
+  `4755` sandbox helper, contained no `--no-sandbox` policy override and
+  rendered HTTPS;
+- Google Chrome `152.0.7977.82`: the official amd64 `.deb` installed and ran as
+  UID 1000, mapped as `google-chrome`, retained its root-owned `4755` sandbox
+  helper, contained no `--no-sandbox` policy override and rendered HTTPS;
+- Tor Browser `15.0.21`: the official x86_64 archive downloaded, extracted
+  under `~/Applications`, passed dynamic-library checks, mapped as
+  `Tor Browser`, bootstrapped the Tor network and rendered
+  `https://example.com` as UID 1000.
+
+One combined Chrome-plus-Tor VM exceeded the Docker Desktop test container's
+memory limit and was not counted. The clean Tor-only VM used 3 GiB guest RAM,
+completed HTTPS and shut down without OOM. Several long, combined pointer-input
+runs also missed a UI target under TCG; the corresponding isolated functional
+gates above passed and are the counted release evidence.
+
+MOKO-011 remains **IN PROGRESS**. QEMU cannot validate the MacBook trackpad,
+Wi-Fi, Bluetooth, backlight, battery, microphone, webcam or physical
+suspend/resume path. Stop here and run the Live USB checklist on the same Intel
+MacBook Pro 2015 before marking v0.1.1 complete or beginning installer work.
