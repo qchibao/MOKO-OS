@@ -56,6 +56,8 @@ class SystemControl final : public QObject
     Q_PROPERTY(bool powerModeAvailable READ powerModeAvailable NOTIFY powerChanged)
     Q_PROPERTY(QString powerMode READ powerMode NOTIFY powerChanged)
     Q_PROPERTY(QStringList powerModes READ powerModes NOTIFY powerChanged)
+    Q_PROPERTY(bool suspendAvailable READ suspendAvailable NOTIFY powerChanged)
+    Q_PROPERTY(bool suspendPending READ suspendPending NOTIFY powerChanged)
 
     Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
 
@@ -73,6 +75,7 @@ public:
     QVariantList wifiNetworks() const;
 
     bool bluetoothAvailable() const;
+    bool bluezServiceAvailable() const;
     bool bluetoothPowered() const;
     bool bluetoothScanning() const;
     bool bluetoothBusy() const;
@@ -107,6 +110,8 @@ public:
     bool powerModeAvailable() const;
     QString powerMode() const;
     QStringList powerModes() const;
+    bool suspendAvailable() const;
+    bool suspendPending() const;
     QString operationMessage() const;
 
     Q_INVOKABLE void refresh();
@@ -133,6 +138,7 @@ public:
     Q_INVOKABLE bool setBrightness(int percent);
     Q_INVOKABLE bool adjustBrightness(int delta);
     Q_INVOKABLE bool setPowerMode(const QString &mode);
+    Q_INVOKABLE bool suspend();
     Q_INVOKABLE void reportControlCenterOpened(int page);
 
 signals:
@@ -205,5 +211,7 @@ private:
     bool m_powerModeAvailable = false;
     QString m_powerMode;
     QStringList m_powerModes;
+    bool m_suspendAvailable = false;
+    bool m_suspendPending = false;
     QString m_operationMessage;
 };

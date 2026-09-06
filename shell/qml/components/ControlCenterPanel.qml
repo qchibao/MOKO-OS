@@ -790,6 +790,23 @@ GlassPanel {
                         visible: !root.control || !root.control.powerModeAvailable
                         message: "Power profiles are not available on this hardware."
                     }
+
+                    Separator {}
+
+                    SectionTitle {
+                        title: "Sleep"
+                        detail: root.control && root.control.suspendPending ? "Preparing"
+                                : root.control && root.control.suspendAvailable ? "Ready"
+                                : "Unavailable"
+                    }
+                    MokoActionButton {
+                        Layout.fillWidth: true
+                        text: root.control && root.control.suspendPending ? "Preparing..." : "Suspend"
+                        accent: true
+                        enabled: root.control && root.control.suspendAvailable
+                                 && !root.control.suspendPending
+                        onClicked: suspendDialog.visible = true
+                    }
                 }
             }
 
@@ -1035,6 +1052,61 @@ GlassPanel {
             color: "#647487"
             font.pixelSize: 9
             elide: Text.ElideRight
+        }
+    }
+
+    Rectangle {
+        id: suspendDialog
+        anchors.fill: parent
+        visible: false
+        z: 23
+        color: Qt.rgba(.11,.16,.22,.38)
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(330, parent.width - 36)
+            height: 155
+            radius: 10
+            color: "#F8FBFE"
+            border.color: "#C8D7E6"
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 18
+                spacing: 9
+                Text {
+                    Layout.fillWidth: true
+                    text: "Suspend MOKO OS?"
+                    color: "#1E2936"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Open applications will remain available after resume."
+                    color: "#68788A"
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+                Item { Layout.fillHeight: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    MokoActionButton {
+                        text: "Cancel"
+                        onClicked: suspendDialog.visible = false
+                    }
+                    MokoActionButton {
+                        text: "Suspend"
+                        accent: true
+                        enabled: root.control && !root.control.suspendPending
+                        onClicked: {
+                            suspendDialog.visible = false
+                            root.control.suspend()
+                        }
+                    }
+                }
+            }
         }
     }
 

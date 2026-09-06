@@ -169,23 +169,35 @@ WindowManager::WindowManager(QObject *parent)
     , m_native(std::make_unique<NativeState>())
 {
     m_native->owner = this;
+    connectWayland();
+}
+
+WindowManager::~WindowManager()
+{
+    disconnectWayland();
+}
+
+bool WindowManager::connectWayland()
+{
+    if (m_connected)
+        return true;
     if (qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY"))
-        return;
+        return false;
 
     m_native->display = wl_display_connect(nullptr);
     if (m_native->display == nullptr)
-        return;
+        return false;
     m_native->registry = wl_display_get_registry(m_native->display);
     wl_registry_add_listener(m_native->registry, &registryListener, m_native.get());
     if (wl_display_roundtrip(m_native->display) < 0 || m_native->manager == nullptr) {
         disconnectWayland();
-        return;
+        return false;
     }
 
     moko_window_manager_v1_add_listener(m_native->manager, &managerListener, m_native.get());
     if (wl_display_roundtrip(m_native->display) < 0) {
         disconnectWayland();
-        return;
+        return false;
     }
 
     m_connected = true;
@@ -193,23 +205,9 @@ WindowManager::WindowManager(QObject *parent)
                                      QSocketNotifier::Read,
                                      this);
     connect(m_notifier, &QSocketNotifier::activated, this, &WindowManager::dispatchWayland);
-
-    if (desktopProtocolAvailable()) {
-        QSettings settings;
-        const int savedScale = settings.value(QStringLiteral("desktop/outputScale"),
-                                              m_outputScale).toInt();
-        const int savedLayout = settings.value(QStringLiteral("desktop/keyboardLayout"),
-                                               m_keyboardLayout).toInt();
-        if (savedScale != m_outputScale)
-            setOutputScale(savedScale);
-        if (savedLayout != m_keyboardLayout)
-            setKeyboardLayout(savedLayout);
-    }
-}
-
-WindowManager::~WindowManager()
-{
-    disconnectWayland();
+    emit connectedChanged();
+    applySavedDesktopSettings();
+    return true;
 }
 
 bool WindowManager::connected() const
@@ -464,6 +462,12 @@ bool WindowManager::setShellOverlay(bool visible)
     return flushRequest();
 }
 
+bool WindowManager::refreshConnection()
+{
+    disconnectWayland();
+    return connectWayland();
+}
+
 void WindowManager::reportInputPanelOpened() const
 {
     writeLiveInputEvent(QStringLiteral(
@@ -506,23 +510,50 @@ void WindowManager::disconnectWayland()
         wl_display_disconnect(m_native->display);
         m_native->display = nullptr;
     }
-    if (m_connected) {
-        m_connected = false;
-        m_windows.clear();
-        m_protocolVersion = 0;
-        m_touchpadCount = 0;
-        m_inputCapabilities = 0;
-        m_inputState = 0;
-        m_pointerAcceleration = 0;
-        m_outputScale = 100;
-        m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
-        m_keyboardLayout = 0;
+    const bool wasConnected = m_connected;
+    const bool hadWindows = !m_windows.isEmpty();
+    const bool hadInputState = m_protocolVersion >= 2 || m_touchpadCount != 0
+        || m_inputCapabilities != 0 || m_inputState != 0 || m_pointerAcceleration != 0;
+    const bool hadDesktopState = m_protocolVersion >= 3 || m_outputScale != 100
+        || m_outputScaleCapabilities
+            != MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100
+        || m_keyboardLayout != 0;
+    m_connected = false;
+    m_windows.clear();
+    m_protocolVersion = 0;
+    m_touchpadCount = 0;
+    m_inputCapabilities = 0;
+    m_inputState = 0;
+    m_pointerAcceleration = 0;
+    m_outputScale = 100;
+    m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
+    m_keyboardLayout = 0;
+    if (wasConnected || hadWindows || hadInputState || hadDesktopState) {
         ++m_revision;
-        emit connectedChanged();
-        emit windowsChanged();
-        emit inputChanged();
-        emit desktopChanged();
+        if (wasConnected)
+            emit connectedChanged();
+        if (hadWindows)
+            emit windowsChanged();
+        if (hadInputState)
+            emit inputChanged();
+        if (hadDesktopState)
+            emit desktopChanged();
     }
+}
+
+void WindowManager::applySavedDesktopSettings()
+{
+    if (!desktopProtocolAvailable())
+        return;
+    QSettings settings;
+    const int savedScale = settings.value(QStringLiteral("desktop/outputScale"),
+                                          m_outputScale).toInt();
+    const int savedLayout = settings.value(QStringLiteral("desktop/keyboardLayout"),
+                                           m_keyboardLayout).toInt();
+    if (savedScale != m_outputScale)
+        setOutputScale(savedScale);
+    if (savedLayout != m_keyboardLayout)
+        setKeyboardLayout(savedLayout);
 }
 
 void WindowManager::updateWindow(quint32 id,

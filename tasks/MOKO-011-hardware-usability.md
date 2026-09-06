@@ -1,5 +1,5 @@
 # MOKO-011 - v0.1.1 Hardware & Usability Preview
-State: IN PROGRESS - PHASES 1-6 QEMU VALIDATED
+State: IN PROGRESS - PHASES 1-8 QEMU VALIDATED
 
 GitHub Issue #1 is the authoritative milestone specification. The work is based
 on physical validation on an Intel MacBook Pro 2015 and must not enable an
@@ -354,3 +354,103 @@ Primary artifacts: `out/moko-iso-smoke-20260905T213037Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T220358Z-bios-hardware-diagnostics-*`,
 `out/moko-iso-smoke-20260905T220731Z-bios-desktop-*` and
 `out/moko-iso-smoke-20260905T221329Z-bios-desktop-*`.
+
+## Phase 7 architecture - desktop usability
+
+The Shell now owns the standard `org.freedesktop.Notifications` session-bus
+service and a MOKO Notification Center. Screenshots use wlroots screencopy
+through `grim`, with the compositor exposing only the standard read-only
+screencopy and output-description protocols. Clipboard text and file URLs use
+normal Wayland MIME offers, while MOKO Files implements matching copy, cut and
+paste behavior without inventing a private clipboard format.
+
+MOKO apps share a bounded native Open/Save picker backed by filesystem APIs.
+The compositor exposes only two allowlisted keyboard layouts and guarded
+integer output scales through the versioned MOKO desktop protocol. QEMU's
+1280x800 output correctly advertises only 100 percent, so a scale request
+cannot make the Shell unusable. Global Launcher, AI, Notification Center,
+screenshot and language shortcuts remain fixed compositor enums rather than
+commands or user-provided strings.
+
+## Phase 7 validation
+
+Validated on 2026-09-06 from a clean Live ISO build. Physical clipboard,
+multi-display scaling and input-method validation remain part of the MacBook
+test pass.
+
+- compositor CTest: `4/4` passed;
+- Shell CTest: `7/7` passed;
+- AI CTest: `3/3` passed;
+- native apps, Browser, PTY, diagnostics and shared picker CTest: `11/11`
+  passed;
+- Qt compositor multi-window session: passed;
+- disk safety, graphical health and clean shutdown: passed;
+- English/Vietnamese switching, Notification Center and a real `grim`
+  screenshot: passed in the running ISO session;
+- Files and Settings remained simultaneously mapped while snap, maximize,
+  fullscreen, minimize/restore, resize, move and Alt+Tab passed.
+
+Primary artifact:
+`out/moko-iso-smoke-20260906T025232Z-bios-desktop-boot-1.*`.
+
+## Phase 8 architecture - suspend and resume recovery
+
+`systemd-logind` remains the sole suspend authority. MOKO Shell will observe
+the standard system-bus `PrepareForSleep(bool)` signal as UID 1000; it will not
+add a privileged suspend daemon or bypass logind policy.
+
+Before sleep, the Shell records which recoverable services and applications
+were actually present. On resume it refreshes NetworkManager, BlueZ,
+PipeWire/WirePlumber, backlight, battery and power state; reconnects the
+bounded MOKO compositor observer so windows and libinput state are enumerated
+again; and refreshes the MOKO AI daemon connection. If Browser was mapped
+before sleep, resume health requires it to remain mapped afterward. Hardware
+that was absent before sleep remains truthful and does not become a false
+failure.
+
+Structured `MOKO_SLEEP` and `MOKO_RESUME_HEALTH` markers make the recovery
+path testable without granting the Shell new capabilities. Direct lifecycle
+unit tests simulate logind signal ordering. A QEMU suspend/wakeup gate may
+exercise the virtual ACPI path, but it does not replace physical Intel MacBook
+validation of display, trackpad, radios, audio and battery recovery.
+
+## Phase 8 rollback and safety
+
+Removing the Shell lifecycle observer returns to Phase 7 behavior. Cage stays
+available through Safe Graphics and `MOKO_COMPOSITOR=cage`. The change does not
+touch boot ordering, mounts, storage devices, installer policy or disk-safety
+checks, and no QEMU validation may attach a writable disk.
+
+## Phase 8 validation
+
+Validated on 2026-09-06 from a fresh Live ISO build, SHA-256
+`bbc569c8b14fe08be7dc1e99cc6ac493f4e6231ef0b473916e7443372328f260`.
+Physical Intel MacBook suspend/resume remains required.
+
+- live disk-safety serial-sink regression: passed;
+- compositor CTest: `4/4` passed;
+- Shell CTest: `8/8` passed, including lifecycle recovery, timeout and
+  already-absent hardware cases;
+- AI CTest: `3/3` passed;
+- native apps, Browser, PTY, diagnostics and shared picker CTest: `11/11`
+  passed;
+- Qt compositor multi-window session: passed;
+- standard-VGA QEMU S3 gate: QMP reached `suspended`, woke to `running`, and
+  Shell recovery reported compositor, desktop protocol, Browser, AI,
+  NetworkManager, PipeWire and input protocol healthy;
+- Browser rendered HTTPS and executed JavaScript before suspend, remained
+  mapped after wake, then reloaded HTTPS and JavaScript successfully;
+- post-resume framebuffer: passed with a nonblank 1280x800 capture at
+  `out/moko-iso-smoke-20260906T073453Z-bios-desktop-std-boot-1-resumed.png`;
+- normal `virtio-vga` BIOS boot, disk safety, graphical Shell and ACPI
+  poweroff: passed at
+  `out/moko-iso-smoke-20260906T074129Z-bios-desktop-boot-1.*`;
+- installer remained disabled and no writable disk was attached.
+
+QEMU backend limitations are kept explicit. `virtio-vga` retains a live guest
+DRM state after S3 but loses host scanout, so it cannot validate framebuffer
+recovery. Standard VGA preserves scanout but QEMU q35 can fail its emulated S5
+transition after S3 even after the guest reaches `reboot: Power down`. The
+resume-only harness therefore uses an allowlisted QMP cleanup after all guest
+and framebuffer assertions; normal BIOS/UEFI gates continue to require real
+ACPI poweroff with `virtio-vga`.

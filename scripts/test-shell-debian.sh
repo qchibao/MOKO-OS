@@ -66,6 +66,12 @@ docker run --rm --platform linux/amd64 \
     test -s /artifacts/moko-control-center-preview.png
 
     WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
+      /tmp/moko-shell-build/moko-shell --smoke-test --windowed --control-center \
+      --control-center-page 3 --size 1280x720 \
+      --screenshot /artifacts/moko-control-center-power-preview.png
+    test -s /artifacts/moko-control-center-power-preview.png
+
+    WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
       /tmp/moko-shell-build/moko-shell --smoke-test --windowed --notification-center \
       --size 1280x720 --screenshot /artifacts/moko-notification-center-preview.png
     test -s /artifacts/moko-notification-center-preview.png

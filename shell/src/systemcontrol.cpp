@@ -47,6 +47,9 @@ const QString bluezService = QStringLiteral("org.bluez");
 const QString bluezAdapterInterface = QStringLiteral("org.bluez.Adapter1");
 const QString bluezDeviceInterface = QStringLiteral("org.bluez.Device1");
 const QString bluetoothAgentPath = QStringLiteral("/org/moko/BluetoothAgent");
+const QString logindService = QStringLiteral("org.freedesktop.login1");
+const QString logindPath = QStringLiteral("/org/freedesktop/login1");
+const QString logindInterface = QStringLiteral("org.freedesktop.login1.Manager");
 
 QVariant unwrapped(const QVariant &value)
 {
@@ -220,6 +223,7 @@ QString SystemControl::wifiState() const { return m_wifiState; }
 QString SystemControl::activeSsid() const { return m_activeSsid; }
 QVariantList SystemControl::wifiNetworks() const { return m_wifiNetworks; }
 bool SystemControl::bluetoothAvailable() const { return m_bluetoothAvailable; }
+bool SystemControl::bluezServiceAvailable() const { return m_bluezServiceAvailable; }
 bool SystemControl::bluetoothPowered() const { return m_bluetoothPowered; }
 bool SystemControl::bluetoothScanning() const { return m_bluetoothScanning; }
 bool SystemControl::bluetoothBusy() const { return m_bluetoothBusy; }
@@ -252,6 +256,8 @@ QString SystemControl::batteryEnergy() const { return m_batteryEnergy; }
 bool SystemControl::powerModeAvailable() const { return m_powerModeAvailable; }
 QString SystemControl::powerMode() const { return m_powerMode; }
 QStringList SystemControl::powerModes() const { return m_powerModes; }
+bool SystemControl::suspendAvailable() const { return m_suspendAvailable; }
+bool SystemControl::suspendPending() const { return m_suspendPending; }
 QString SystemControl::operationMessage() const { return m_operationMessage; }
 
 void SystemControl::refresh()
@@ -1068,6 +1074,15 @@ void SystemControl::refreshPower()
         m_powerModeAvailable = !m_powerMode.isEmpty() && !m_powerModes.isEmpty();
         break;
     }
+
+    QDBusInterface loginManager(logindService,
+                                logindPath,
+                                logindInterface,
+                                QDBusConnection::systemBus());
+    const QDBusReply<QString> canSuspend = loginManager.call(QStringLiteral("CanSuspend"));
+    const QString suspendPolicy = canSuspend.isValid() ? canSuspend.value() : QString();
+    m_suspendAvailable = suspendPolicy == QStringLiteral("yes")
+        || suspendPolicy == QStringLiteral("challenge");
     emit powerChanged();
 }
 
@@ -1151,6 +1166,50 @@ bool SystemControl::setPowerMode(const QString &mode)
         return true;
     }
     return false;
+}
+
+bool SystemControl::suspend()
+{
+    if (!m_suspendAvailable || m_suspendPending)
+        return false;
+
+    QDBusInterface loginManager(logindService,
+                                logindPath,
+                                logindInterface,
+                                QDBusConnection::systemBus());
+    if (!loginManager.isValid()) {
+        setOperationMessage(QStringLiteral("Suspend is unavailable."));
+        return false;
+    }
+
+    m_suspendPending = true;
+    emit powerChanged();
+    setOperationMessage(QStringLiteral("Preparing to suspend"));
+    writeLiveEvent(QStringLiteral("MOKO_CONTROL_ACTION action=suspend state=requested uid=%1")
+                       .arg(static_cast<qulonglong>(geteuid())));
+
+    auto *watcher = new QDBusPendingCallWatcher(
+        loginManager.asyncCall(QStringLiteral("Suspend"), false), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this](QDBusPendingCallWatcher *finished) {
+                const QDBusPendingReply<> reply = *finished;
+                m_suspendPending = false;
+                emit powerChanged();
+                if (reply.isError()) {
+                    setOperationMessage(QStringLiteral("Could not suspend: %1")
+                                            .arg(reply.error().message()));
+                    writeLiveEvent(QStringLiteral(
+                                       "MOKO_CONTROL_ACTION action=suspend state=failed uid=%1")
+                                       .arg(static_cast<qulonglong>(geteuid())));
+                } else {
+                    setOperationMessage(QStringLiteral("System resumed"));
+                    writeLiveEvent(QStringLiteral(
+                                       "MOKO_CONTROL_ACTION action=suspend state=accepted uid=%1")
+                                       .arg(static_cast<qulonglong>(geteuid())));
+                }
+                finished->deleteLater();
+            });
+    return true;
 }
 
 void SystemControl::reportControlCenterOpened(int page)

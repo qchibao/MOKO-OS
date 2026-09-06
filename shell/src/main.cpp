@@ -4,6 +4,7 @@
 #include "aicontroller.h"
 #include "notificationmodel.h"
 #include "screenshotcontroller.h"
+#include "sessionlifecycle.h"
 #include "systemcontrol.h"
 #include "windowmanager.h"
 
@@ -80,6 +81,33 @@ int main(int argc, char *argv[])
     ScreenshotController screenshotController;
     SystemControl systemControl;
     WindowManager windowManager;
+    SessionLifecycle sessionLifecycle({
+        .refreshSystem = [&systemControl] { systemControl.refresh(); },
+        .refreshAi = [&aiController] { aiController.refreshConnection(); },
+        .refreshWindowManager = [&windowManager] { return windowManager.refreshConnection(); },
+        .readState = [&systemControl, &aiController, &windowManager] {
+            return SessionLifecycle::State{
+                .compositorConnected = windowManager.connected(),
+                .desktopProtocolAvailable = windowManager.desktopProtocolAvailable(),
+                .browserMapped = windowManager.isRunning(QStringLiteral("org.moko.Browser")),
+                .aiConnected = aiController.connected(),
+                .aiProviderAvailable = aiController.providerAvailable(),
+                .networkManagerAvailable = systemControl.networkManagerAvailable(),
+                .wifiAvailable = systemControl.wifiAvailable(),
+                .wifiEnabled = systemControl.wifiEnabled(),
+                .wifiConnected = !systemControl.activeSsid().isEmpty(),
+                .bluezServiceAvailable = systemControl.bluezServiceAvailable(),
+                .bluetoothAvailable = systemControl.bluetoothAvailable(),
+                .bluetoothPowered = systemControl.bluetoothPowered(),
+                .audioAvailable = systemControl.audioAvailable(),
+                .inputProtocolAvailable = windowManager.inputProtocolAvailable(),
+                .touchpadCount = windowManager.touchpadCount(),
+                .batteryAvailable = systemControl.batteryAvailable(),
+                .brightnessAvailable = systemControl.brightnessAvailable(),
+                .powerModeAvailable = systemControl.powerModeAvailable(),
+            };
+        },
+    });
     QObject::connect(&windowManager,
                      &WindowManager::brightnessStepRequested,
                      &systemControl,

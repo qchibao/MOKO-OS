@@ -86,6 +86,7 @@ public:
     Q_INVOKABLE bool setKeyboardLayout(int layout);
     Q_INVOKABLE bool toggleKeyboardLayout();
     Q_INVOKABLE bool setShellOverlay(bool visible);
+    Q_INVOKABLE bool refreshConnection();
     Q_INVOKABLE void reportInputPanelOpened() const;
 
 signals:
@@ -103,7 +104,9 @@ private:
     struct WindowInfo;
 
     void dispatchWayland();
+    bool connectWayland();
     void disconnectWayland();
+    void applySavedDesktopSettings();
     void updateWindow(quint32 id, const QString &appId, const QString &title, quint32 state);
     void removeWindow(quint32 id);
     void completeUpdate();

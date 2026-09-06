@@ -6,11 +6,13 @@ ISO=${1:-$ROOT/out/MOKO-OS-v0.1-dev-amd64.hybrid.iso}
 RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
+SHUTDOWN_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_TIMEOUT:-60}
 BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
 BOOT_FIRMWARE=${MOKO_BOOT_FIRMWARE:-bios}
 LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
 LAUNCH_APP_ID=${MOKO_LAUNCH_APP_ID:-}
 LAUNCH_SETTLE_SECONDS=${MOKO_LAUNCH_SETTLE_SECONDS:-12}
+APP_READY_TIMEOUT_SECONDS=${MOKO_APP_READY_TIMEOUT:-240}
 REQUIRE_APP_READY=${MOKO_REQUIRE_APP_READY:-0}
 EXPECT_HARDWARE_REPORT=${MOKO_EXPECT_HARDWARE_REPORT:-0}
 SETTINGS_OPEN_HARDWARE=${MOKO_SETTINGS_OPEN_HARDWARE:-0}
@@ -19,12 +21,15 @@ CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
 INPUT_TEST=${MOKO_INPUT_TEST:-0}
 USABILITY_TEST=${MOKO_USABILITY_TEST:-0}
 BROWSER_TEST=${MOKO_BROWSER_TEST:-0}
+RESUME_TEST=${MOKO_RESUME_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
 AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
 IMAGE=${MOKO_QEMU_IMAGE:-moko-os-debian13-qemu}
 QEMU_ACCEL=${MOKO_QEMU_ACCEL:-tcg,thread=multi,tb-size=2048}
 QEMU_CPU=${MOKO_QEMU_CPU:-max}
+QEMU_VIDEO_DEVICE=${MOKO_QEMU_VIDEO_DEVICE:-virtio-vga}
+QEMU_EXIT_ACTION=${MOKO_QEMU_EXIT_ACTION:-powerdown}
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 command -v docker >/dev/null || {
@@ -47,6 +52,10 @@ command -v docker >/dev/null || {
   echo "MOKO_SCREENSHOT_TIMEOUT must be a positive integer." >&2
   exit 1
 }
+[[ "$SHUTDOWN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_SHUTDOWN_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
 case "$BOOT_MODE" in
   desktop|hardware-diagnostics|safe-graphics) ;;
   *)
@@ -61,7 +70,22 @@ case "$BOOT_FIRMWARE" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST USABILITY_TEST BROWSER_TEST; do
+case "$QEMU_VIDEO_DEVICE" in
+  virtio-vga) QEMU_VIDEO_ARGUMENTS=(-device virtio-vga) ;;
+  std) QEMU_VIDEO_ARGUMENTS=(-vga std) ;;
+  *)
+    echo "MOKO_QEMU_VIDEO_DEVICE must be virtio-vga or std." >&2
+    exit 1
+    ;;
+esac
+case "$QEMU_EXIT_ACTION" in
+  powerdown|quit) ;;
+  *)
+    echo "MOKO_QEMU_EXIT_ACTION must be powerdown or quit." >&2
+    exit 1
+    ;;
+esac
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST USABILITY_TEST BROWSER_TEST RESUME_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
@@ -70,6 +94,24 @@ for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDW
 done
 if [[ "$USABILITY_TEST" == 1 && "$BOOT_MODE" != desktop ]]; then
   echo "MOKO_USABILITY_TEST requires the normal desktop profile." >&2
+  exit 1
+fi
+if [[ "$RESUME_TEST" == 1 ]]; then
+  [[ "$BOOT_MODE" == desktop ]] || {
+    echo "MOKO_RESUME_TEST requires the normal desktop profile." >&2
+    exit 1
+  }
+  [[ "$LAUNCH_QUERY" == browser && "$LAUNCH_APP_ID" == org.moko.Browser ]] || {
+    echo "MOKO_RESUME_TEST requires the Browser launcher query and app id." >&2
+    exit 1
+  }
+  [[ "$REQUIRE_APP_READY" == 1 ]] || {
+    echo "MOKO_RESUME_TEST requires MOKO_REQUIRE_APP_READY=1." >&2
+    exit 1
+  }
+fi
+if [[ "$QEMU_EXIT_ACTION" == quit && "$RESUME_TEST" != 1 ]]; then
+  echo "MOKO_QEMU_EXIT_ACTION=quit is restricted to the QEMU resume gate." >&2
   exit 1
 fi
 if [[ "$BROWSER_TEST" == 1 ]]; then
@@ -97,6 +139,10 @@ if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   }
   [[ "$LAUNCH_SETTLE_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
     echo "MOKO_LAUNCH_SETTLE_SECONDS must be a positive integer." >&2
+    exit 1
+  }
+  [[ "$APP_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+    echo "MOKO_APP_READY_TIMEOUT must be a positive integer." >&2
     exit 1
   }
 fi
@@ -137,6 +183,9 @@ fi
 ISO_DIR=$(cd "$(dirname "$ISO")" && pwd)
 ISO_NAME=$(basename "$ISO")
 ARTIFACT_PREFIX="moko-iso-smoke-$STAMP-$BOOT_FIRMWARE-$BOOT_MODE"
+if [[ "$QEMU_VIDEO_DEVICE" != virtio-vga ]]; then
+  ARTIFACT_PREFIX="$ARTIFACT_PREFIX-$QEMU_VIDEO_DEVICE"
+fi
 CONTAINER=""
 
 cleanup() {
@@ -152,7 +201,7 @@ monitor() {
     socat - UNIX-CONNECT:/tmp/qemu-monitor.sock >/dev/null
 }
 
-qmp() {
+qmp_request() {
   local command=$1
   local response
   response=$(printf '%s\n%s\n' '{"execute":"qmp_capabilities"}' "$command" | docker exec -i "$CONTAINER" \
@@ -161,6 +210,30 @@ qmp() {
     printf '%s\n' "$response" >&2
     return 1
   fi
+  printf '%s\n' "$response"
+}
+
+qmp() {
+  qmp_request "$1" >/dev/null
+}
+
+wait_for_qemu_status() {
+  local expected=$1
+  local timeout=$2
+  local deadline=$((SECONDS + timeout))
+  local response
+  while :; do
+    response=$(qmp_request '{"execute":"query-status"}')
+    if grep -Eq '"status"[[:space:]]*:[[:space:]]*"'"$expected"'"' <<<"$response"; then
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      printf '%s\n' "$response" >&2
+      echo "QEMU did not reach $expected state within $timeout seconds." >&2
+      return 1
+    fi
+    sleep 1
+  done
 }
 
 pointer_click() {
@@ -352,7 +425,8 @@ docker run --rm --platform linux/amd64 \
     fi
 
     for package in \
-      live-config network-manager rfkill iw pipewire wireplumber alsa-utils \
+      live-config network-manager rfkill iw pipewire wireplumber \
+      libspa-0.2-bluetooth libspa-0.2-libcamera alsa-utils \
       brightnessctl grim bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
       qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
@@ -430,6 +504,8 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_SHELL_OVERLAY" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SCREENSHOT" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_NOTIFICATION_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_SLEEP" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_RESUME_*" /tmp/moko-live-launch-monitor
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       | grep -Fq "method name=\"providerStatus\""
@@ -478,7 +554,7 @@ for run in $(seq 1 "$RUNS"); do
   SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run.png"
   SERIAL_PATH="$ISO_DIR/$SERIAL_NAME"
 
-  echo "Cold boot $run/$RUNS"
+  echo "Cold boot $run/$RUNS (video: $QEMU_VIDEO_DEVICE)"
   docker run -d --name "$CONTAINER" --platform linux/amd64 \
     --mount "type=bind,source=$ISO_DIR,target=/artifacts" \
     --env "MOKO_QEMU_FIRMWARE=$BOOT_FIRMWARE" \
@@ -490,7 +566,7 @@ for run in $(seq 1 "$RUNS"); do
       -cpu "$QEMU_CPU" \
       -smp 4 \
       -m 3072 \
-      -device virtio-vga \
+      "${QEMU_VIDEO_ARGUMENTS[@]}" \
       -audiodev driver=none,id=moko-audio \
       -device ich9-intel-hda \
       -device hda-duplex,audiodev=moko-audio \
@@ -587,7 +663,7 @@ for run in $(seq 1 "$RUNS"); do
 
   if [[ "$run" == 1 && "$CONTROL_CENTER_TEST" == 1 ]]; then
     marker=$(serial_line_count)
-    pointer_click 1120 20
+    pointer_click 1018 20
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
       "Control Center did not report real NetworkManager and Bluetooth hardware state."
@@ -609,12 +685,12 @@ for run in $(seq 1 "$RUNS"); do
     CONTROL_CENTER_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center.png"
     monitor "screendump /artifacts/$CONTROL_CENTER_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SCREENSHOT_NAME")" -gt 10000
-    pointer_click 1120 20
+    pointer_click 1018 20
   fi
 
   if [[ "$run" == 1 && "$INPUT_TEST" == 1 ]]; then
     marker=$(serial_line_count)
-    pointer_click 1120 20
+    pointer_click 1018 20
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
       "Control Center did not open before selecting the Input page."
@@ -638,7 +714,7 @@ for run in $(seq 1 "$RUNS"); do
     monitor "screendump /artifacts/$INPUT_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$INPUT_SCREENSHOT_NAME")" -gt 10000
     sleep 5
-    pointer_click 1120 20
+    pointer_click 1018 20
   fi
 
   if [[ "$run" == 1 && "$USABILITY_TEST" == 1 ]]; then
@@ -845,8 +921,9 @@ for run in $(seq 1 "$RUNS"); do
     sleep 0.5
     for ((index = 0; index < ${#LAUNCH_QUERY}; index++)); do
       monitor "sendkey ${LAUNCH_QUERY:index:1}"
-      sleep 0.1
+      sleep 0.2
     done
+    sleep 1
     monitor "sendkey ret"
 
     launch_deadline=$((SECONDS + 30))
@@ -867,7 +944,7 @@ for run in $(seq 1 "$RUNS"); do
     grep -E "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH" | tail -1
 
     if [[ "$REQUIRE_APP_READY" == 1 ]]; then
-      ready_deadline=$((SECONDS + 30))
+      ready_deadline=$((SECONDS + APP_READY_TIMEOUT_SECONDS))
       while ! grep -Fq "MOKO_APP_READY app_id=$LAUNCH_APP_ID state=ready" "$SERIAL_PATH"; do
         if (( SECONDS >= ready_deadline )); then
           tail -100 "$SERIAL_PATH" >&2
@@ -912,7 +989,7 @@ for run in $(seq 1 "$RUNS"); do
       grep -E "MOKO_HW_REPORT state=ready|MOKO_HW_EXPORT" "$SERIAL_PATH" | tail -3
     fi
 
-    surface_deadline=$((SECONDS + 30))
+    surface_deadline=$((SECONDS + APP_READY_TIMEOUT_SECONDS))
     if [[ "$BOOT_MODE" == safe-graphics ]]; then
       while ! grep -Fq "MOKO_SHELL_SURFACE state=hidden app_id=$LAUNCH_APP_ID" "$SERIAL_PATH"; do
         if (( SECONDS >= surface_deadline )); then
@@ -988,6 +1065,91 @@ for run in $(seq 1 "$RUNS"); do
       tail -80 "$SERIAL_PATH" >&2
       echo "Application exited during launch validation." >&2
       exit 1
+    fi
+
+    if [[ "$RESUME_TEST" == 1 ]]; then
+      ai_ready_deadline=$((SECONDS + 30))
+      while ! grep -Fq "MOKO_AI_UI state=ready provider=local-stub uid=1000" "$SERIAL_PATH"; do
+        if (( SECONDS >= ai_ready_deadline )); then
+          tail -120 "$SERIAL_PATH" >&2
+          echo "MOKO AI was not ready before the suspend baseline." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-l"
+      sleep 0.5
+      send_text "example.com"
+      monitor "sendkey ret"
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_PAGE state=loaded scheme=https host=example.com uid=1000" 90 \
+        "MOKO Browser did not load HTTPS before the suspend test."
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_JAVASCRIPT state=pass scheme=https host=example.com uid=1000" 30 \
+        "MOKO Browser did not execute JavaScript before the suspend test."
+
+      marker=$(serial_line_count)
+      pointer_click 1078 20
+      wait_for_serial_since "$marker" \
+        "MOKO_CONTROL_CENTER state=open page=3 .* uid=1000" 30 \
+        "Control Center did not open the Power page before suspend."
+      sleep 3
+      pointer_click 1060 407
+      sleep 1
+      pointer_click 1160 454
+      wait_for_serial_since "$marker" \
+        "MOKO_CONTROL_ACTION action=suspend state=requested uid=1000" 30 \
+        "The unprivileged MOKO Power action did not request suspend through logind."
+      wait_for_qemu_status suspended 60
+      qmp '{"execute":"system_wakeup"}'
+      wait_for_qemu_status running 30
+      wait_for_serial_since "$marker" \
+        "MOKO_SLEEP state=preparing compositor=1 browser_running=1 ai=1 network_manager=1 wifi_connected=[01] bluez_service=[01] bluetooth_adapter=[01] bluetooth_powered=[01] audio=1 input_protocol=1 touchpads=[0-9]+ battery=[01] power_mode=[01] uid=1000" 60 \
+        "The Shell did not record the real pre-suspend service baseline."
+      wait_for_serial_since "$marker" \
+        "MOKO_SLEEP state=resumed uid=1000" 60 \
+        "The Shell did not observe logind resume."
+      wait_for_serial_since "$marker" \
+        "MOKO_RESUME_HEALTH result=pass desktop_protocol=1 compositor=1 browser_expected=1 browser_mapped=1 ai=1 provider=1 network_manager=1 wifi_device=[01] wifi_enabled=[01] wifi_connected=[01] bluez_service=[01] bluetooth_adapter=[01] bluetooth_powered=[01] audio=1 input_protocol=1 touchpads=[0-9]+ battery=[01] brightness=[01] power_mode=[01] uid=1000" 90 \
+        "The Shell did not recover its compositor, Browser, AI and system-service state."
+      if awk -v start="$marker" \
+          'NR > start && /MOKO_RESUME_HEALTH result=fail/ { failed = 1 } END { exit !failed }' \
+          "$SERIAL_PATH"; then
+        tail -140 "$SERIAL_PATH" >&2
+        echo "The Shell reported failed resume health." >&2
+        exit 1
+      fi
+
+      marker=$(serial_line_count)
+      monitor "sendkey esc"
+      wait_for_serial_since "$marker" \
+        "MOKO_SHELL_OVERLAY state=hidden" 30 \
+        "The Power overlay did not dismiss and restore Browser focus after resume."
+
+      RESUME_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-resumed.png"
+      resume_screenshot_deadline=$((SECONDS + SCREENSHOT_TIMEOUT_SECONDS))
+      resume_screenshot_size=0
+      while (( resume_screenshot_size <= 10000 )); do
+        monitor "screendump /artifacts/$RESUME_SCREENSHOT_NAME -f png"
+        resume_screenshot_size=$(docker exec "$CONTAINER" \
+          stat -c %s "/artifacts/$RESUME_SCREENSHOT_NAME")
+        if (( SECONDS >= resume_screenshot_deadline )); then
+          echo "Display output did not recover within $SCREENSHOT_TIMEOUT_SECONDS seconds after resume ($resume_screenshot_size bytes)." >&2
+          exit 1
+        fi
+        sleep 5
+      done
+
+      marker=$(serial_line_count)
+      monitor "sendkey ctrl-r"
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_PAGE state=loaded scheme=https host=example.com uid=1000" 90 \
+        "MOKO Browser did not reload HTTPS after resume."
+      wait_for_serial_since "$marker" \
+        "MOKO_BROWSER_JAVASCRIPT state=pass scheme=https host=example.com uid=1000" 30 \
+        "MOKO Browser did not execute JavaScript after resume."
     fi
 
     if [[ "$WINDOW_WORKFLOW" == 1 ]]; then
@@ -1171,17 +1333,26 @@ for run in $(seq 1 "$RUNS"); do
     fi
   fi
 
-  monitor system_powerdown
-  sleep 30
-  if [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") == true ]]; then
-    monitor "eject ide2-cd0"
-    monitor "sendkey ret"
+  if [[ "$QEMU_EXIT_ACTION" == powerdown ]]; then
+    monitor system_powerdown
+  else
+    # QEMU standard VGA/q35 can fail its emulated S5 transition after S3.
+    # Normal regression runs still use powerdown; this only cleans up after
+    # the resume gate has independently passed every guest assertion.
+    monitor quit
   fi
-
-  deadline=$((SECONDS + 30))
+  deadline=$((SECONDS + SHUTDOWN_TIMEOUT_SECONDS))
+  eject_deadline=$((SECONDS + 30))
+  eject_sent=0
   while [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") == true ]]; do
+    if [[ "$QEMU_EXIT_ACTION" == powerdown && "$eject_sent" == 0 \
+        && $SECONDS -ge $eject_deadline ]]; then
+      monitor "eject ide2-cd0"
+      monitor "sendkey ret"
+      eject_sent=1
+    fi
     if (( SECONDS >= deadline )); then
-      echo "Cold boot $run did not power off cleanly." >&2
+      echo "Cold boot $run did not complete $QEMU_EXIT_ACTION within $SHUTDOWN_TIMEOUT_SECONDS seconds." >&2
       exit 1
     fi
     sleep 1

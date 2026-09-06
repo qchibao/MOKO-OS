@@ -45,6 +45,8 @@ qt_add_executable(moko-shell
     src/notificationmodel.h
     src/screenshotcontroller.cpp
     src/screenshotcontroller.h
+    src/sessionlifecycle.cpp
+    src/sessionlifecycle.h
     src/bluetoothagent.cpp
     src/bluetoothagent.h
     src/systemcontrol.cpp
@@ -176,4 +178,14 @@ if(BUILD_TESTING)
     target_link_libraries(moko-screenshot-controller-tests PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME moko-screenshot-controller-tests COMMAND moko-screenshot-controller-tests)
     set_tests_properties(moko-screenshot-controller-tests PROPERTIES TIMEOUT 10)
+
+    qt_add_executable(moko-session-lifecycle-tests
+        tests/test_sessionlifecycle.cpp
+        src/sessionlifecycle.cpp
+        src/sessionlifecycle.h
+    )
+    target_include_directories(moko-session-lifecycle-tests PRIVATE src)
+    target_link_libraries(moko-session-lifecycle-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    add_test(NAME moko-session-lifecycle-tests COMMAND moko-session-lifecycle-tests)
+    set_tests_properties(moko-session-lifecycle-tests PROPERTIES TIMEOUT 10)
 endif()

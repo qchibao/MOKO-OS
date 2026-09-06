@@ -14,7 +14,7 @@ Updated: 2026-09-06
 | MOKO-008 MOKO AI system action contract | DONE (validated) | Unprivileged D-Bus daemon, allowlisted action layer and provider-backed Shell UI pass real system-summary and app-launch tests; 3/3 cold-boot regression passes on ISO SHA-256 `4c1a00c43bf0060198b998c6978d7cf178d0eac0b72673572beab50a8ac4fb9f`. |
 | MOKO-009 Hardware diagnostics | DONE (validated) | Native read-only diagnostics, privacy-safe JSON/text exports and Launcher/Settings/AI integration pass in QEMU; 3/3 cold boots pass on ISO SHA-256 `9c6608a10bbb705a09c62caa0a31d4be38a514df6d550f796146329cf799749e`. |
 | MOKO-010 Live USB readiness | DONE (validated in QEMU) | The MacBook 2015 serial false-failure is fixed without weakening disk safety. Two clean builds are identical; BIOS `3/3`, UEFI, Safe Graphics, Diagnostics and shutdown pass on SHA-256 `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`. Physical MacBook retest remains pending. |
-| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Phases 1-6 are QEMU-validated: compositor, Control Center, input, AI, Browser and consumer/developer UI separation. Desktop usability, resume work and physical MacBook validation remain. |
+| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Phases 1-8 are QEMU-validated: compositor, Control Center, input, AI, Browser, consumer UI, desktop usability and suspend/resume recovery. Final release regression/reproducibility work and physical MacBook validation remain. |
 
 ## Definition of first real milestone
 A bootable `MOKO-OS-v0.1-dev-amd64.hybrid.iso` that reaches the MOKO Shell Developer Preview in QEMU, with keyboard/mouse, shutdown and basic network stack available.
