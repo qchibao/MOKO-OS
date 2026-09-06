@@ -1,4 +1,4 @@
-# Building MOKO OS v0.1
+# Building MOKO OS v0.1.1
 
 ## Supported build host for the first milestone
 Debian 13 amd64 is the reference host. A Debian 13 VM is recommended when developing from macOS.
@@ -46,7 +46,7 @@ The wrapper copies only the source/assets required by the live image into the li
 Run a repeatable headless QEMU smoke test from macOS or Linux:
 
 ```bash
-./scripts/test-iso-docker.sh out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
+./scripts/test-iso-docker.sh out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
 MOKO_BOOT_RUNS=3 ./scripts/test-iso-docker.sh
 MOKO_LAUNCH_QUERY=terminal MOKO_LAUNCH_APP_ID=org.moko.Terminal ./scripts/test-iso-docker.sh
 MOKO_AI_PROMPT="system overview" MOKO_AI_EXPECT_ACTION=system_summary ./scripts/test-iso-docker.sh
@@ -109,8 +109,8 @@ application registry.
 The optional AI variables drive the real Shell panel through QEMU keyboard
 input. They require an unprivileged daemon connection, the expected D-Bus
 response, and, for application actions, the registry launch, in-process app
-readiness and Cage surface handoff. The test captures the resulting AI panel or
-application framebuffer as `*-ai.png`.
+readiness and compositor surface mapping. The test captures the resulting AI
+panel or application framebuffer as `*-ai.png`.
 
 `MOKO_CONTROL_CENTER_TEST=1` clicks the visible top-bar controls, requires the
 unprivileged backend to report real NetworkManager, Bluetooth-hardware,
@@ -133,11 +133,11 @@ Live session ends.
 A successful build writes these files to `out/`:
 
 ```text
-MOKO-OS-v0.1-dev-amd64.hybrid.iso
-MOKO-OS-v0.1-dev-amd64.build-info.txt
-MOKO-OS-v0.1-dev-amd64.packages.txt
-MOKO-OS-v0.1-dev-amd64.known-issues.txt
-MOKO-OS-v0.1-dev-amd64.live-usb-checklist.md
+MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
+MOKO-OS-v0.1.1-dev-amd64.build-info.txt
+MOKO-OS-v0.1.1-dev-amd64.packages.txt
+MOKO-OS-v0.1.1-dev-amd64.known-issues.txt
+MOKO-OS-v0.1.1-dev-amd64.live-usb-checklist.md
 SHA256SUMS
 ```
 
@@ -151,10 +151,10 @@ To verify reproducibility, preserve the first clean artifact, rebuild from the
 same clean commit, then compare the two images:
 
 ```bash
-cp out/MOKO-OS-v0.1-dev-amd64.hybrid.iso out/repro-build-a.iso
+cp out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso out/repro-build-a.iso
 ./scripts/build-iso-docker.sh
 ./scripts/compare-iso-builds.sh \
-  out/repro-build-a.iso out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
+  out/repro-build-a.iso out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
 ```
 
 ## macOS Intel

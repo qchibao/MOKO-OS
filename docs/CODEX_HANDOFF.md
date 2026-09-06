@@ -4,7 +4,7 @@
 Paste this once after opening the repository:
 
 ```text
-You are implementing MOKO OS v0.1. Read AGENTS.md, README.md, STATUS.md, docs/ARCHITECTURE.md, docs/DESIGN_SYSTEM.md, docs/BUILDING.md and every task file. Do not replace the system with GNOME/KDE or a theme. Start from the first task that is not fully validated. Run tests/builds where the environment permits, fix failures, and update STATUS.md plus the task validation notes. Do not perform destructive disk operations.
+You are implementing MOKO OS v0.1.1. Read AGENTS.md, README.md, STATUS.md, docs/ARCHITECTURE.md, docs/DESIGN_SYSTEM.md, docs/BUILDING.md and every task file. Do not replace the system with GNOME/KDE or a theme. Start from the first task that is not fully validated. Run tests/builds where the environment permits, fix failures, and update STATUS.md plus the task validation notes. Do not perform destructive disk operations.
 ```
 
 ## Working loop

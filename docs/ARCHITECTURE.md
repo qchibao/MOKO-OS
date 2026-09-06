@@ -1,7 +1,7 @@
-# MOKO OS v0.1 architecture
+# MOKO OS v0.1.1 architecture
 
 ## Product boundary
-MOKO OS v0.1 is **not** a Linux distribution with only wallpaper/icon/theme changes. Linux and Debian provide the hardware/userland foundation while MOKO owns the product-facing system layer.
+MOKO OS v0.1.1 is **not** a Linux distribution with only wallpaper/icon/theme changes. Linux and Debian provide the hardware/userland foundation while MOKO owns the product-facing system layer.
 
 ```text
 Applications
@@ -17,7 +17,7 @@ System Infrastructure
   D-Bus / systemd / NetworkManager / PipeWire / BlueZ
                  │
 Wayland compositor
-  Bootstrap: Cage        Target: moko-compositor
+  Normal: moko-compositor        Safe/rollback: Cage
                  │
 Debian minimal userland
                  │
@@ -197,6 +197,6 @@ and ignores open or write errors. Missing or unusable serial hardware can never
 turn a passing storage audit into a failed boot gate.
 
 ## Architecture targets
-- v0.1: amd64 only.
+- v0.1.1: amd64 only.
 - Later: arm64 feasibility track after desktop APIs stabilize.
-- No compatibility promise for Apple silicon in v0.1.
+- No compatibility promise for Apple silicon in v0.1.1.

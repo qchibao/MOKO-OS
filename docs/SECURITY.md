@@ -1,4 +1,4 @@
-# MOKO OS v0.1 security principles
+# MOKO OS v0.1.1 security principles
 
 1. Developer Preview must never auto-partition or overwrite disks.
 2. MOKO AI runs without root privileges.

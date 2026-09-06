@@ -3,4 +3,4 @@
 set -eu
 
 install -Dm644 live/filesystem.packages \
-  MOKO/MOKO-OS-v0.1-dev-amd64.packages.txt
+  MOKO/MOKO-OS-v0.1.1-dev-amd64.packages.txt

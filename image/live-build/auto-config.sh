@@ -9,9 +9,9 @@ lb config \
   --chroot-squashfs-compression-type zstd \
   --archive-areas "main contrib non-free-firmware" \
   --debian-installer none \
-  --iso-application "MOKO OS v0.1 Developer Preview" \
+  --iso-application "MOKO OS v0.1.1 Hardware & Usability Preview" \
   --iso-preparer "MOKO OS live-build" \
   --iso-publisher "MOKO" \
-  --iso-volume "MOKO_OS_V0_1" \
+  --iso-volume "MOKO_OS_V0_1_1" \
   --bootappend-live "boot=live components username=moko hostname=moko-os nottyautologin quiet console=ttyS0,115200n8 console=tty0" \
   --bootappend-live-failsafe none

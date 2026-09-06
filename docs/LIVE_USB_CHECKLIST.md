@@ -1,4 +1,4 @@
-# MOKO OS v0.1 Live USB test checklist
+# MOKO OS v0.1.1 Live USB test checklist
 
 Use this checklist only with the non-installing Developer Preview. Keep a full
 backup of the test machine. Do not partition, format or mount an internal disk
@@ -10,6 +10,8 @@ for write access during this test.
 - [ ] Confirm the machine is x86_64 and record its exact manufacturer/model.
 - [ ] Boot `Try MOKO OS` through UEFI when the machine supports it.
 - [ ] Confirm MOKO Shell appears and accepts keyboard and pointer input.
+- [ ] Open Files, Settings, Terminal and Browser together; move, resize,
+      minimize, restore, maximize, snap and switch between their real windows.
 - [ ] Reboot and open `Hardware Diagnostics` directly from the boot menu.
 - [ ] Reboot and confirm `Safe Graphics Mode` reaches MOKO Shell.
 - [ ] Open MOKO Hardware Diagnostics and export both report formats.
@@ -23,6 +25,8 @@ for write access during this test.
 - [ ] Internal display and every connected external display are visible.
 - [ ] Native panel resolution and expected refresh rate are available.
 - [ ] Brightness control is reported accurately; note if it is read-only.
+- [ ] Brightness slider and the keyboard brightness keys change the real panel
+      backlight without requiring elevated application privileges.
 - [ ] Hardware Diagnostics reports the correct GPU vendor/model and driver.
 - [ ] Record the active renderer and Wayland renderer.
 - [ ] Check for corruption, flicker, black frames and cursor artifacts.
@@ -31,7 +35,9 @@ for write access during this test.
 
 - [ ] Built-in and USB keyboard keys work, including modifiers and function keys.
 - [ ] Mouse movement, primary/secondary click and wheel scrolling work.
-- [ ] Trackpad movement, click, two-finger scrolling and palm rejection work.
+- [ ] Trackpad movement, tap-to-click, physical click, secondary click,
+      two-finger scrolling, drag and palm rejection work.
+- [ ] Natural scrolling and pointer acceleration controls apply immediately.
 - [ ] Record whether the Apple keyboard/trackpad is detected on an Intel Mac.
 
 ## Network and Bluetooth
@@ -40,14 +46,19 @@ for write access during this test.
 - [ ] Wi-Fi device, kernel driver and firmware status are reported accurately.
 - [ ] Wi-Fi can discover and connect to a test network without exposing secrets
       in the exported report.
+- [ ] Wi-Fi can disconnect, reconnect and recover after closing Control Center.
 - [ ] Bluetooth controller, driver and BlueZ status are reported accurately.
 - [ ] A Bluetooth test device can be discovered and connected.
+- [ ] The Bluetooth device can disconnect, reconnect and be forgotten with
+      confirmation.
 
 ## Audio, microphone and camera
 
 - [ ] `wpctl status` shows the expected PipeWire/WirePlumber devices.
 - [ ] Speaker or headphone output is audible on the selected device.
 - [ ] Output volume and mute state respond correctly.
+- [ ] Output and input device selection remains active after reopening Control
+      Center.
 - [ ] `arecord -l` lists the expected microphone/capture device.
 - [ ] A short non-sensitive microphone test records and plays back correctly.
 - [ ] `v4l2-ctl --list-devices` reports the built-in/USB webcam.
@@ -56,12 +67,34 @@ for write access during this test.
 ## Power, storage and lifecycle
 
 - [ ] Battery percentage and charging state match the hardware indication.
+- [ ] Battery health and power mode are truthful where the hardware exposes
+      them; unavailable values remain read-only.
 - [ ] Suspend is reported by systemd-logind and completes successfully.
-- [ ] Resume restores display, input, network and audio.
+- [ ] Resume restores display, compositor windows, trackpad, Wi-Fi, Bluetooth,
+      audio, Browser state and battery status.
 - [ ] USB storage is detected without modifying internal storage.
 - [ ] Internal NVMe/SATA storage model and capacity are detected read-only.
 - [ ] Normal shutdown powers the machine off cleanly.
 - [ ] Reboot returns to firmware/boot selection cleanly.
+
+## Browser, AI and desktop services
+
+- [ ] MOKO AI accepts a typed request, shows Processing, and returns real
+      battery, network, storage or system information.
+- [ ] MOKO AI opens Files, Settings and Terminal only through allowlisted app
+      actions; arbitrary shell requests remain unavailable.
+- [ ] MOKO Browser renders an HTTPS site, executes JavaScript and downloads a
+      non-sensitive test file with visible progress.
+- [ ] The downloaded file appears in MOKO Files and opens through the system
+      MIME handler.
+- [ ] Text clipboard copy/paste works between MOKO Terminal, Browser and native
+      MOKO text fields.
+- [ ] File copy/cut/paste works in MOKO Files with confirmation for destructive
+      operations.
+- [ ] Notification Center receives a test notification and the screenshot
+      shortcut creates a real image.
+- [ ] English/Vietnamese layout switching and configured HiDPI scale remain
+      usable after application launches and resume.
 
 ## Result record
 

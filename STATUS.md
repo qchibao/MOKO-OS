@@ -16,7 +16,7 @@ Updated: 2026-09-06
 | MOKO-010 Live USB readiness | DONE (validated in QEMU) | The MacBook 2015 serial false-failure is fixed without weakening disk safety. Two clean builds are identical; BIOS `3/3`, UEFI, Safe Graphics, Diagnostics and shutdown pass on SHA-256 `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`. Physical MacBook retest remains pending. |
 | MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Phases 1-8 are QEMU-validated: compositor, Control Center, input, AI, Browser, consumer UI, desktop usability and suspend/resume recovery. Final release regression/reproducibility work and physical MacBook validation remain. |
 
-## Definition of first real milestone
-A bootable `MOKO-OS-v0.1-dev-amd64.hybrid.iso` that reaches the MOKO Shell Developer Preview in QEMU, with keyboard/mouse, shutdown and basic network stack available.
+## Current release target
+A reproducible `MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` that reaches the MOKO Hardware & Usability Preview in QEMU, preserves disk safety and supports the validated multi-window, system-control, Browser, AI and suspend/resume workflows.
 
-Milestone achieved on 2026-09-04. Validation artifacts: `out/moko-iso-smoke-20260904T144109Z-boot-*`.
+The original v0.1 milestone was achieved on 2026-09-04. Validation artifacts: `out/moko-iso-smoke-20260904T144109Z-boot-*`.

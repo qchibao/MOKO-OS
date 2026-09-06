@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LB="$ROOT/image/live-build"
 OUT="$ROOT/out"
-ARTIFACT_STEM=MOKO-OS-v0.1-dev-amd64
+ARTIFACT_STEM=${ARTIFACT_STEM:-MOKO-OS-v0.1.1-dev-amd64}
 ISO_NAME="$ARTIFACT_STEM.hybrid.iso"
 GIT_COMMIT=${MOKO_GIT_COMMIT:-}
 SOURCE_STATE=${MOKO_SOURCE_STATE:-}

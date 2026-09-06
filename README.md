@@ -57,7 +57,7 @@ sudo ./scripts/build-iso.sh
 Then test it in QEMU:
 
 ```bash
-./scripts/qemu-test.sh out/MOKO-OS-v0.1-dev-amd64.hybrid.iso
+./scripts/qemu-test.sh out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso
 ```
 
 On macOS or another Docker host, use the reproducible validation path:

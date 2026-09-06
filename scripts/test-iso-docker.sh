@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-ISO=${1:-$ROOT/out/MOKO-OS-v0.1-dev-amd64.hybrid.iso}
+ISO=${1:-$ROOT/out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso}
 RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
@@ -410,7 +410,7 @@ docker run --rm --platform linux/amd64 \
       -extract /MOKO/BUILD-INFO.txt /tmp/moko-build-info.txt \
       -extract /MOKO/KNOWN-ISSUES.txt /tmp/moko-known-issues.txt \
       -extract /MOKO/LIVE_USB_CHECKLIST.md /tmp/moko-live-usb-checklist.md \
-      -extract /MOKO/MOKO-OS-v0.1-dev-amd64.packages.txt /tmp/moko-packages.txt \
+      -extract /MOKO/MOKO-OS-v0.1.1-dev-amd64.packages.txt /tmp/moko-packages.txt \
       >/dev/null 2>&1
     cmp /tmp/filesystem.packages /tmp/moko-packages.txt
     cut -f1 /tmp/filesystem.packages | sed "s/:.*$//" > /tmp/package-names
@@ -441,7 +441,7 @@ docker run --rm --platform linux/amd64 \
 
     grep -q "timeout 100" /tmp/isolinux.cfg
     grep -q "set timeout=10" /tmp/grub-config.cfg
-    grep -Fq "MOKO OS v0.1 Developer Preview" /tmp/isolinux-menu.cfg
+    grep -Fq "MOKO OS v0.1.1 Hardware & Usability Preview" /tmp/isolinux-menu.cfg
     for label in "Try MOKO OS" "Hardware Diagnostics" "Safe Graphics Mode"; do
       grep -Fq "$label" /tmp/syslinux-live.cfg
       grep -Fq "$label" /tmp/grub-menu.cfg
@@ -451,7 +451,7 @@ docker run --rm --platform linux/amd64 \
       grep -Fq "moko.mode=$mode" /tmp/grub-menu.cfg
     done
     test -s /tmp/bootx64.efi
-    grep -Fxq "Artifact: MOKO-OS-v0.1-dev-amd64.hybrid.iso" /tmp/moko-build-info.txt
+    grep -Fxq "Artifact: MOKO-OS-v0.1.1-dev-amd64.hybrid.iso" /tmp/moko-build-info.txt
     grep -Fq "Installer: disabled" /tmp/moko-build-info.txt
     grep -Fq "non-installing Live USB preview" /tmp/moko-known-issues.txt
     grep -Fq "internal SSD/HDD partitions have no mountpoint" /tmp/moko-live-usb-checklist.md

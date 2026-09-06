@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT="$ROOT/out"
 IMAGE=${MOKO_LIVE_IMAGE:-moko-os-debian13-live-builder}
 CACHE_VOLUME=${MOKO_LIVE_CACHE_VOLUME:-moko-os-live-build-cache}
-ARTIFACT_STEM=MOKO-OS-v0.1-dev-amd64
+ARTIFACT_STEM=MOKO-OS-v0.1.1-dev-amd64
 GIT_COMMIT=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf unknown)
 SOURCE_DATE_EPOCH=$(git -C "$ROOT" show -s --format=%ct HEAD 2>/dev/null || date +%s)
 if [[ -n $(git -C "$ROOT" status --porcelain 2>/dev/null) ]]; then

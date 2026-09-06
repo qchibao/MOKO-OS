@@ -1,4 +1,4 @@
-# MOKO OS v0.1 hardware target
+# MOKO OS v0.1.1 hardware target
 
 ## First architecture
 `x86_64 / amd64`, UEFI-oriented live image.

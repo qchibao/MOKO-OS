@@ -1,18 +1,21 @@
-MOKO OS v0.1 Developer Preview - Known Issues
+MOKO OS v0.1.1 Hardware & Usability Preview - Known Issues
 
 - This image is a non-installing Live USB preview. There is no partitioning,
   formatting, persistence, upgrade or disk installer workflow.
 - Physical PC and Intel Mac compatibility is not certified yet. Hardware
   Diagnostics reports evidence, not a support promise.
 - The first Intel MacBook 2015 boot exposed an optional serial-log failure after
-  the disk audit passed. This image contains the fix, but the same MacBook still
-  requires a physical graphical-boot retest before compatibility is claimed.
+  the disk audit passed. The logging fix is retained, but this v0.1.1 image and
+  its new compositor/input/power paths still require physical MacBook retesting.
 - Safe Graphics Mode forces software rendering for Cage and Qt Quick, but it
   still requires a display output that the Linux kernel can expose through DRM.
-- Cage remains the bootstrap single-application compositor. Only one MOKO app
-  surface is presented at a time until moko-compositor replaces it.
+- The MOKO compositor provides the normal multi-window desktop. Cage remains
+  installed only as the Safe Graphics and explicit rollback compositor until
+  the new path is qualified on physical hardware.
 - Wi-Fi, Bluetooth, audio, microphone, webcam, suspend and special Apple input
   devices remain model-specific and require the Live USB checklist.
+- Browser history, downloads, settings and temporary third-party packages are
+  discarded when the non-persistent Live session ends.
 - T2-equipped Intel Macs are UNKNOWN unless the exact model has been tested.
 - Secure Boot is not claimed as supported for this Developer Preview.
 - Shutdown can print harmless live-media loop detach warnings after the system

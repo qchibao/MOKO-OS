@@ -256,7 +256,7 @@ QVariantMap AiActions::getSystemSummary() const
         ? availableMatch.captured(1).toULongLong() * 1024ULL
         : 0;
 
-    return {{QStringLiteral("product"), QStringLiteral("MOKO OS v0.1 Developer Preview")},
+    return {{QStringLiteral("product"), QStringLiteral("MOKO OS v0.1.1 Hardware & Usability Preview")},
             {QStringLiteral("base"), osRelease.value(QStringLiteral("PRETTY_NAME"),
                                                       QStringLiteral("Unknown Linux"))},
             {QStringLiteral("hostName"), QSysInfo::machineHostName()},
