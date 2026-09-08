@@ -544,3 +544,25 @@ MOKO-011 remains **IN PROGRESS**. QEMU cannot validate the MacBook trackpad,
 Wi-Fi, Bluetooth, backlight, battery, microphone, webcam or physical
 suspend/resume path. Stop here and run the Live USB checklist on the same Intel
 MacBook Pro 2015 before marking v0.1.1 complete or beginning installer work.
+
+## Physical hotfix H1-H8
+
+The locked physical hotfix pack is implemented on
+`hotfix/v0.1.1-physical-ui` without changing the AI contract or enabling an OS
+installer. Stable phase commits are:
+
+- H1 `816149e`: quiet branded normal boot and compositor-owned fade-to-black
+  shutdown held until poweroff;
+- H2 `52cbcb8`: display confirmation rollback, Vietnam timezone and truthful
+  charging state;
+- H3 `595eccf`: capability-based trackpad gestures and browser history swipe;
+- H4 `257a5be`: real connectivity preloading and Light/Dark/Glass appearance;
+- H5 `af6e310`: reference-led Settings and Files visual/interaction rebuild;
+- H6 `0635682`: MOKO Browser home/new-tab and download completion workflow;
+- H7 `a358326`: verified local `.deb` review/install flow with a fixed polkit
+  helper, safe dependency handling and application-registry refresh.
+
+H8 must start from a clean committed tree, repeat every automated release gate,
+build the replacement ISO and stop for physical MacBook Pro 2015 validation.
+The package flow modifies only the ephemeral Live overlay; MOKO-012 remains
+disabled and internal disks remain outside the installation path.

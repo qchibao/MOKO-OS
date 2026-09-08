@@ -21,6 +21,7 @@ class PackageInstaller final : public QObject
     Q_PROPERTY(QString packageHash READ packageHash NOTIFY packageChanged)
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY stateChanged)
+    Q_PROPERTY(QString developerDetails READ developerDetails NOTIFY stateChanged)
     Q_PROPERTY(bool installable READ installable NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
 
@@ -40,6 +41,7 @@ public:
     QString packageHash() const;
     QString state() const;
     QString statusMessage() const;
+    QString developerDetails() const;
     bool installable() const;
     bool busy() const;
 
@@ -77,5 +79,6 @@ private:
     QString m_packageHash;
     QString m_state = QStringLiteral("idle");
     QString m_statusMessage = QStringLiteral("Choose a Debian package to inspect.");
+    QString m_developerDetails;
     QProcess *m_process = nullptr;
 };

@@ -16,6 +16,9 @@ MOKO OS v0.1.1 Hardware & Usability Preview - Known Issues
   devices remain model-specific and require the Live USB checklist.
 - Browser history, downloads, settings and temporary third-party packages are
   discarded when the non-persistent Live session ends.
+- MOKO Package Installer v0 accepts local Debian `.deb` packages only. It warns
+  when publisher trust cannot be independently verified; `.rpm` is unsupported,
+  and every successful package installation is temporary in Live mode.
 - T2-equipped Intel Macs are UNKNOWN unless the exact model has been tested.
 - Secure Boot is not claimed as supported for this Developer Preview.
 - Shutdown can print harmless live-media loop detach warnings after the system

@@ -28,6 +28,7 @@ QString PackageInstaller::trustMessage() const { return m_trustMessage; }
 QString PackageInstaller::packageHash() const { return m_packageHash; }
 QString PackageInstaller::state() const { return m_state; }
 QString PackageInstaller::statusMessage() const { return m_statusMessage; }
+QString PackageInstaller::developerDetails() const { return m_developerDetails; }
 bool PackageInstaller::installable() const
 {
     return m_packageType == QStringLiteral("deb") && !busy()
@@ -49,6 +50,7 @@ void PackageInstaller::clearPackage()
     m_maintainer.clear();
     m_trustMessage.clear();
     m_packageHash.clear();
+    m_developerDetails.clear();
 }
 
 void PackageInstaller::setState(const QString &state, const QString &message)
@@ -229,10 +231,12 @@ void PackageInstaller::processFinished(int exitCode, QProcess::ExitStatus exitSt
     QProcess *process = m_process;
     const QString output = QString::fromLocal8Bit(process->readAll());
     const bool success = exitStatus == QProcess::NormalExit && exitCode == 0;
+    m_developerDetails = output.trimmed().left(4000);
     const QString message = success
         ? QStringLiteral("Package installed. Newly provided applications are now available.")
-        : (output.trimmed().isEmpty() ? QStringLiteral("Package installation failed or was cancelled.")
-                                      : QStringLiteral("Package installation failed: %1").arg(output.trimmed().left(300)));
+        : (exitCode == 126 || exitCode == 127
+               ? QStringLiteral("Installation was not authorized or was cancelled. No package was installed.")
+               : QStringLiteral("The package could not be installed. Open Developer Details for technical information."));
     m_process = nullptr;
     disconnect(process, nullptr, this, nullptr);
     process->deleteLater();
@@ -250,13 +254,14 @@ void PackageInstaller::processFinished(int exitCode, QProcess::ExitStatus exitSt
 
 void PackageInstaller::processError(QProcess::ProcessError error)
 {
-    Q_UNUSED(error)
     if (!m_process)
         return;
     QProcess *process = m_process;
     m_process = nullptr;
     disconnect(process, nullptr, this, nullptr);
     process->deleteLater();
+    m_developerDetails = QStringLiteral("The authorization helper could not be started (process error %1).")
+                             .arg(static_cast<int>(error));
     setState(QStringLiteral("failed"), QStringLiteral("Authorization or package installation could not be started."));
     emit installFinished(false, m_statusMessage);
 }

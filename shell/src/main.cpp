@@ -250,7 +250,8 @@ int main(int argc, char *argv[])
         window->setProperty("controlCenterVisible", false);
         window->setProperty("notificationCenterVisible", true);
     }
-    if (parser.isSet("shutdown-preview")) {
+    const bool shutdownPreview = parser.isSet("shutdown-preview");
+    if (shutdownPreview) {
         QTimer::singleShot(100, &sessionLifecycle, [&sessionLifecycle] {
             sessionLifecycle.handlePrepareForShutdown(true);
         });
@@ -295,14 +296,33 @@ int main(int argc, char *argv[])
                 window->resize(width, height);
             }
         }
-        QTimer::singleShot(1200, &app, [&, window]() {
+        const auto savePreview = [&, window]() {
             bool screenshotSaved = true;
             if (!screenshotPath.isEmpty()) {
                 const QFileInfo output(screenshotPath);
                 screenshotSaved = output.dir().exists() && window && window->grabWindow().save(screenshotPath);
             }
             app.exit(qmlWarningsFound || !screenshotSaved ? 2 : 0);
-        });
+        };
+        if (shutdownPreview) {
+            auto *captureGuard = new QObject(&app);
+            captureGuard->setProperty("captured", false);
+            QObject::connect(window, &QQuickWindow::frameSwapped, captureGuard,
+                             [window, captureGuard, savePreview] {
+                                 if (captureGuard->property("captured").toBool()
+                                     || window->property("shutdownBlackoutOpacity").toDouble() < 0.999) {
+                                     return;
+                                 }
+                                 captureGuard->setProperty("captured", true);
+                                 QTimer::singleShot(50, window, savePreview);
+                             });
+            QTimer::singleShot(5000, captureGuard, [&app, captureGuard] {
+                if (!captureGuard->property("captured").toBool())
+                    app.exit(2);
+            });
+        } else {
+            QTimer::singleShot(1200, &app, savePreview);
+        }
     }
 
     return app.exec();

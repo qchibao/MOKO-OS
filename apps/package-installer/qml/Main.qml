@@ -23,6 +23,69 @@ ApplicationWindow {
         return "Review package"
     }
 
+    component MokoDialog: Dialog {
+        id: mokoDialog
+        property string primaryText: "OK"
+        property string secondaryText: "Cancel"
+        property int dialogWidth: 460
+        width: Math.min(dialogWidth, window.width - 40)
+        modal: true
+        anchors.centerIn: parent
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle {
+            radius: 8
+            color: "#F8FBFE"
+            border.color: "#BFD2E0"
+        }
+        header: Rectangle {
+            implicitHeight: 54
+            color: "#EAF4FC"
+            border.color: "#D2E1EC"
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 20
+                anchors.verticalCenter: parent.verticalCenter
+                text: mokoDialog.title
+                color: "#152437"
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+        }
+        footer: Rectangle {
+            implicitHeight: 62
+            color: "#F3F8FC"
+            border.color: "#D7E3EC"
+            RowLayout {
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 8
+                Button {
+                    visible: mokoDialog.secondaryText.length > 0
+                    text: mokoDialog.secondaryText
+                    implicitHeight: 36
+                    leftPadding: 16
+                    rightPadding: 16
+                    onClicked: mokoDialog.reject()
+                    background: Rectangle { radius: 7; color: parent.hovered ? "#EFF6FD" : "#FFFFFF"; border.color: "#C9D9E6" }
+                    contentItem: Text { text: parent.text; color: "#24384C"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                }
+                Button {
+                    text: mokoDialog.primaryText
+                    implicitHeight: 36
+                    leftPadding: 16
+                    rightPadding: 16
+                    onClicked: mokoDialog.accept()
+                    background: Rectangle { radius: 7; color: parent.down ? "#285FC4" : parent.hovered ? "#4A84ED" : "#3978F6" }
+                    contentItem: Text { text: parent.text; color: "#FFFFFF"; font.weight: Font.DemiBold; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                }
+            }
+        }
+        Shortcut { sequence: "Return"; enabled: mokoDialog.visible; onActivated: mokoDialog.accept() }
+        Shortcut { sequence: "Enter"; enabled: mokoDialog.visible; onActivated: mokoDialog.accept() }
+    }
+
     Rectangle { anchors.fill: parent; color: "#F7FBFE" }
     ColumnLayout {
         anchors.fill: parent
@@ -166,16 +229,13 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    MokoDialog {
         id: confirmDialog
-        anchors.centerIn: parent
-        modal: true
         title: "Confirm installation"
-        width: Math.min(460, window.width - 40)
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        primaryText: "Install"
         onAccepted: mokoPackageInstaller.install()
         ColumnLayout {
-            width: parent.width
+            width: 400
             spacing: 10
             Text { Layout.fillWidth: true; text: "Install " + (mokoPackageInstaller.packageName || "this package") + "?"; color: "#172334"; font.pixelSize: 14; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
             Text { Layout.fillWidth: true; text: "MOKO will ask the system authorization service and pass only the inspected local package to its fixed Debian helper."; color: "#667A8D"; font.pixelSize: 11; wrapMode: Text.Wrap }
@@ -186,13 +246,42 @@ ApplicationWindow {
         target: mokoPackageInstaller
         function onInstallFinished(success, message) { if (!success) failureDialog.open() }
     }
-    Dialog {
+    MokoDialog {
         id: failureDialog
-        anchors.centerIn: parent
-        modal: true
         title: "Package installation"
-        standardButtons: Dialog.Ok
-        Text { width: 360; text: mokoPackageInstaller.statusMessage; color: "#263444"; font.pixelSize: 11; wrapMode: Text.Wrap }
+        primaryText: "Close"
+        secondaryText: ""
+        dialogWidth: 500
+        property bool detailsVisible: false
+        onClosed: detailsVisible = false
+        ColumnLayout {
+            width: 440
+            spacing: 10
+            Text { Layout.fillWidth: true; text: mokoPackageInstaller.statusMessage; color: "#263444"; font.pixelSize: 12; wrapMode: Text.Wrap }
+            Button {
+                visible: mokoPackageInstaller.developerDetails.length > 0
+                text: failureDialog.detailsVisible ? "Hide Developer Details" : "Developer Details"
+                implicitHeight: 34
+                onClicked: failureDialog.detailsVisible = !failureDialog.detailsVisible
+                background: Rectangle { radius: 7; color: parent.hovered ? "#EAF3FB" : "#FFFFFF"; border.color: "#C7D9E6" }
+                contentItem: Text { text: parent.text; color: "#2C4C69"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            }
+            ScrollView {
+                visible: failureDialog.detailsVisible
+                Layout.fillWidth: true
+                Layout.preferredHeight: 150
+                TextArea {
+                    text: mokoPackageInstaller.developerDetails
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.WrapAnywhere
+                    color: "#30465A"
+                    font.family: "DejaVu Sans Mono"
+                    font.pixelSize: 10
+                    background: Rectangle { color: "#EDF3F7"; border.color: "#CFDCE5"; radius: 6 }
+                }
+            }
+        }
     }
     MouseArea { width: 14; height: 14; anchors.right: parent.right; anchors.bottom: parent.bottom; z: 100; cursorShape: Qt.SizeFDiagCursor; onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge) }
     Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }

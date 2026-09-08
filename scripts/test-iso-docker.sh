@@ -21,6 +21,7 @@ CONTROL_CENTER_TEST=${MOKO_CONTROL_CENTER_TEST:-0}
 INPUT_TEST=${MOKO_INPUT_TEST:-0}
 USABILITY_TEST=${MOKO_USABILITY_TEST:-0}
 BROWSER_TEST=${MOKO_BROWSER_TEST:-0}
+PACKAGE_INSTALL_TEST=${MOKO_PACKAGE_INSTALL_TEST:-0}
 RESUME_TEST=${MOKO_RESUME_TEST:-0}
 AI_PROMPT=${MOKO_AI_PROMPT:-}
 AI_EXPECT_ACTION=${MOKO_AI_EXPECT_ACTION:-}
@@ -85,7 +86,7 @@ case "$QEMU_EXIT_ACTION" in
     exit 1
     ;;
 esac
-for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST USABILITY_TEST BROWSER_TEST RESUME_TEST; do
+for boolean_name in REQUIRE_APP_READY EXPECT_HARDWARE_REPORT SETTINGS_OPEN_HARDWARE WINDOW_WORKFLOW CONTROL_CENTER_TEST INPUT_TEST USABILITY_TEST BROWSER_TEST PACKAGE_INSTALL_TEST RESUME_TEST; do
   boolean_value=${!boolean_name}
   [[ "$boolean_value" == 0 || "$boolean_value" == 1 ]] || {
     echo "MOKO_${boolean_name} must be 0 or 1." >&2
@@ -127,6 +128,10 @@ if [[ "$BROWSER_TEST" == 1 ]]; then
     echo "MOKO_BROWSER_TEST requires MOKO_REQUIRE_APP_READY=1." >&2
     exit 1
   }
+fi
+if [[ "$PACKAGE_INSTALL_TEST" == 1 && "$BROWSER_TEST" != 1 ]]; then
+  echo "MOKO_PACKAGE_INSTALL_TEST requires MOKO_BROWSER_TEST=1." >&2
+  exit 1
 fi
 if [[ -n "$LAUNCH_QUERY" || -n "$LAUNCH_APP_ID" ]]; then
   [[ -n "$LAUNCH_QUERY" && -n "$LAUNCH_APP_ID" ]] || {
@@ -281,6 +286,19 @@ pointer_move() {
   local absolute_x=$((x * 32767 / 1279))
   local absolute_y=$((y * 32767 / 799))
   qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$absolute_x}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$absolute_y}}]}}"
+}
+
+pointer_double_click() {
+  local x=$1
+  local y=$2
+  pointer_move "$x" "$y"
+  sleep 0.3
+  for _ in 1 2; do
+    qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
+    sleep 0.08
+    qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+    sleep 0.08
+  done
 }
 
 pointer_drag() {
@@ -523,7 +541,7 @@ docker run --rm --platform linux/amd64 \
       live-config network-manager rfkill iw pipewire wireplumber \
       libspa-0.2-bluetooth libspa-0.2-libcamera alsa-utils \
       brightnessctl grim bluez power-profiles-daemon cage libwlroots-0.18 greetd plymouth plymouth-themes xwayland mesa-utils mesa-vulkan-drivers \
-      libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
+      libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland polkitd pkexec \
       qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
       firmware-amd-graphics firmware-brcm80211
@@ -612,10 +630,17 @@ docker run --rm --platform linux/amd64 \
     done
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-package-install-helper > /tmp/moko-package-install-helper
-    grep -Fq '/usr/bin/apt-get --assume-yes --no-remove install "$workdir/package.deb"' \
+    grep -Fq "/usr/bin/apt-get --assume-yes --no-remove install \"\$workdir/package.deb\"" \
       /tmp/moko-package-install-helper
-    ! grep -Eq '(^|[[:space:]])(eval|sh -c|bash -c)([[:space:]]|$)' \
+    ! grep -Eq "(^|[[:space:]])(eval|sh -c|bash -c)([[:space:]]|$)" \
       /tmp/moko-package-install-helper
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/share/polkit-1/actions/org.moko.package-installer.policy \
+      > /tmp/moko-package-installer.policy
+    grep -Fq "<allow_active>yes</allow_active>" /tmp/moko-package-installer.policy
+    grep -Fq "<allow_inactive>no</allow_inactive>" /tmp/moko-package-installer.policy
+    grep -Fq "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/local/libexec/moko-package-install-helper</annotate>" \
+      /tmp/moko-package-installer.policy
     unsquashfs -cat /tmp/filesystem.squashfs etc/greetd/config.toml \
       | grep -Fxq "command = \"/usr/local/bin/moko-desktop-session\""
     unsquashfs -cat /tmp/filesystem.squashfs \
@@ -634,6 +659,7 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_SHELL_OVERLAY" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SCREENSHOT" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_NOTIFICATION_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_PACKAGE_*" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SLEEP" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_RESUME_*" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SHUTDOWN_*" /tmp/moko-live-launch-monitor
@@ -1458,6 +1484,42 @@ for run in $(seq 1 "$RUNS"); do
       sleep 2
       monitor "screendump /artifacts/$BROWSER_FILES_SCREENSHOT_NAME -f png"
       test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$BROWSER_FILES_SCREENSHOT_NAME")" -gt 10000
+
+      if [[ "$PACKAGE_INSTALL_TEST" == 1 ]]; then
+        marker=$(serial_line_count)
+        pointer_double_click 520 280
+        wait_for_serial_since "$marker" \
+          "MOKO_PACKAGE_REQUEST path=/home/moko/Downloads/hello_2.10-5_amd64.deb uid=1000" 30 \
+          "MOKO Files did not route the downloaded Debian package to the package installer."
+        wait_for_serial_since "$marker" \
+          "MOKO_PACKAGE_INSPECT state=ready type=deb package=hello version=2.10-5 architecture=amd64 uid=1000" 30 \
+          "MOKO Package Installer did not inspect the downloaded package metadata."
+        wait_for_serial_since "$marker" \
+          "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.PackageInstaller" 30 \
+          "MOKO Package Installer did not map as a real compositor window."
+        PACKAGE_REVIEW_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-package-review.png"
+        sleep 2
+        monitor "screendump /artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME -f png"
+        test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME")" -gt 10000
+
+        pointer_click 972 628
+        sleep 1
+        monitor "sendkey ret"
+        wait_for_serial_since "$marker" \
+          "MOKO_PACKAGE state=installing detail=.* uid=1000" 30 \
+          "MOKO Package Installer did not invoke its fixed polkit helper after confirmation."
+        wait_for_serial_since "$marker" \
+          "MOKO_PACKAGE state=installed detail=.* uid=1000" 120 \
+          "The confirmed Debian package did not install successfully in the Live overlay."
+        PACKAGE_INSTALLED_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-package-installed.png"
+        monitor "screendump /artifacts/$PACKAGE_INSTALLED_SCREENSHOT_NAME -f png"
+        test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_INSTALLED_SCREENSHOT_NAME")" -gt 10000
+
+        monitor "sendkey ctrl-q"
+        wait_for_serial_since "$marker" \
+          "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.PackageInstaller" 30 \
+          "MOKO Package Installer did not close after the installation test."
+      fi
 
       marker=$(serial_line_count)
       monitor "sendkey ctrl-q"

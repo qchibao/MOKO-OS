@@ -63,11 +63,11 @@ docker run --rm --platform linux/amd64 \
 
     WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
       /tmp/moko-shell-build/moko-shell --smoke-test --windowed --shutdown-preview \
-      --size 1280x720 --screenshot /tmp/moko-shell-shutdown.png
+      --size 1280x720 --screenshot /artifacts/moko-shell-shutdown-preview.png
     python3 - <<'PY'
 from PIL import Image
 
-image = Image.open("/tmp/moko-shell-shutdown.png").convert("RGB")
+image = Image.open("/artifacts/moko-shell-shutdown-preview.png").convert("RGB")
 if any(max(pixel) > 8 for pixel in image.getdata()):
     raise SystemExit("MOKO shutdown render is not fully black")
 PY

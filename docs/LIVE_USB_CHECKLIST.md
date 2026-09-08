@@ -87,6 +87,14 @@ for write access during this test.
       non-sensitive test file with visible progress.
 - [ ] The downloaded file appears in MOKO Files and opens through the system
       MIME handler.
+- [ ] Double-click a compatible downloaded `.deb`; confirm MOKO Package
+      Installer shows its real name, version, architecture, size, publisher and
+      trust warning before any authorization request.
+- [ ] Cancel once and confirm no package is installed; repeat, explicitly
+      confirm Install, and verify the package result is truthful. Confirm the
+      installation disappears after reboot because Live mode has no persistence.
+- [ ] Open a local `.rpm` and confirm MOKO reports it as unsupported without an
+      installation or conversion attempt.
 - [ ] Text clipboard copy/paste works between MOKO Terminal, Browser and native
       MOKO text fields.
 - [ ] File copy/cut/paste works in MOKO Files with confirmation for destructive

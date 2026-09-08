@@ -38,11 +38,21 @@ int main(int argc, char *argv[])
     }
 
     PackageInstaller installer;
-    if (!parser.positionalArguments().isEmpty())
+    if (!parser.positionalArguments().isEmpty()) {
         installer.inspect(parser.positionalArguments().constFirst());
+        writeMokoLiveEvent(
+            QStringLiteral("MOKO_PACKAGE_INSPECT state=%1 type=%2 package=%3 version=%4 architecture=%5 uid=%6")
+                .arg(installer.state(), installer.packageType(),
+                     installer.packageName().left(80).replace(u' ', u'_'),
+                     installer.version().left(80).replace(u' ', u'_'),
+                     installer.architecture().left(32).replace(u' ', u'_'))
+                .arg(geteuid()));
+    }
     QObject::connect(&installer, &PackageInstaller::stateChanged, &app, [&installer] {
-        writeMokoLiveEvent(QStringLiteral("MOKO_PACKAGE state=%1 detail=%2")
-                               .arg(installer.state(), installer.statusMessage().left(180).replace(u' ', u'_')));
+        writeMokoLiveEvent(QStringLiteral("MOKO_PACKAGE state=%1 detail=%2 uid=%3")
+                               .arg(installer.state(),
+                                    installer.statusMessage().left(180).replace(u' ', u'_'))
+                               .arg(geteuid()));
     });
     writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.PackageInstaller state=ready"));
 

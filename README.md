@@ -11,6 +11,9 @@ This repository already contains:
 - native Qt 6/QML **MOKO Files, MOKO Settings and MOKO Terminal** applications integrated through the shared MOKO application registry;
 - native Qt 6/QML **MOKO Browser** using the sandboxed Qt WebEngine runtime,
   with tabs, history, find, downloads and MOKO Files integration;
+- a native **MOKO Package Installer v0** that inspects a selected local `.deb`,
+  requires explicit confirmation and delegates only that verified file to a
+  fixed polkit-authorized Debian helper; `.rpm` remains unsupported;
 - an unprivileged **MOKO AI daemon**, MOKO-owned D-Bus API, allowlisted action layer and provider-backed Shell panel for safe local actions;
 - native **MOKO Hardware Diagnostics** with consumer status language, an explicit Advanced view and privacy-safe evidence reports;
 - fixed BIOS/UEFI boot entries for **Try MOKO OS**, direct **Hardware Diagnostics** and **Safe Graphics Mode**;

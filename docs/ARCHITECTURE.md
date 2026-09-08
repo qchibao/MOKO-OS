@@ -105,6 +105,25 @@ application registry to show that directory in MOKO Files. History is local to
 the user session. In the current Live image all browser state and downloaded
 files are temporary because persistence is not enabled.
 
+## Live package installation boundary
+`org.moko.PackageInstaller` is an unprivileged Qt 6/QML review surface for one
+user-selected local Debian package. It reads metadata through `dpkg-deb` with a
+fixed argument vector, records the inspected file's SHA-256 and requires an
+explicit confirmation before requesting authorization.
+
+The polkit action can execute only `/usr/local/libexec/moko-package-install-helper`.
+That helper accepts exactly an absolute canonical `.deb` path and its SHA-256,
+rejects links and files not owned by the requesting user, copies the verified
+bytes into a root-only temporary directory, validates them again and invokes
+`apt-get --assume-yes --no-remove install` with the copied file as a single
+argument. No UI text reaches a shell, and `.rpm` files are never passed to
+Debian tooling. A successful install asks the MOKO application registry to
+reload standard desktop entries.
+
+This changes only the temporary writable overlay of the Live session. It does
+not provide persistence, partitioning, formatting or an internal-disk OS
+installer, and it is not MOKO-012 Safe Installer.
+
 ## Hardware diagnostics boundary
 `moko-hardware-diagnostics` is an unprivileged Qt 6/QML app backed by a
 MOKO-owned C++ probe. It reads procfs/sysfs, system D-Bus and fixed inspection
