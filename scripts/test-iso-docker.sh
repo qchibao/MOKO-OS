@@ -649,7 +649,8 @@ docker run --rm --platform linux/amd64 \
       etc/systemd/system/moko-live-disk-safety.service \
       etc/systemd/system/moko-live-health.service \
       etc/systemd/system/moko-live-launch-monitor.service \
-      etc/systemd/system/moko-shutdown-blackout-guard.service
+      etc/systemd/system/moko-shutdown-blackout-guard.service \
+      etc/systemd/logind.conf.d/10-moko-shutdown-visual.conf
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
     done
@@ -702,6 +703,9 @@ docker run --rm --platform linux/amd64 \
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/libexec/moko-live-disk-safety-check \
       > /tmp/moko-live-disk-safety-check
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      etc/systemd/logind.conf.d/10-moko-shutdown-visual.conf \
+      | grep -Fxq "InhibitDelayMaxSec=15s"
     chmod 0755 /tmp/moko-live-disk-safety-check
     MOKO_DISK_SAFETY_CHECK=/tmp/moko-live-disk-safety-check \
       bash /source/tests/test-live-disk-safety.sh

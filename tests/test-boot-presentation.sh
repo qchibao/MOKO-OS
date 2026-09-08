@@ -87,6 +87,7 @@ fi
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"
+logind_shutdown_config="$ROOT/image/live-build/config/includes.chroot/etc/systemd/logind.conf.d/10-moko-shutdown-visual.conf"
 compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 grep -Fq 'all_outputs_presented_black_frame' "$compositor_source"
 grep -Fq 'if (!output->shutdown_black_frame_presented)' "$compositor_source"
@@ -100,6 +101,8 @@ grep -Fq 'DefaultDependencies=no' "$shutdown_guard_unit"
 grep -Fq 'Before=shutdown.target' "$shutdown_guard_unit"
 grep -Fq 'systemd-inhibit --what=shutdown' "$shutdown_guard_unit"
 grep -Fq '/usr/local/libexec/moko-shutdown-blackout-guard monitor' "$shutdown_guard_unit"
+grep -Fxq '[Login]' "$logind_shutdown_config"
+grep -Fxq 'InhibitDelayMaxSec=15s' "$logind_shutdown_config"
 grep -Fq 'systemctl enable moko-shutdown-blackout-guard.service' \
   "$ROOT/image/live-build/config/hooks/normal/0300-greetd.hook.chroot"
 
