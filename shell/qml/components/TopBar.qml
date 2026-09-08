@@ -23,6 +23,7 @@ Rectangle {
         property string label
         property bool active: true
         property int level: 100
+        property bool charging: false
         signal clicked()
         width: 27
         height: 30
@@ -40,6 +41,7 @@ Rectangle {
             kind: statusButton.kind
             active: statusButton.active
             level: statusButton.level
+            charging: statusButton.charging
         }
         MouseArea {
             id: statusMouse
@@ -121,6 +123,7 @@ Rectangle {
                    ? "Battery " + root.control.batteryPercent + "%" : "Power"
             active: root.control && root.control.batteryAvailable
             level: root.control && root.control.batteryAvailable ? root.control.batteryPercent : 100
+            charging: root.control && root.control.batteryCharging
             onClicked: root.controlCenterRequested(3)
         }
         StatusButton {

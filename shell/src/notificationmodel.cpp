@@ -5,6 +5,8 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QTimer>
+#include <QSettings>
+#include <QTimeZone>
 
 #include <algorithm>
 
@@ -56,7 +58,13 @@ QVariant NotificationModel::data(const QModelIndex &index, int role) const
     case BodyRole:
         return entry.body;
     case CreatedTextRole:
-        return QLocale().toString(entry.created.time(), QLocale::ShortFormat);
+    {
+        const QSettings settings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"));
+        const QString configured = settings.value(QStringLiteral("dateTime/timeZone")).toString();
+        const QTimeZone zone(QTimeZone::isTimeZoneIdAvailable(configured.toUtf8())
+                                 ? configured.toUtf8() : QTimeZone::systemTimeZoneId());
+        return QLocale().toString(entry.created.toTimeZone(zone).time(), QLocale::ShortFormat);
+    }
     case UnreadRole:
         return entry.unread;
     case ActiveRole:

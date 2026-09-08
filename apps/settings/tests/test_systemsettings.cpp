@@ -17,9 +17,10 @@ void SystemSettingsTest::exposesAllRequiredSections()
 {
     SystemSettings settings;
     const QStringList sections = settings.sectionIds();
-    QCOMPARE(sections.size(), 10);
+    QCOMPARE(sections.size(), 11);
     for (const QString &expected : {QStringLiteral("about"), QStringLiteral("display"),
-                                    QStringLiteral("appearance"), QStringLiteral("sound"),
+                                    QStringLiteral("appearance"), QStringLiteral("date-time"),
+                                    QStringLiteral("sound"),
                                     QStringLiteral("network"), QStringLiteral("bluetooth"),
                                     QStringLiteral("power"), QStringLiteral("storage"),
                                     QStringLiteral("hardware"),
@@ -67,6 +68,8 @@ void SystemSettingsTest::returnsStructuredRealRows()
         }
     }
     QVERIFY(!settings.refreshedAt().isEmpty());
+    QVERIFY(settings.timeZoneChoices().contains(QStringLiteral("Asia/Ho_Chi_Minh")));
+    QVERIFY(!settings.localDateTime().isEmpty());
 }
 
 int main(int argc, char **argv)

@@ -442,7 +442,17 @@ bool WindowManager::setOutputScale(int scalePercent)
                                             static_cast<uint32_t>(scalePercent));
     if (!flushRequest())
         return false;
-    QSettings().setValue(QStringLiteral("desktop/outputScale"), scalePercent);
+    return true;
+}
+
+bool WindowManager::saveOutputScale(int scalePercent)
+{
+    const int value = scalePercent < 0 ? m_outputScale : scalePercent;
+    if (value != 100 && value != 200)
+        return false;
+    if (value == 200 && !outputScale200Available())
+        return false;
+    QSettings().setValue(QStringLiteral("desktop/outputScale"), value);
     return true;
 }
 

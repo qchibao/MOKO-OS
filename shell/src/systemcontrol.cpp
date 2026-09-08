@@ -13,15 +13,18 @@
 #include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDBusVariant>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QSet>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QTimeZone>
 
 #include <algorithm>
 #include <unistd.h>
@@ -197,6 +200,10 @@ SystemControl::SystemControl(QObject *parent)
     m_refreshTimer->setInterval(5000);
     connect(m_refreshTimer, &QTimer::timeout, this, &SystemControl::refresh);
     m_refreshTimer->start();
+    auto *clockTimer = new QTimer(this);
+    clockTimer->setInterval(1000);
+    connect(clockTimer, &QTimer::timeout, this, &SystemControl::refreshTime);
+    clockTimer->start();
     refresh();
 }
 
@@ -253,11 +260,16 @@ QString SystemControl::batteryTime() const { return m_batteryTime; }
 QString SystemControl::batteryTechnology() const { return m_batteryTechnology; }
 QString SystemControl::batteryCycleCount() const { return m_batteryCycleCount; }
 QString SystemControl::batteryEnergy() const { return m_batteryEnergy; }
+bool SystemControl::externalPowerConnected() const { return m_externalPowerConnected; }
+bool SystemControl::batteryCharging() const { return m_batteryCharging; }
 bool SystemControl::powerModeAvailable() const { return m_powerModeAvailable; }
 QString SystemControl::powerMode() const { return m_powerMode; }
 QStringList SystemControl::powerModes() const { return m_powerModes; }
 bool SystemControl::suspendAvailable() const { return m_suspendAvailable; }
 bool SystemControl::suspendPending() const { return m_suspendPending; }
+QString SystemControl::clockText() const { return m_clockText; }
+QString SystemControl::dateText() const { return m_dateText; }
+QString SystemControl::timeZoneName() const { return m_timeZoneName; }
 QString SystemControl::operationMessage() const { return m_operationMessage; }
 
 void SystemControl::refresh()
@@ -266,6 +278,7 @@ void SystemControl::refresh()
     refreshBluetooth();
     refreshAudio();
     refreshPower();
+    refreshTime();
 }
 
 void SystemControl::refreshNetwork()
@@ -997,8 +1010,21 @@ void SystemControl::refreshPower()
     m_batteryTechnology.clear();
     m_batteryCycleCount.clear();
     m_batteryEnergy.clear();
+    m_externalPowerConnected = false;
+    m_batteryCharging = false;
     const QDir supplies(QDir(sysfsRoot).filePath(QStringLiteral("class/power_supply")));
-    for (const QString &entry : supplies.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+    const QStringList supplyEntries = supplies.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &entry : supplyEntries) {
+        const QString base = supplies.filePath(entry);
+        const QString type = readTextFile(base + QStringLiteral("/type"));
+        if (type == QStringLiteral("Mains") || type == QStringLiteral("USB")
+            || type == QStringLiteral("USB_C") || type == QStringLiteral("Wireless")) {
+            m_externalPowerConnected = readIntegerFile(base + QStringLiteral("/online")) > 0;
+            if (m_externalPowerConnected)
+                break;
+        }
+    }
+    for (const QString &entry : supplyEntries) {
         const QString base = supplies.filePath(entry);
         if (readTextFile(base + QStringLiteral("/type")) != QStringLiteral("Battery"))
             continue;
@@ -1007,6 +1033,9 @@ void SystemControl::refreshPower()
         m_batteryState = readTextFile(base + QStringLiteral("/status"));
         if (m_batteryState.isEmpty())
             m_batteryState = QStringLiteral("Unknown");
+        m_batteryCharging = m_batteryState.compare(QStringLiteral("Charging"),
+                                                   Qt::CaseInsensitive) == 0;
+        m_externalPowerConnected = m_externalPowerConnected || m_batteryCharging;
         qint64 full = readIntegerFile(base + QStringLiteral("/energy_full"));
         qint64 design = readIntegerFile(base + QStringLiteral("/energy_full_design"));
         qint64 remaining = readIntegerFile(base + QStringLiteral("/energy_now"));
@@ -1084,6 +1113,36 @@ void SystemControl::refreshPower()
     m_suspendAvailable = suspendPolicy == QStringLiteral("yes")
         || suspendPolicy == QStringLiteral("challenge");
     emit powerChanged();
+}
+
+void SystemControl::refreshTime()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    const QLocale locale = QLocale::system();
+    const QSettings sharedSettings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"));
+    const bool useTwentyFourHour = sharedSettings.value(
+        QStringLiteral("dateTime/twentyFourHour"), false).toBool();
+    const QString configuredZone = sharedSettings.value(
+        QStringLiteral("dateTime/timeZone")).toString();
+    const QByteArray zoneIdBytes = QTimeZone::isTimeZoneIdAvailable(configuredZone.toUtf8())
+        ? configuredZone.toUtf8() : QTimeZone::systemTimeZoneId();
+    const QTimeZone timeZone(zoneIdBytes);
+    const QDateTime localNow = now.toUTC().toTimeZone(timeZone);
+    const QString clock = useTwentyFourHour
+        ? localNow.toString(QStringLiteral("HH:mm"))
+        : locale.toString(localNow.time(), QLocale::ShortFormat);
+    const QString zoneId = QString::fromUtf8(zoneIdBytes);
+    const QString zoneName = zoneId.isEmpty() ? localNow.timeZoneAbbreviation() : zoneId;
+    const QString date = QStringLiteral("%1\n%2 (%3)")
+                             .arg(locale.toString(localNow.date(), QLocale::LongFormat),
+                                  clock,
+                                  zoneName);
+    if (m_clockText == clock && m_dateText == date && m_timeZoneName == zoneName)
+        return;
+    m_clockText = clock;
+    m_dateText = date;
+    m_timeZoneName = zoneName;
+    emit timeChanged();
 }
 
 bool SystemControl::setBrightness(int percent)

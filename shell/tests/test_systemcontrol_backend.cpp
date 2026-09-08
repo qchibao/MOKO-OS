@@ -47,6 +47,10 @@ void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
     writeFile(battery + QStringLiteral("/power_now"), "2000000\n");
     writeFile(battery + QStringLiteral("/technology"), "Li-ion\n");
     writeFile(battery + QStringLiteral("/cycle_count"), "321\n");
+    const QString mains = directory.filePath(QStringLiteral("class/power_supply/AC"));
+    QVERIFY(QDir().mkpath(mains));
+    writeFile(mains + QStringLiteral("/type"), "Mains\n");
+    writeFile(mains + QStringLiteral("/online"), "1\n");
 
     const QString commandLog = directory.filePath(QStringLiteral("wpctl.log"));
     const QString fakeWpctl = directory.filePath(QStringLiteral("wpctl"));
@@ -83,6 +87,20 @@ void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
     QCOMPARE(control.batteryTechnology(), QStringLiteral("Li-ion"));
     QCOMPARE(control.batteryCycleCount(), QStringLiteral("321"));
     QCOMPARE(control.batteryEnergy(), QStringLiteral("6.0 / 8.0 Wh"));
+    QVERIFY(control.externalPowerConnected());
+    QVERIFY(!control.batteryCharging());
+
+    writeFile(battery + QStringLiteral("/status"), "Charging\n");
+    control.refresh();
+    QVERIFY(control.externalPowerConnected());
+    QVERIFY(control.batteryCharging());
+    QCOMPARE(control.batteryState(), QStringLiteral("Charging"));
+
+    writeFile(mains + QStringLiteral("/online"), "0\n");
+    writeFile(battery + QStringLiteral("/status"), "Discharging\n");
+    control.refresh();
+    QVERIFY(!control.externalPowerConnected());
+    QVERIFY(!control.batteryCharging());
 
     QVERIFY(control.audioAvailable());
     QCOMPARE(control.outputVolume(), 64);

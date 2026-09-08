@@ -83,6 +83,7 @@ public:
     Q_INVOKABLE bool setNaturalScrollEnabled(bool enabled);
     Q_INVOKABLE bool setPointerAcceleration(int speed);
     Q_INVOKABLE bool setOutputScale(int scalePercent);
+    Q_INVOKABLE bool saveOutputScale(int scalePercent = -1);
     Q_INVOKABLE bool setKeyboardLayout(int layout);
     Q_INVOKABLE bool toggleKeyboardLayout();
     Q_INVOKABLE bool setShellOverlay(bool visible);

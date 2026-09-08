@@ -10,6 +10,9 @@ GlassPanel {
     property string pendingWifiSsid: ""
     property string pendingBluetoothId: ""
     property string pendingBluetoothName: ""
+    property int pendingScale: 100
+    property int previousScale: 100
+    property int scaleCountdown: 15
 
     width: Math.min(410, parent ? parent.width - 32 : 410)
     height: Math.min(720, parent ? parent.height - 78 : 720)
@@ -28,6 +31,43 @@ GlassPanel {
         pendingBluetoothId = deviceId
         pendingBluetoothName = deviceName
         forgetDialog.visible = true
+    }
+
+    function tryScale(value) {
+        if (!windowManager || value === windowManager.outputScale)
+            return
+        previousScale = windowManager.outputScale
+        if (!windowManager.setOutputScale(value))
+            return
+        pendingScale = value
+        scaleCountdown = 15
+        scaleDialog.visible = true
+        scaleTimer.restart()
+    }
+
+    function keepScale() {
+        if (windowManager)
+            windowManager.saveOutputScale(pendingScale)
+        scaleTimer.stop()
+        scaleDialog.visible = false
+    }
+
+    function revertScale() {
+        if (windowManager)
+            windowManager.setOutputScale(previousScale)
+        scaleTimer.stop()
+        scaleDialog.visible = false
+    }
+
+    Timer {
+        id: scaleTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            scaleCountdown--
+            if (scaleCountdown <= 0)
+                root.revertScale()
+        }
     }
 
     function signalBars(strength) {
@@ -635,7 +675,7 @@ GlassPanel {
                             text: "100%"
                             accent: root.windowManager && root.windowManager.outputScale === 100
                             enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
-                            onClicked: root.windowManager.setOutputScale(100)
+                            onClicked: root.tryScale(100)
                         }
                         MokoActionButton {
                             Layout.fillWidth: true
@@ -643,7 +683,7 @@ GlassPanel {
                             accent: root.windowManager && root.windowManager.outputScale === 200
                             enabled: root.windowManager && root.windowManager.desktopProtocolAvailable
                                      && root.windowManager.outputScale200Available
-                            onClicked: root.windowManager.setOutputScale(200)
+                            onClicked: root.tryScale(200)
                         }
                     }
                     EmptyState {
@@ -682,12 +722,14 @@ GlassPanel {
                             height: 24
                             kind: "battery"
                             level: root.control ? root.control.batteryPercent : 0
+                            charging: root.control && root.control.batteryCharging
                         }
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
                             Text {
-                                text: root.control ? root.control.batteryState : "Unknown"
+                                text: root.control && root.control.batteryCharging ? "Charging"
+                                      : root.control ? root.control.batteryState : "Unknown"
                                 color: "#263442"
                                 font.pixelSize: 12
                                 font.bold: true
@@ -1052,6 +1094,57 @@ GlassPanel {
             color: "#647487"
             font.pixelSize: 9
             elide: Text.ElideRight
+        }
+    }
+
+    Rectangle {
+        id: scaleDialog
+        anchors.fill: parent
+        visible: false
+        z: 24
+        color: Qt.rgba(.11,.16,.22,.38)
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(350, parent.width - 36)
+            height: 190
+            radius: 10
+            color: "#F8FBFE"
+            border.color: "#C8D7E6"
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 18
+                spacing: 9
+                Text {
+                    Layout.fillWidth: true
+                    text: "Keep these display settings?"
+                    color: "#1E2936"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Interface scale is now " + root.pendingScale + "%. Reverting in "
+                          + root.scaleCountdown + " seconds unless you keep it."
+                    color: "#68788A"
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 15
+                    value: root.scaleCountdown
+                }
+                Item { Layout.fillHeight: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    MokoActionButton { text: "Revert"; onClicked: root.revertScale() }
+                    MokoActionButton { text: "Keep"; accent: true; onClicked: root.keepScale() }
+                }
+            }
         }
     }
 

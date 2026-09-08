@@ -5,6 +5,7 @@ Item {
     property string kind: "wifi"
     property bool active: true
     property int level: 100
+    property bool charging: false
     property color iconColor: active ? "#2D3948" : "#98A6B5"
 
     Canvas {
@@ -73,6 +74,18 @@ Item {
                 ctx.fillRect(w * .84, h * .40, w * .08, h * .22)
                 const fillWidth = w * .62 * Math.max(0, Math.min(100, root.level)) / 100
                 ctx.fillRect(w * .15, h * .34, fillWidth, h * .34)
+                if (root.charging) {
+                    ctx.fillStyle = "#2F78EA"
+                    ctx.beginPath()
+                    ctx.moveTo(w * .52, h * .12)
+                    ctx.lineTo(w * .40, h * .52)
+                    ctx.lineTo(w * .53, h * .52)
+                    ctx.lineTo(w * .45, h * .90)
+                    ctx.lineTo(w * .68, h * .43)
+                    ctx.lineTo(w * .54, h * .43)
+                    ctx.closePath()
+                    ctx.fill()
+                }
             } else if (root.kind === "brightness") {
                 ctx.beginPath()
                 ctx.arc(cx, cy, w * .18, 0, Math.PI * 2)
@@ -116,6 +129,7 @@ Item {
             function onKindChanged() { parent.requestPaint() }
             function onActiveChanged() { parent.requestPaint() }
             function onLevelChanged() { parent.requestPaint() }
+            function onChargingChanged() { parent.requestPaint() }
             function onIconColorChanged() { parent.requestPaint() }
         }
         Component.onCompleted: requestPaint()

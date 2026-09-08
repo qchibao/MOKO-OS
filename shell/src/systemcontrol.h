@@ -53,11 +53,17 @@ class SystemControl final : public QObject
     Q_PROPERTY(QString batteryTechnology READ batteryTechnology NOTIFY powerChanged)
     Q_PROPERTY(QString batteryCycleCount READ batteryCycleCount NOTIFY powerChanged)
     Q_PROPERTY(QString batteryEnergy READ batteryEnergy NOTIFY powerChanged)
+    Q_PROPERTY(bool externalPowerConnected READ externalPowerConnected NOTIFY powerChanged)
+    Q_PROPERTY(bool batteryCharging READ batteryCharging NOTIFY powerChanged)
     Q_PROPERTY(bool powerModeAvailable READ powerModeAvailable NOTIFY powerChanged)
     Q_PROPERTY(QString powerMode READ powerMode NOTIFY powerChanged)
     Q_PROPERTY(QStringList powerModes READ powerModes NOTIFY powerChanged)
     Q_PROPERTY(bool suspendAvailable READ suspendAvailable NOTIFY powerChanged)
     Q_PROPERTY(bool suspendPending READ suspendPending NOTIFY powerChanged)
+
+    Q_PROPERTY(QString clockText READ clockText NOTIFY timeChanged)
+    Q_PROPERTY(QString dateText READ dateText NOTIFY timeChanged)
+    Q_PROPERTY(QString timeZoneName READ timeZoneName NOTIFY timeChanged)
 
     Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
 
@@ -107,11 +113,16 @@ public:
     QString batteryTechnology() const;
     QString batteryCycleCount() const;
     QString batteryEnergy() const;
+    bool externalPowerConnected() const;
+    bool batteryCharging() const;
     bool powerModeAvailable() const;
     QString powerMode() const;
     QStringList powerModes() const;
     bool suspendAvailable() const;
     bool suspendPending() const;
+    QString clockText() const;
+    QString dateText() const;
+    QString timeZoneName() const;
     QString operationMessage() const;
 
     Q_INVOKABLE void refresh();
@@ -147,6 +158,7 @@ signals:
     void bluetoothPromptChanged();
     void audioChanged();
     void powerChanged();
+    void timeChanged();
     void operationMessageChanged();
 
 private:
@@ -154,6 +166,7 @@ private:
     void refreshBluetooth();
     void refreshAudio();
     void refreshPower();
+    void refreshTime();
     void ensureBluetoothAgent();
     bool runWpctl(const QStringList &arguments, QString *output = nullptr);
     bool bluetoothCall(const QString &deviceId,
@@ -208,10 +221,15 @@ private:
     QString m_batteryTechnology;
     QString m_batteryCycleCount;
     QString m_batteryEnergy;
+    bool m_externalPowerConnected = false;
+    bool m_batteryCharging = false;
     bool m_powerModeAvailable = false;
     QString m_powerMode;
     QStringList m_powerModes;
     bool m_suspendAvailable = false;
     bool m_suspendPending = false;
+    QString m_clockText;
+    QString m_dateText;
+    QString m_timeZoneName;
     QString m_operationMessage;
 };

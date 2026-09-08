@@ -19,6 +19,7 @@
 #include <QScreen>
 #include <QStorageInfo>
 #include <QSysInfo>
+#include <QTimeZone>
 
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -67,6 +68,11 @@ QString firstNonEmpty(const QStringList &values, const QString &fallback = QStri
     return fallback;
 }
 
+QSettings sharedSettings()
+{
+    return QSettings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"));
+}
+
 } // namespace
 
 SystemSettings::SystemSettings(QObject *parent)
@@ -74,6 +80,8 @@ SystemSettings::SystemSettings(QObject *parent)
 {
     QSettings settings;
     m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
+    m_twentyFourHour = sharedSettings().value(
+        QStringLiteral("dateTime/twentyFourHour"), false).toBool();
     refresh();
 }
 
@@ -102,10 +110,37 @@ void SystemSettings::setDeveloperMode(bool enabled)
     emit dataChanged();
 }
 
+QString SystemSettings::timeZoneId() const { return m_timeZoneId; }
+QString SystemSettings::localDateTime() const { return m_localDateTime; }
+bool SystemSettings::automaticTime() const { return m_automaticTime; }
+bool SystemSettings::automaticTimeAvailable() const { return m_automaticTimeAvailable; }
+bool SystemSettings::twentyFourHour() const { return m_twentyFourHour; }
+
+QStringList SystemSettings::timeZoneChoices() const
+{
+    QStringList choices;
+    for (const QByteArray &id : QTimeZone::availableTimeZoneIds())
+        choices.append(QString::fromUtf8(id));
+    choices.sort(Qt::CaseInsensitive);
+    return choices;
+}
+
+void SystemSettings::setTwentyFourHour(bool enabled)
+{
+    if (m_twentyFourHour == enabled)
+        return;
+    m_twentyFourHour = enabled;
+    sharedSettings().setValue(QStringLiteral("dateTime/twentyFourHour"), enabled);
+    collectDateTime();
+    emit dateTimeChanged();
+    emit dataChanged();
+}
+
 QStringList SystemSettings::sectionIds() const
 {
     return {QStringLiteral("about"),      QStringLiteral("display"),
-            QStringLiteral("appearance"), QStringLiteral("sound"),
+            QStringLiteral("appearance"), QStringLiteral("date-time"),
+            QStringLiteral("sound"),
             QStringLiteral("network"),    QStringLiteral("bluetooth"),
             QStringLiteral("power"),      QStringLiteral("storage"),
             QStringLiteral("hardware"),   QStringLiteral("system")};
@@ -117,6 +152,7 @@ QString SystemSettings::sectionTitle(const QString &sectionId) const
         {QStringLiteral("about"), QStringLiteral("About")},
         {QStringLiteral("display"), QStringLiteral("Display")},
         {QStringLiteral("appearance"), QStringLiteral("Appearance")},
+        {QStringLiteral("date-time"), QStringLiteral("Date & Time")},
         {QStringLiteral("sound"), QStringLiteral("Sound")},
         {QStringLiteral("network"), QStringLiteral("Network")},
         {QStringLiteral("bluetooth"), QStringLiteral("Bluetooth")},
@@ -134,6 +170,7 @@ QString SystemSettings::sectionDescription(const QString &sectionId) const
         {QStringLiteral("about"), QStringLiteral("MOKO OS and device identity")},
         {QStringLiteral("display"), QStringLiteral("Connected displays and interface scale")},
         {QStringLiteral("appearance"), QStringLiteral("MOKO color and interface style")},
+        {QStringLiteral("date-time"), QStringLiteral("Clock, network time and time zone")},
         {QStringLiteral("sound"), QStringLiteral("Audio availability")},
         {QStringLiteral("network"), QStringLiteral("Connection and Wi-Fi status")},
         {QStringLiteral("bluetooth"), QStringLiteral("Bluetooth availability")},
@@ -164,6 +201,7 @@ void SystemSettings::refresh()
     collectAbout();
     collectDisplay();
     collectAppearance();
+    collectDateTime();
     collectSound();
     collectNetwork();
     collectBluetooth();
@@ -177,6 +215,62 @@ void SystemSettings::refresh()
                              now.timeZoneAbbreviation());
     m_statusMessage = QStringLiteral("Live system data refreshed");
     emit dataChanged();
+}
+
+bool SystemSettings::setTimeZone(const QString &zoneId)
+{
+    const QByteArray encoded = zoneId.trimmed().toUtf8();
+    if (!QTimeZone::isTimeZoneIdAvailable(encoded)) {
+        m_statusMessage = QStringLiteral("That time zone is not available");
+        emit dataChanged();
+        return false;
+    }
+
+    QDBusInterface timedate(QStringLiteral("org.freedesktop.timedate1"),
+                            QStringLiteral("/org/freedesktop/timedate1"),
+                            QStringLiteral("org.freedesktop.timedate1"),
+                            QDBusConnection::systemBus());
+    bool systemChanged = false;
+    if (timedate.isValid()) {
+        timedate.setTimeout(1500);
+        const QDBusMessage reply = timedate.call(QStringLiteral("SetTimezone"), zoneId, true);
+        systemChanged = reply.type() == QDBusMessage::ReplyMessage;
+    }
+
+    sharedSettings().setValue(QStringLiteral("dateTime/timeZone"), zoneId);
+    m_statusMessage = systemChanged
+        ? QStringLiteral("Time zone changed to %1").arg(zoneId)
+        : QStringLiteral("Using %1 for this Live session").arg(zoneId);
+    collectDateTime();
+    emit dateTimeChanged();
+    emit dataChanged();
+    return true;
+}
+
+bool SystemSettings::setAutomaticTime(bool enabled)
+{
+    QDBusInterface timedate(QStringLiteral("org.freedesktop.timedate1"),
+                            QStringLiteral("/org/freedesktop/timedate1"),
+                            QStringLiteral("org.freedesktop.timedate1"),
+                            QDBusConnection::systemBus());
+    if (!timedate.isValid() || !timedate.property("CanNTP").toBool()) {
+        m_statusMessage = QStringLiteral("Automatic network time is unavailable");
+        emit dataChanged();
+        return false;
+    }
+    timedate.setTimeout(1500);
+    const QDBusMessage reply = timedate.call(QStringLiteral("SetNTP"), enabled, true);
+    if (reply.type() != QDBusMessage::ReplyMessage) {
+        m_statusMessage = QStringLiteral("Could not change automatic network time");
+        emit dataChanged();
+        return false;
+    }
+    m_statusMessage = enabled ? QStringLiteral("Automatic network time enabled")
+                              : QStringLiteral("Automatic network time disabled");
+    collectDateTime();
+    emit dateTimeChanged();
+    emit dataChanged();
+    return true;
 }
 
 bool SystemSettings::openHardwareDiagnostics()
@@ -307,6 +401,28 @@ void SystemSettings::collectDisplay()
                           QString::number(screen->devicePixelRatio(), 'f', 2),
                           QStringLiteral("Read-only in v0.1")));
     }
+    const QString sysfsRoot = qEnvironmentVariable("MOKO_SYSFS_ROOT", QStringLiteral("/sys"));
+    const QDir drm(QDir(sysfsRoot).filePath(QStringLiteral("class/drm")));
+    for (const QString &connector : drm.entryList(QStringList() << QStringLiteral("card*-*"),
+                                                   QDir::Dirs | QDir::NoDotAndDotDot)) {
+        const QString status = readTextFile(drm.filePath(connector + QStringLiteral("/status")));
+        if (status.compare(QStringLiteral("connected"), Qt::CaseInsensitive) != 0)
+            continue;
+        QFile modesFile(drm.filePath(connector + QStringLiteral("/modes")));
+        if (!modesFile.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+        QStringList modes;
+        while (!modesFile.atEnd()) {
+            const QString mode = QString::fromUtf8(modesFile.readLine()).trimmed();
+            if (!mode.isEmpty() && !modes.contains(mode))
+                modes.append(mode);
+        }
+        if (!modes.isEmpty())
+            result.append(row(QStringLiteral("Available modes (%1)").arg(connector),
+                              modes.join(QStringLiteral(", ")),
+                              QStringLiteral("DRM modes exposed by the connected display"),
+                              true, false));
+    }
     result.append(row(QStringLiteral("Display backend"), QGuiApplication::platformName(),
                       QStringLiteral("Qt platform plugin"), true, false, true));
     m_rows.insert(QStringLiteral("display"), result);
@@ -321,6 +437,48 @@ void SystemSettings::collectAppearance()
                        QStringLiteral("MOKO design token #3F7CFF; read-only")),
                    row(QStringLiteral("Interface style"), QStringLiteral("Bright glass / ice"),
                        QStringLiteral("Current shell design language"))});
+}
+
+void SystemSettings::collectDateTime()
+{
+    const QString configured = sharedSettings().value(
+        QStringLiteral("dateTime/timeZone")).toString();
+    const QByteArray systemId = QTimeZone::systemTimeZoneId();
+    const QByteArray selectedId = QTimeZone::isTimeZoneIdAvailable(configured.toUtf8())
+        ? configured.toUtf8() : systemId;
+    const QTimeZone zone(selectedId);
+    const QDateTime now = QDateTime::currentDateTimeUtc().toTimeZone(zone);
+    const QLocale locale = QLocale::system();
+    const QString time = m_twentyFourHour
+        ? now.toString(QStringLiteral("HH:mm:ss"))
+        : locale.toString(now.time(), QLocale::LongFormat);
+    m_timeZoneId = selectedId.isEmpty() ? QStringLiteral("UTC")
+                                        : QString::fromUtf8(selectedId);
+    m_localDateTime = QStringLiteral("%1, %2")
+                          .arg(locale.toString(now.date(), QLocale::LongFormat), time);
+
+    QDBusInterface timedate(QStringLiteral("org.freedesktop.timedate1"),
+                            QStringLiteral("/org/freedesktop/timedate1"),
+                            QStringLiteral("org.freedesktop.timedate1"),
+                            QDBusConnection::systemBus());
+    m_automaticTimeAvailable = timedate.isValid() && timedate.property("CanNTP").toBool();
+    m_automaticTime = timedate.isValid() && timedate.property("NTP").toBool();
+    m_rows.insert(QStringLiteral("date-time"),
+                  {row(QStringLiteral("Local date and time"), m_localDateTime),
+                   row(QStringLiteral("Time zone"), m_timeZoneId,
+                       configured.isEmpty() ? QStringLiteral("System time zone")
+                                            : QStringLiteral("Selected for this Live session"),
+                       true, true),
+                   row(QStringLiteral("Automatic network time"),
+                       m_automaticTime ? QStringLiteral("On")
+                                       : m_automaticTimeAvailable ? QStringLiteral("Off")
+                                                                  : QStringLiteral("Unavailable"),
+                       QStringLiteral("systemd-timedated over the system D-Bus"),
+                       m_automaticTimeAvailable, m_automaticTimeAvailable),
+                   row(QStringLiteral("Clock format"),
+                       m_twentyFourHour ? QStringLiteral("24-hour")
+                                           : QStringLiteral("12-hour"),
+                       {}, true, true)});
 }
 
 void SystemSettings::collectSound()

@@ -237,10 +237,69 @@ ApplicationWindow {
                     }
                 }
 
+                Rectangle {
+                    visible: window.selectedSection === "date-time"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 250
+                    radius: 8
+                    color: "#F7FAFD"
+                    border.color: "#DCE7EF"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: mokoSettings.localDateTime
+                            color: "#16263B"
+                            font.pixelSize: 18
+                            font.weight: Font.DemiBold
+                            wrapMode: Text.Wrap
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "Time zone"; color: "#40536A"; font.pixelSize: 12 }
+                            Item { Layout.fillWidth: true }
+                            ComboBox {
+                                id: timeZoneCombo
+                                Layout.preferredWidth: Math.min(340, parent.width * .58)
+                                model: mokoSettings.timeZoneChoices
+                                currentIndex: Math.max(0, mokoSettings.timeZoneChoices.indexOf(mokoSettings.timeZoneId))
+                                onActivated: mokoSettings.setTimeZone(currentText)
+                            }
+                        }
+                        Button {
+                            Layout.alignment: Qt.AlignRight
+                            text: "Use Vietnam time"
+                            onClicked: mokoSettings.setTimeZone("Asia/Ho_Chi_Minh")
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: "Set time automatically"; color: "#40536A"; font.pixelSize: 12 }
+                            Switch {
+                                checked: mokoSettings.automaticTime
+                                enabled: mokoSettings.automaticTimeAvailable
+                                onToggled: mokoSettings.setAutomaticTime(checked)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: "24-hour clock"; color: "#40536A"; font.pixelSize: 12 }
+                            Switch {
+                                checked: mokoSettings.twentyFourHour
+                                onToggled: mokoSettings.twentyFourHour = checked
+                            }
+                        }
+                    }
+                }
+
                 ListView {
                     id: settingRows
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    visible: window.selectedSection !== "date-time"
                     model: window.currentRows
                     spacing: 8
                     clip: true

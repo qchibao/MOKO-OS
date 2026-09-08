@@ -103,14 +103,16 @@ ApplicationWindow {
     }
 
     function updateClock() {
-        const d = new Date()
-        clockText = Qt.formatTime(d, Qt.locale().timeFormat(Locale.ShortFormat))
-        dateText = Qt.formatDate(d, Qt.locale().dateFormat(Locale.LongFormat))
-                   + "\n" + d.toString()
+        clockText = mokoSystemControl.clockText
+        dateText = mokoSystemControl.dateText
     }
 
     Component.onCompleted: updateClock()
     Timer { interval: 1000; repeat: true; running: true; onTriggered: window.updateClock() }
+    Connections {
+        target: mokoSystemControl
+        function onTimeChanged() { window.updateClock() }
+    }
 
     Image {
         anchors.fill: parent
