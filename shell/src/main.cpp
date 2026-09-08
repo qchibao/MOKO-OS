@@ -60,6 +60,7 @@ int main(int argc, char *argv[])
     parser.addOption({"control-center", "Open Control Center for validation."});
     parser.addOption({"control-center-page", "Open a Control Center page (0-4).", "page", "0"});
     parser.addOption({"notification-center", "Open Notification Center for validation."});
+    parser.addOption({"shutdown-preview", "Render the shutdown blackout for validation."});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
     parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
@@ -81,6 +82,10 @@ int main(int argc, char *argv[])
     ScreenshotController screenshotController;
     SystemControl systemControl;
     WindowManager windowManager;
+    SessionLifecycle::Options sessionOptions;
+    // Preview mode drives the lifecycle locally; an unrelated system-bus
+    // PrepareForShutdown(false) must not cancel the rendered blackout.
+    sessionOptions.observeLogind = !parser.isSet("shutdown-preview");
     SessionLifecycle sessionLifecycle({
         .refreshSystem = [&systemControl] { systemControl.refresh(); },
         .refreshAi = [&aiController] { aiController.refreshConnection(); },
@@ -107,11 +112,39 @@ int main(int argc, char *argv[])
                 .powerModeAvailable = systemControl.powerModeAvailable(),
             };
         },
-    });
+    }, sessionOptions);
     QObject::connect(&windowManager,
                      &WindowManager::brightnessStepRequested,
                      &systemControl,
                      &SystemControl::adjustBrightness);
+    QObject::connect(&sessionLifecycle,
+                     &SessionLifecycle::shutdownBlackoutPrepared,
+                     &windowManager,
+                     [&windowManager, &sessionLifecycle] {
+                         const bool compositorRequestSent = windowManager.prepareShutdown();
+                         // The protocol ACK is preferred, but a physical or
+                         // emulated backend can drop the presentation event
+                         // while logind is already waiting. The Shell has an
+                         // opaque black overlay of its own, so use a bounded
+                         // fallback to keep shutdown deterministic without
+                         // releasing the inhibitor before the fade completes.
+                         const int fallbackDelayMs = compositorRequestSent ? 2000 : 750;
+                         QTimer::singleShot(fallbackDelayMs, &sessionLifecycle, [&sessionLifecycle] {
+                             if (sessionLifecycle.shuttingDown())
+                                 sessionLifecycle.notifyShutdownBlackoutPresented();
+                         });
+                     });
+    QObject::connect(&sessionLifecycle,
+                     &SessionLifecycle::shuttingDownChanged,
+                     &app,
+                     [&sessionLifecycle] {
+                         if (sessionLifecycle.shuttingDown())
+                             sessionLifecycle.notifyShutdownBlackoutPrepared();
+                     });
+    QObject::connect(&windowManager,
+                     &WindowManager::shutdownBlackoutPresented,
+                     &sessionLifecycle,
+                     &SessionLifecycle::notifyShutdownBlackoutPresented);
 
     QDBusConnection sessionBus = QDBusConnection::sessionBus();
     if (sessionBus.isConnected()) {
@@ -154,6 +187,8 @@ int main(int argc, char *argv[])
                                              &systemControl);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoWindowManager"),
                                              &windowManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoSessionLifecycle"),
+                                             &sessionLifecycle);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         if (!warnings.isEmpty()) {
             qmlWarningsFound = true;
@@ -175,6 +210,7 @@ int main(int argc, char *argv[])
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window)
         return 1;
+
     if (parser.isSet("control-center")) {
         window->setProperty("activeSystemPanel", QStringLiteral("control-center"));
         window->setProperty("launcherVisible", false);
@@ -199,6 +235,11 @@ int main(int argc, char *argv[])
         window->setProperty("aiVisible", false);
         window->setProperty("controlCenterVisible", false);
         window->setProperty("notificationCenterVisible", true);
+    }
+    if (parser.isSet("shutdown-preview")) {
+        QTimer::singleShot(100, &sessionLifecycle, [&sessionLifecycle] {
+            sessionLifecycle.handlePrepareForShutdown(true);
+        });
     }
 
     // BOOTSTRAP: Cage does not raise independent top-levels above the fullscreen shell.

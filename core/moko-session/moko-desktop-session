@@ -10,6 +10,27 @@ case " $cmdline " in
 esac
 export MOKO_BOOT_MODE
 
+blank_consumer_vt() {
+  [ "$MOKO_BOOT_MODE" != hardware-diagnostics ] || return 0
+  consumer_tty=${MOKO_CONSUMER_TTY:-/dev/tty}
+  [ -w "$consumer_tty" ] || return 0
+  printf '\033[40m\033[2J\033[H\033[?25l' >>"$consumer_tty" 2>/dev/null || true
+}
+
+# Keep the consumer VT empty behind the compositor so teardown cannot reveal
+# startup diagnostics. The explicit hardware-diagnostics profile stays verbose.
+if [ "$MOKO_BOOT_MODE" != hardware-diagnostics ] \
+    && [ "${MOKO_SESSION_OUTPUT_ROUTED:-0}" != 1 ]; then
+  blank_consumer_vt
+  export MOKO_SESSION_OUTPUT_ROUTED=1
+  if command -v systemd-cat >/dev/null 2>&1 \
+      && [ -S /run/systemd/journal/stdout ]; then
+    exec systemd-cat --identifier=moko-session "$0" "$@"
+  fi
+  session_log="${XDG_RUNTIME_DIR:-/tmp}/moko-session.log"
+  exec "$0" "$@" >"$session_log" 2>&1
+fi
+
 requested_compositor=${MOKO_COMPOSITOR:-moko}
 case "$requested_compositor" in
   moko|cage) ;;
@@ -32,6 +53,7 @@ export MOKO_COMPOSITOR=moko
 wayland_display=${MOKO_WAYLAND_DISPLAY:-wayland-moko-0}
 compositor_bin=${MOKO_COMPOSITOR_BIN:-/usr/local/bin/moko-compositor}
 session_bin=${MOKO_SESSION_BIN:-/usr/local/bin/moko-session}
+compositor_ready_file="${XDG_RUNTIME_DIR:?}/moko-compositor.ready"
 if [ -d /run/live ]; then
   export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:?}/moko-launch-events"
   mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"
@@ -44,6 +66,9 @@ cleanup() {
     kill "$compositor_pid" 2>/dev/null || true
     wait "$compositor_pid" 2>/dev/null || true
   fi
+  # Redraw the backing VT after DRM teardown so the previous desktop buffer
+  # cannot flash between compositor exit and Plymouth's poweroff takeover.
+  blank_consumer_vt
 }
 trap cleanup EXIT INT TERM
 
@@ -52,21 +77,31 @@ trap cleanup EXIT INT TERM
 start_attempt=0
 while [ "$start_attempt" -lt 3 ]; do
   start_attempt=$((start_attempt + 1))
+  rm -f "${XDG_RUNTIME_DIR:?}/$wayland_display" "$compositor_ready_file"
   (
     unset WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY
+    export MOKO_COMPOSITOR_READY_FILE="$compositor_ready_file"
     exec "$compositor_bin" --socket "$wayland_display"
   ) &
   compositor_pid=$!
 
-  socket_attempt=0
-  while [ ! -S "${XDG_RUNTIME_DIR:?}/$wayland_display" ]; do
+  ready_attempt=0
+  while :; do
     if ! kill -0 "$compositor_pid" 2>/dev/null; then
       wait "$compositor_pid" 2>/dev/null || true
       compositor_pid=
       break
     fi
-    socket_attempt=$((socket_attempt + 1))
-    if [ "$socket_attempt" -ge 100 ]; then
+
+    ready_pid=$(cat "$compositor_ready_file" 2>/dev/null || true)
+    if [ "$ready_pid" = "$compositor_pid" ] \
+        && [ -S "${XDG_RUNTIME_DIR:?}/$wayland_display" ]; then
+      compositor_ready=1
+      break
+    fi
+
+    ready_attempt=$((ready_attempt + 1))
+    if [ "$ready_attempt" -ge 300 ]; then
       kill "$compositor_pid" 2>/dev/null || true
       wait "$compositor_pid" 2>/dev/null || true
       compositor_pid=
@@ -75,13 +110,10 @@ while [ "$start_attempt" -lt 3 ]; do
     sleep 0.05
   done
 
-  if [ -n "$compositor_pid" ] \
-      && kill -0 "$compositor_pid" 2>/dev/null \
-      && [ -S "${XDG_RUNTIME_DIR:?}/$wayland_display" ]; then
-    compositor_ready=1
+  if [ "$compositor_ready" -eq 1 ]; then
     break
   fi
-  rm -f "${XDG_RUNTIME_DIR:?}/$wayland_display"
+  rm -f "${XDG_RUNTIME_DIR:?}/$wayland_display" "$compositor_ready_file"
   sleep 1
 done
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941">
+  <defs>
+    <radialGradient id="dim">
+      <stop offset="0" stop-color="#000000" stop-opacity="0.58"/>
+      <stop offset="0.42" stop-color="#000000" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="1004" cy="251" rx="210" ry="164" fill="url(#dim)"/>
+</svg>

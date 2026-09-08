@@ -16,4 +16,5 @@ systemctl enable greetd.service || true
 systemctl enable moko-live-disk-safety.service || true
 systemctl enable moko-live-health.service || true
 systemctl enable moko-live-launch-monitor.service || true
+systemctl enable moko-shutdown-blackout-guard.service || true
 systemctl set-default graphical.target || true

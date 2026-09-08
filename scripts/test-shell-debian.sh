@@ -16,6 +16,7 @@ docker run --rm --platform linux/amd64 \
   "$IMAGE" \
   bash -lc '
     set -euo pipefail
+    bash tests/test-boot-presentation.sh
     bash tests/test-live-disk-safety.sh
 
     cmake -S compositor/moko-compositor -B /tmp/moko-compositor-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -59,6 +60,17 @@ docker run --rm --platform linux/amd64 \
       /tmp/moko-shell-build/moko-shell --smoke-test --windowed --size 1280x720 \
       --screenshot /tmp/moko-shell-1280x720.png
     test -s /tmp/moko-shell-1280x720.png
+
+    WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
+      /tmp/moko-shell-build/moko-shell --smoke-test --windowed --shutdown-preview \
+      --size 1280x720 --screenshot /tmp/moko-shell-shutdown.png
+    python3 - <<'PY'
+from PIL import Image
+
+image = Image.open("/tmp/moko-shell-shutdown.png").convert("RGB")
+if any(max(pixel) > 8 for pixel in image.getdata()):
+    raise SystemExit("MOKO shutdown render is not fully black")
+PY
 
     WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
       /tmp/moko-shell-build/moko-shell --smoke-test --windowed --control-center \

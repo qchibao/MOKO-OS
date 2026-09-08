@@ -6,6 +6,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ovmf \
         qemu-system-x86 \
+        python3-minimal \
+        python3-pil \
         squashfs-tools \
         socat \
         xorriso \

@@ -76,6 +76,7 @@
 #define MOKO_DEFAULT_OUTPUT_SCALE 100
 #define MOKO_MIN_LOGICAL_WIDTH 1280
 #define MOKO_MIN_LOGICAL_HEIGHT 720
+#define MOKO_SHUTDOWN_FADE_MS 420.0
 
 enum moko_cursor_mode {
     MOKO_CURSOR_PASSTHROUGH,
@@ -96,8 +97,12 @@ struct moko_output {
     struct moko_server *server;
     struct wlr_output *wlr_output;
     struct wl_listener frame;
+    struct wl_listener present;
     struct wl_listener request_state;
     struct wl_listener destroy;
+    uint32_t shutdown_black_commit_seq;
+    bool shutdown_black_frame_submitted;
+    bool shutdown_black_frame_presented;
 };
 
 struct moko_toplevel {
@@ -166,6 +171,8 @@ struct moko_server {
     struct wlr_scene *scene;
     struct wlr_scene_tree *background_tree;
     struct wlr_scene_tree *window_tree;
+    struct wlr_scene_tree *shutdown_tree;
+    struct wlr_scene_rect *shutdown_rect;
     struct wlr_scene_output_layout *scene_layout;
     struct wlr_xdg_output_manager_v1 *xdg_output_manager;
 
@@ -226,12 +233,93 @@ struct moko_server {
     struct wlr_output_layout *output_layout;
     struct wl_list outputs;
     struct wl_listener new_output;
+
+    struct wl_event_source *shutdown_timer;
+    struct timespec shutdown_started_at;
+    float shutdown_alpha;
+    bool shutdown_active;
+    bool shutdown_presented;
 };
 
 static void set_shell_overlay(struct moko_server *server, bool visible);
 static void broadcast_desktop_config(struct moko_server *server);
 static void focus_fallback(struct moko_server *server, struct moko_toplevel *exclude);
 static bool apply_output_scale(struct moko_server *server, uint32_t scale_percent);
+static void update_shutdown_overlay_geometry(struct moko_server *server);
+static void announce_shutdown_blackout(struct moko_server *server);
+static void report_event(const char *format, ...);
+
+static bool all_outputs_have_black_frame(const struct moko_server *server)
+{
+    if (wl_list_empty(&server->outputs))
+        return false;
+
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        /* A committed opaque buffer is the earliest reliable point at which
+         * the compositor can acknowledge the blackout. Some DRM backends do
+         * not emit a present event before logind's delay window expires. */
+        if (!output->shutdown_black_frame_submitted)
+            return false;
+    }
+    return true;
+}
+
+static void schedule_all_output_frames(struct moko_server *server)
+{
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link)
+        wlr_output_schedule_frame(output->wlr_output);
+}
+
+static double elapsed_milliseconds(const struct timespec *start,
+                                   const struct timespec *end)
+{
+    return (end->tv_sec - start->tv_sec) * 1000.0
+        + (end->tv_nsec - start->tv_nsec) / 1000000.0;
+}
+
+static int advance_shutdown_fade(void *data)
+{
+    struct moko_server *server = data;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double progress = elapsed_milliseconds(&server->shutdown_started_at, &now)
+        / MOKO_SHUTDOWN_FADE_MS;
+    if (progress > 1.0)
+        progress = 1.0;
+    const double eased = progress * progress * (3.0 - 2.0 * progress);
+    const float color[4] = {0.0f, 0.0f, 0.0f, (float)eased};
+    server->shutdown_alpha = color[3];
+    wlr_scene_rect_set_color(server->shutdown_rect, color);
+    schedule_all_output_frames(server);
+
+    if (progress < 1.0)
+        wl_event_source_timer_update(server->shutdown_timer, 16);
+    return 0;
+}
+
+static void start_shutdown_fade(struct moko_server *server)
+{
+    if (server->shutdown_active)
+        return;
+
+    server->shutdown_active = true;
+    server->shutdown_presented = false;
+    server->shutdown_alpha = 0.0f;
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        output->shutdown_black_frame_submitted = false;
+        output->shutdown_black_frame_presented = false;
+    }
+    update_shutdown_overlay_geometry(server);
+    wlr_scene_node_set_enabled(&server->shutdown_tree->node, true);
+    wlr_scene_node_raise_to_top(&server->shutdown_tree->node);
+    wlr_cursor_unset_image(server->cursor);
+    clock_gettime(CLOCK_MONOTONIC, &server->shutdown_started_at);
+    report_event("MOKO_COMPOSITOR_SHUTDOWN state=fading");
+    wl_event_source_timer_update(server->shutdown_timer, 1);
+}
 
 static const struct moko_work_area_config work_area_config = {
     .top_reserved = MOKO_TOP_RESERVED,
@@ -259,6 +347,19 @@ static void report_event(const char *format, ...)
     if (file == NULL)
         return;
     fprintf(file, "%s\n", message);
+    fclose(file);
+}
+
+static void report_compositor_ready(void)
+{
+    const char *path = getenv("MOKO_COMPOSITOR_READY_FILE");
+    if (path == NULL || path[0] == '\0')
+        return;
+
+    FILE *file = fopen(path, "w");
+    if (file == NULL)
+        return;
+    fprintf(file, "%ld\n", (long)getpid());
     fclose(file);
 }
 
@@ -1588,16 +1689,76 @@ static void request_set_selection(struct wl_listener *listener, void *data)
     wlr_seat_set_selection(server->seat, event->source, event->serial);
 }
 
+static void update_shutdown_overlay_geometry(struct moko_server *server)
+{
+    struct wlr_box box;
+    wlr_output_layout_get_box(server->output_layout, NULL, &box);
+    if (box.width <= 0 || box.height <= 0)
+        return;
+    wlr_scene_node_set_position(&server->shutdown_rect->node, box.x, box.y);
+    wlr_scene_rect_set_size(server->shutdown_rect, box.width, box.height);
+}
+
+static void announce_shutdown_blackout(struct moko_server *server)
+{
+    if (server->shutdown_presented || !all_outputs_have_black_frame(server))
+        return;
+    server->shutdown_presented = true;
+    report_event("MOKO_COMPOSITOR_SHUTDOWN state=blackout");
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources) {
+        if (wl_resource_get_version(resource) >= 4)
+            moko_window_manager_v1_send_shutdown_blackout_presented(resource);
+    }
+    wl_display_flush_clients(server->display);
+}
+
 static void output_frame(struct wl_listener *listener, void *data)
 {
     (void)data;
     struct moko_output *output = wl_container_of(listener, output, frame);
     struct wlr_scene_output *scene_output = wlr_scene_get_scene_output(
         output->server->scene, output->wlr_output);
-    wlr_scene_output_commit(scene_output, NULL);
+    const uint32_t previous_commit_seq = output->wlr_output->commit_seq;
+    const bool committed = wlr_scene_output_commit(scene_output, NULL);
+    if (output->server->shutdown_active
+        && output->server->shutdown_alpha >= 1.0f
+        && !output->shutdown_black_frame_submitted
+        && !output->shutdown_black_frame_presented) {
+        /* wlr_scene_output_commit() also returns true for a no-op. Only an
+         * advancing sequence proves that this opaque-black buffer was sent. */
+        if (committed && output->wlr_output->commit_seq != previous_commit_seq) {
+            output->shutdown_black_commit_seq = output->wlr_output->commit_seq;
+            output->shutdown_black_frame_submitted = true;
+            announce_shutdown_blackout(output->server);
+        } else {
+            wlr_output_schedule_frame(output->wlr_output);
+        }
+    }
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
+}
+
+static void output_present(struct wl_listener *listener, void *data)
+{
+    struct moko_output *output = wl_container_of(listener, output, present);
+    const struct wlr_output_event_present *event = data;
+    if (!output->server->shutdown_active
+        || !output->shutdown_black_frame_submitted
+        || output->shutdown_black_frame_presented
+        || (int32_t)(event->commit_seq - output->shutdown_black_commit_seq) < 0) {
+        return;
+    }
+
+    if (!event->presented) {
+        output->shutdown_black_frame_submitted = false;
+        wlr_output_schedule_frame(output->wlr_output);
+        return;
+    }
+
+    output->shutdown_black_frame_presented = true;
+    announce_shutdown_blackout(output->server);
 }
 
 static void output_request_state(struct wl_listener *listener, void *data)
@@ -1689,9 +1850,12 @@ static void output_destroy(struct wl_listener *listener, void *data)
     (void)data;
     struct moko_output *output = wl_container_of(listener, output, destroy);
     wl_list_remove(&output->frame.link);
+    wl_list_remove(&output->present.link);
     wl_list_remove(&output->request_state.link);
     wl_list_remove(&output->destroy.link);
     wl_list_remove(&output->link);
+    update_shutdown_overlay_geometry(output->server);
+    announce_shutdown_blackout(output->server);
     broadcast_desktop_config(output->server);
     free(output);
 }
@@ -1726,6 +1890,8 @@ static void new_output(struct wl_listener *listener, void *data)
     output->wlr_output = wlr_output;
     output->frame.notify = output_frame;
     wl_signal_add(&wlr_output->events.frame, &output->frame);
+    output->present.notify = output_present;
+    wl_signal_add(&wlr_output->events.present, &output->present);
     output->request_state.notify = output_request_state;
     wl_signal_add(&wlr_output->events.request_state, &output->request_state);
     output->destroy.notify = output_destroy;
@@ -1736,6 +1902,7 @@ static void new_output(struct wl_listener *listener, void *data)
         server->output_layout, wlr_output);
     struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
     wlr_scene_output_layout_add_output(server->scene_layout, layout_output, scene_output);
+    update_shutdown_overlay_geometry(server);
     if (reset_unsafe_scale)
         apply_output_scale(server, 100);
     else {
@@ -2211,6 +2378,14 @@ static void manager_set_shell_overlay(struct wl_client *client,
     set_shell_overlay(server, visible != 0);
 }
 
+static void manager_prepare_shutdown(struct wl_client *client,
+                                     struct wl_resource *resource)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    start_shutdown_fade(server);
+}
+
 static const struct moko_window_manager_v1_interface window_manager_implementation = {
     .destroy = manager_destroy,
     .activate = manager_activate,
@@ -2224,6 +2399,7 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .set_output_scale = manager_set_output_scale,
     .set_keyboard_layout = manager_set_keyboard_layout,
     .set_shell_overlay = manager_set_shell_overlay,
+    .prepare_shutdown = manager_prepare_shutdown,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
@@ -2360,7 +2536,19 @@ int main(int argc, char **argv)
     server.scene = wlr_scene_create();
     server.background_tree = wlr_scene_tree_create(&server.scene->tree);
     server.window_tree = wlr_scene_tree_create(&server.scene->tree);
+    server.shutdown_tree = wlr_scene_tree_create(&server.scene->tree);
+    const float shutdown_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    server.shutdown_rect = wlr_scene_rect_create(server.shutdown_tree,
+                                                 1,
+                                                 1,
+                                                 shutdown_color);
+    wlr_scene_node_set_enabled(&server.shutdown_tree->node, false);
     server.scene_layout = wlr_scene_attach_output_layout(server.scene, server.output_layout);
+    server.shutdown_timer = wl_event_loop_add_timer(event_loop, advance_shutdown_fade, &server);
+    if (server.shutdown_timer == NULL) {
+        wlr_log(WLR_ERROR, "Failed to create shutdown fade timer");
+        return 1;
+    }
 
     server.xdg_shell = wlr_xdg_shell_create(server.display, 6);
     server.new_xdg_toplevel.notify = new_xdg_toplevel;
@@ -2375,7 +2563,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    3,
+                                                    4,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {
@@ -2444,6 +2632,7 @@ int main(int argc, char **argv)
     }
 
     setenv("WAYLAND_DISPLAY", socket_name, true);
+    report_compositor_ready();
     report_event("MOKO_COMPOSITOR_READY socket=%s pid=%ld", socket_name, (long)getpid());
     wl_display_run(server.display);
 

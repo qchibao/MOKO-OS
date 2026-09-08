@@ -8,6 +8,7 @@ mock_compositor=$4
 runtime=$(mktemp -d)
 events=$runtime/events.log
 compositor_state=$runtime/compositor-attempts
+consumer_tty=$runtime/consumer-tty
 socket=wayland-moko-0
 
 cleanup() {
@@ -36,10 +37,13 @@ export MOKO_DESKTOP_SESSION_TEST_EVENTS=$events
 export MOKO_COMPOSITOR_EVENTS=$events
 export MOKO_MOCK_COMPOSITOR_STATE=$compositor_state
 export MOKO_REAL_COMPOSITOR=$compositor
-export MOKO_FAIL_FIRST_START=1
+export MOKO_FAIL_FIRST_AFTER_SOCKET=1
+export MOKO_CONSUMER_TTY=$consumer_tty
+: > "$consumer_tty"
 
 "$desktop_session"
 
 [ "$(cat "$compositor_state")" = 2 ]
 grep -q "^MOKO_COMPOSITOR_READY socket=$socket " "$events"
 grep -q "^MOKO_DESKTOP_SESSION_TEST state=connected socket=$socket$" "$events"
+[ "$(LC_ALL=C grep -ao "$(printf '\033\[2J')" "$consumer_tty" | wc -l)" -eq 2 ]

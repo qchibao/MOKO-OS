@@ -1,5 +1,7 @@
 live-config
 systemd-sysv
+plymouth
+plymouth-themes
 dbus
 sudo
 network-manager

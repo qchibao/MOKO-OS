@@ -10,6 +10,7 @@
 #include <QtMath>
 
 #include <cerrno>
+#include <poll.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -40,7 +41,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 3U);
+        native->owner->m_protocolVersion = qMin(version, 4U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -130,6 +131,12 @@ struct WindowManagerCallbacks
         }
         emit native->owner->globalActionRequested(name);
     }
+
+    static void managerShutdownBlackoutPresented(void *data, moko_window_manager_v1 *)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->handleShutdownBlackoutPresented();
+    }
 };
 
 namespace {
@@ -147,9 +154,13 @@ const moko_window_manager_v1_listener managerListener = {
     .input_config = WindowManagerCallbacks::managerInputConfig,
     .desktop_config = WindowManagerCallbacks::managerDesktopConfig,
     .global_action = WindowManagerCallbacks::managerGlobalAction,
+    .shutdown_blackout_presented = WindowManagerCallbacks::managerShutdownBlackoutPresented,
 };
 
-void writeLiveInputEvent(const QString &message)
+constexpr int shutdownEventPumpIntervalMs = 20;
+constexpr int shutdownEventPumpAttemptLimit = 200;
+
+void writeLiveEvent(const QString &message)
 {
     const QString path = qEnvironmentVariable("MOKO_LIVE_LAUNCH_EVENTS");
     if (path.isEmpty())
@@ -201,6 +212,11 @@ bool WindowManager::connectWayland()
     }
 
     m_connected = true;
+    writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER state=connected protocol=%1 manager=%2 fd=%3 uid=%4")
+                       .arg(m_protocolVersion)
+                       .arg(m_native->manager != nullptr ? 1 : 0)
+                       .arg(wl_display_get_fd(m_native->display))
+                       .arg(static_cast<qulonglong>(geteuid())));
     m_notifier = new QSocketNotifier(wl_display_get_fd(m_native->display),
                                      QSocketNotifier::Read,
                                      this);
@@ -462,6 +478,43 @@ bool WindowManager::setShellOverlay(bool visible)
     return flushRequest();
 }
 
+bool WindowManager::prepareShutdown()
+{
+    writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER action=prepare-shutdown state=requested protocol=%1 connected=%2 manager=%3 uid=%4")
+                       .arg(m_protocolVersion)
+                       .arg(m_connected ? 1 : 0)
+                       .arg(m_native->manager != nullptr ? 1 : 0)
+                       .arg(static_cast<qulonglong>(geteuid())));
+    if (m_protocolVersion < 4 || m_native->manager == nullptr) {
+        writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER action=prepare-shutdown state=unavailable protocol=%1 connected=%2 manager=%3 uid=%4")
+                           .arg(m_protocolVersion)
+                           .arg(m_connected ? 1 : 0)
+                           .arg(m_native->manager != nullptr ? 1 : 0)
+                           .arg(static_cast<qulonglong>(geteuid())));
+        return false;
+    }
+
+    const quint64 generation = ++m_shutdownRequestGeneration;
+    m_shutdownEventPumpAttempts = 0;
+    m_shutdownBlackoutPending = true;
+    moko_window_manager_v1_prepare_shutdown(m_native->manager);
+    const bool flushed = flushRequest();
+    writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER action=prepare-shutdown state=sent flushed=%1 generation=%2 uid=%3")
+                       .arg(flushed ? 1 : 0)
+                       .arg(static_cast<qulonglong>(generation))
+                       .arg(static_cast<qulonglong>(geteuid())));
+    if (!flushed) {
+        m_shutdownBlackoutPending = false;
+        return false;
+    }
+
+    // The custom protocol uses a separate Wayland connection from Qt's QPA.
+    // Dispatch it explicitly during logind's bounded shutdown window so the
+    // blackout acknowledgement does not depend on notifier scheduling.
+    pumpShutdownEvents(generation);
+    return true;
+}
+
 bool WindowManager::refreshConnection()
 {
     disconnectWayland();
@@ -470,7 +523,7 @@ bool WindowManager::refreshConnection()
 
 void WindowManager::reportInputPanelOpened() const
 {
-    writeLiveInputEvent(QStringLiteral(
+    writeLiveEvent(QStringLiteral(
                             "MOKO_INPUT_PANEL state=open protocol=%1 touchpads=%2 capabilities=%3 "
                             "input_state=%4 acceleration=%5 uid=%6")
                             .arg(inputProtocolAvailable() ? 1 : 0)
@@ -622,6 +675,69 @@ void WindowManager::updateDesktopConfig(quint32 outputScale,
     m_outputScaleCapabilities = capabilities;
     m_keyboardLayout = layout;
     emit desktopChanged();
+}
+
+void WindowManager::handleShutdownBlackoutPresented()
+{
+    writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER action=shutdown-ack state=received pending=%1 uid=%2")
+                       .arg(m_shutdownBlackoutPending ? 1 : 0)
+                       .arg(static_cast<qulonglong>(geteuid())));
+    if (!m_shutdownBlackoutPending)
+        return;
+    m_shutdownBlackoutPending = false;
+    emit shutdownBlackoutPresented();
+}
+
+void WindowManager::pumpShutdownEvents(quint64 generation)
+{
+    while (m_shutdownBlackoutPending
+           && generation == m_shutdownRequestGeneration
+           && m_native->display != nullptr
+           && m_shutdownEventPumpAttempts < shutdownEventPumpAttemptLimit) {
+        if (wl_display_dispatch_pending(m_native->display) < 0) {
+            disconnectWayland();
+            return;
+        }
+        if (!m_shutdownBlackoutPending)
+            return;
+
+        if (wl_display_flush(m_native->display) < 0 && errno != EAGAIN) {
+            disconnectWayland();
+            return;
+        }
+
+        pollfd descriptor = {
+            .fd = wl_display_get_fd(m_native->display),
+            .events = POLLIN,
+            .revents = 0,
+        };
+        const int ready = ::poll(&descriptor, 1, shutdownEventPumpIntervalMs);
+        ++m_shutdownEventPumpAttempts;
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue;
+            disconnectWayland();
+            return;
+        }
+        if (ready == 0)
+            continue;
+        if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            disconnectWayland();
+            return;
+        }
+        if ((descriptor.revents & POLLIN) != 0
+            && wl_display_dispatch(m_native->display) < 0) {
+            disconnectWayland();
+            return;
+        }
+    }
+
+    if (m_shutdownBlackoutPending) {
+        writeLiveEvent(QStringLiteral("MOKO_WINDOW_MANAGER action=shutdown-ack state=timeout attempts=%1 uid=%2")
+                           .arg(m_shutdownEventPumpAttempts)
+                           .arg(static_cast<qulonglong>(geteuid())));
+        m_shutdownBlackoutPending = false;
+    }
 }
 
 bool WindowManager::flushRequest()

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+theme_source=/opt/moko-src/assets/boot
+theme_directory=/usr/share/plymouth/themes/moko
+
+install -d -m 0755 "$theme_directory"
+for file in moko.plymouth moko.script moko-boot.png moko-highlight-dim.png moko-highlight-bright.png; do
+  install -m 0644 "$theme_source/$file" "$theme_directory/$file"
+done
+
+plymouth-set-default-theme -R moko

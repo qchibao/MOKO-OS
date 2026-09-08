@@ -58,6 +58,7 @@ struct test_state {
     uint32_t output_scale;
     uint32_t output_scale_capabilities;
     uint32_t keyboard_layout;
+    bool shutdown_blackout_presented;
 };
 
 static int create_anonymous_file(size_t size)
@@ -263,6 +264,14 @@ static void manager_global_action(void *data,
     (void)action;
 }
 
+static void manager_shutdown_blackout_presented(void *data,
+                                                struct moko_window_manager_v1 *manager)
+{
+    (void)manager;
+    struct test_state *state = data;
+    state->shutdown_blackout_presented = true;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
@@ -271,6 +280,7 @@ static const struct moko_window_manager_v1_listener manager_listener = {
     .input_config = manager_input_config,
     .desktop_config = manager_desktop_config,
     .global_action = manager_global_action,
+    .shutdown_blackout_presented = manager_shutdown_blackout_presented,
 };
 
 static void registry_global(void *data,
@@ -292,7 +302,7 @@ static void registry_global(void *data,
     } else if (strcmp(interface, moko_window_manager_v1_interface.name) == 0) {
         state->window_manager = wl_registry_bind(registry, name,
                                                  &moko_window_manager_v1_interface,
-                                                 version < 3 ? version : 3);
+                                                 version < 4 ? version : 4);
         moko_window_manager_v1_add_listener(state->window_manager, &manager_listener, state);
     }
 }
@@ -370,6 +380,19 @@ static bool dispatch_roundtrips(struct test_state *state, unsigned int count)
             return false;
     }
     return true;
+}
+
+static void hold_shutdown_frame_for_capture(void)
+{
+    const char *value = getenv("MOKO_SHUTDOWN_TEST_HOLD_MS");
+    if (value == NULL || value[0] == '\0')
+        return;
+
+    char *end = NULL;
+    const long milliseconds = strtol(value, &end, 10);
+    if (end == value || *end != '\0' || milliseconds <= 0 || milliseconds > 5000)
+        return;
+    usleep((useconds_t)milliseconds * 1000);
 }
 
 static bool expect_state(struct test_state *state,
@@ -568,6 +591,20 @@ int main(void)
         fputs("Closed window was not removed from the MOKO protocol.\n", stderr);
         goto cleanup;
     }
+
+    moko_window_manager_v1_prepare_shutdown(state.window_manager);
+    for (unsigned int attempt = 0;
+         attempt < 100 && !state.shutdown_blackout_presented;
+         ++attempt) {
+        if (!dispatch_roundtrips(&state, 1))
+            goto cleanup;
+        usleep(10000);
+    }
+    if (!state.shutdown_blackout_presented) {
+        fputs("Compositor did not confirm its shutdown black frame.\n", stderr);
+        goto cleanup;
+    }
+    hold_shutdown_frame_for_capture();
 
     puts("MOKO compositor headless multi-window integration passed.");
     success = true;

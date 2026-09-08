@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="3">
+  <interface name="moko_window_manager_v1" version="4">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -145,6 +145,21 @@
         and cannot contain a command, path or user-provided string.
       </description>
       <arg name="action" type="uint" enum="global_action"/>
+    </event>
+
+    <request name="prepare_shutdown" since="4">
+      <description summary="fade every compositor output to black">
+        Starts the compositor-owned shutdown blackout. This request has no
+        arguments and cannot execute commands or alter system power state.
+      </description>
+    </request>
+
+    <event name="shutdown_blackout_presented" since="4">
+      <description summary="the final black frame reached every output">
+        Sent only after the compositor has committed an opaque black frame on
+        every connected output. The session may then release its logind delay
+        inhibitor after the required black hold interval.
+      </description>
     </event>
 
     <enum name="state" bitfield="true">

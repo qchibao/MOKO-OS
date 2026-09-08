@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=MOKO OS
+Description=MOKO OS quiet boot and blackout shutdown presentation
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/moko
+ScriptFile=/usr/share/plymouth/themes/moko/moko.script

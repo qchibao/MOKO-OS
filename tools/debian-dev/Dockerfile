@@ -19,6 +19,7 @@ RUN apt-get update \
         ninja-build \
         pciutils \
         pkg-config \
+        python3-pil \
         qml6-module-qtquick \
         qml6-module-qtquick-controls \
         qml6-module-qtquick-layouts \

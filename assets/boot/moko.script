@@ -1,0 +1,77 @@
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+mode = Plymouth.GetMode();
+boot_presentation = 0;
+
+if (mode == "boot")
+  {
+    boot_presentation = 1;
+    source_width = 1672;
+    source_height = 941;
+    screen_width = Window.GetWidth();
+    screen_height = Window.GetHeight();
+
+    if (screen_width * source_height < screen_height * source_width)
+      {
+        presentation_width = screen_width;
+        presentation_height = source_height * screen_width / source_width;
+      }
+    else
+      {
+        presentation_height = screen_height;
+        presentation_width = source_width * screen_height / source_height;
+      }
+
+    presentation_x = Window.GetX() + (screen_width - presentation_width) / 2;
+    presentation_y = Window.GetY() + (screen_height - presentation_height) / 2;
+
+    base_image = Image("moko-boot.png").Scale(presentation_width, presentation_height);
+    base_sprite = Sprite(base_image);
+    base_sprite.SetPosition(presentation_x, presentation_y, 1);
+
+    dim_image = Image("moko-highlight-dim.png").Scale(presentation_width, presentation_height);
+    dim_sprite = Sprite(dim_image);
+    dim_sprite.SetPosition(presentation_x, presentation_y, 2);
+
+    highlight_image = Image("moko-highlight-bright.png").Scale(presentation_width, presentation_height);
+    highlight_sprite = Sprite(highlight_image);
+    highlight_sprite.SetPosition(presentation_x, presentation_y, 3);
+
+    pulse_frame = 0;
+    pulse_frames = 210;
+    Plymouth.SetRefreshRate(30);
+  }
+
+fun refresh_callback()
+  {
+    if (boot_presentation == 1)
+      {
+        pulse_frame = pulse_frame + 1;
+        if (pulse_frame >= pulse_frames)
+          pulse_frame = 0;
+        pulse_phase = 6.283185 * pulse_frame / pulse_frames;
+        pulse_opacity = 0.75 + 0.25 * Math.Cos(pulse_phase);
+        highlight_sprite.SetOpacity(pulse_opacity);
+      }
+  }
+
+fun ignore_message(text)
+  {
+  }
+
+fun ignore_password(prompt, bullets)
+  {
+  }
+
+fun quit_callback()
+  {
+    if (boot_presentation == 1)
+      highlight_sprite.SetOpacity(1);
+  }
+
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetDisplayMessageFunction(ignore_message);
+Plymouth.SetHideMessageFunction(ignore_message);
+Plymouth.SetDisplayPasswordFunction(ignore_password);
+Plymouth.SetQuitFunction(quit_callback);

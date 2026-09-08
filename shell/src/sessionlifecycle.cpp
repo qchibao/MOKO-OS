@@ -1,6 +1,9 @@
 #include "sessionlifecycle.h"
 
 #include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
+#include <QDBusUnixFileDescriptor>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -61,6 +64,8 @@ SessionLifecycle::SessionLifecycle(Hooks hooks, Options options, QObject *parent
 {
     m_options.healthTimeoutMs = qMax(0, m_options.healthTimeoutMs);
     m_options.healthCheckIntervalMs = qMax(1, m_options.healthCheckIntervalMs);
+    m_options.shutdownFadeDelayMs = qMax(0, m_options.shutdownFadeDelayMs);
+    m_options.shutdownReleaseGraceMs = qMax(0, m_options.shutdownReleaseGraceMs);
     if (m_options.observeLogind) {
         QDBusConnection::systemBus().connect(QString::fromLatin1(logindService),
                                              QString::fromLatin1(logindPath),
@@ -68,12 +73,29 @@ SessionLifecycle::SessionLifecycle(Hooks hooks, Options options, QObject *parent
                                              QStringLiteral("PrepareForSleep"),
                                              this,
                                              SLOT(handlePrepareForSleep(bool)));
+        QDBusConnection::systemBus().connect(QString::fromLatin1(logindService),
+                                             QString::fromLatin1(logindPath),
+                                             QString::fromLatin1(logindInterface),
+                                             QStringLiteral("PrepareForShutdown"),
+                                             this,
+                                             SLOT(handlePrepareForShutdown(bool)));
+        acquireShutdownInhibitor();
     }
+}
+
+SessionLifecycle::~SessionLifecycle()
+{
+    releaseShutdownInhibitor();
 }
 
 bool SessionLifecycle::preparingForSleep() const
 {
     return m_preparingForSleep;
+}
+
+bool SessionLifecycle::shuttingDown() const
+{
+    return m_shuttingDown;
 }
 
 void SessionLifecycle::handlePrepareForSleep(bool preparing)
@@ -99,6 +121,73 @@ void SessionLifecycle::handlePrepareForSleep(bool preparing)
     const quint64 generation = m_resumeGeneration;
     QTimer::singleShot(m_options.healthCheckIntervalMs, this, [this, generation] {
         evaluateResumeHealth(generation);
+    });
+}
+
+void SessionLifecycle::handlePrepareForShutdown(bool preparing)
+{
+    ++m_shutdownGeneration;
+
+    if (!preparing) {
+        if (m_shuttingDown) {
+            m_shuttingDown = false;
+            emit shuttingDownChanged();
+        }
+        acquireShutdownInhibitor();
+        return;
+    }
+
+    if (!m_shuttingDown) {
+        m_shuttingDown = true;
+        writeShutdownEvent(QStringLiteral("fading"));
+        emit shuttingDownChanged();
+    }
+}
+
+void SessionLifecycle::notifyShutdownBlackoutPrepared()
+{
+    if (!m_shuttingDown || m_shutdownPreparedGeneration == m_shutdownGeneration)
+        return;
+
+    m_shutdownPreparedGeneration = m_shutdownGeneration;
+    writeShutdownEvent(QStringLiteral("prepared"));
+    emit shutdownBlackoutPrepared();
+}
+
+void SessionLifecycle::notifyShutdownBlackoutPresented()
+{
+    if (!m_shuttingDown || m_shutdownPreparedGeneration != m_shutdownGeneration
+        || m_shutdownPresentedGeneration == m_shutdownGeneration) {
+        return;
+    }
+
+    m_shutdownPresentedGeneration = m_shutdownGeneration;
+    writeShutdownEvent(QStringLiteral("blackout"));
+    const quint64 generation = m_shutdownGeneration;
+
+    // Complete synchronously when no extra fade delay is requested. This
+    // callback can run inside logind's PrepareForShutdown D-Bus delivery;
+    // relying on a zero-delay timer there can let poweroff race the ACK.
+    if (m_options.shutdownFadeDelayMs == 0) {
+        completeShutdownFade(generation);
+    } else {
+        QTimer::singleShot(m_options.shutdownFadeDelayMs, this,
+                           [this, generation] { completeShutdownFade(generation); });
+    }
+}
+
+void SessionLifecycle::completeShutdownFade(quint64 generation)
+{
+    if (generation != m_shutdownGeneration || !m_shuttingDown)
+        return;
+
+    writeShutdownEvent(QStringLiteral("ready"));
+    emit shutdownFadeCompleted();
+    // Let the live validation monitor publish the final readiness event
+    // before logind tears down user services. The compositor stays black.
+    QTimer::singleShot(m_options.shutdownReleaseGraceMs, this, [this, generation] {
+        if (generation == m_shutdownGeneration && m_shuttingDown)
+            releaseShutdownInhibitor();
     });
 }
 
@@ -226,4 +315,70 @@ void SessionLifecycle::writeHealthEvent(bool passed, const State &current) const
                        .arg(flag(current.brightnessAvailable))
                        .arg(flag(current.powerModeAvailable))
                        .arg(static_cast<qulonglong>(geteuid())));
+}
+
+void SessionLifecycle::writeShutdownEvent(const QString &state) const
+{
+    writeLiveEvent(QStringLiteral("MOKO_SHUTDOWN_VISUAL state=%1 uid=%2")
+                       .arg(state)
+                       .arg(static_cast<qulonglong>(geteuid())));
+}
+
+void SessionLifecycle::acquireShutdownInhibitor()
+{
+    if (!m_options.observeLogind || m_shutdownInhibitorFd >= 0)
+        return;
+
+    QDBusInterface manager(QString::fromLatin1(logindService),
+                           QString::fromLatin1(logindPath),
+                           QString::fromLatin1(logindInterface),
+                           QDBusConnection::systemBus());
+    if (!manager.isValid()) {
+        scheduleShutdownInhibitorRetry();
+        return;
+    }
+
+    const QDBusReply<QDBusUnixFileDescriptor> reply = manager.call(
+        QStringLiteral("Inhibit"),
+        QStringLiteral("shutdown"),
+        QStringLiteral("MOKO Shell"),
+        QStringLiteral("Fade the display to black before poweroff"),
+        QStringLiteral("delay"));
+    if (!reply.isValid() || !reply.value().isValid()) {
+        scheduleShutdownInhibitorRetry();
+        return;
+    }
+
+    // Keep an independent descriptor: the D-Bus reply owns its copy and may
+    // be destroyed as soon as this function returns.
+    m_shutdownInhibitorFd = ::dup(reply.value().fileDescriptor());
+    if (m_shutdownInhibitorFd < 0) {
+        scheduleShutdownInhibitorRetry();
+        return;
+    }
+
+    writeLiveEvent(QStringLiteral("MOKO_SHUTDOWN_INHIBITOR state=ready uid=%1")
+                       .arg(static_cast<qulonglong>(geteuid())));
+}
+
+void SessionLifecycle::scheduleShutdownInhibitorRetry()
+{
+    if (!m_options.observeLogind || m_shutdownInhibitorFd >= 0
+        || m_shutdownInhibitorRetryScheduled) {
+        return;
+    }
+
+    m_shutdownInhibitorRetryScheduled = true;
+    QTimer::singleShot(250, this, [this] {
+        m_shutdownInhibitorRetryScheduled = false;
+        acquireShutdownInhibitor();
+    });
+}
+
+void SessionLifecycle::releaseShutdownInhibitor()
+{
+    if (m_shutdownInhibitorFd < 0)
+        return;
+    ::close(m_shutdownInhibitorFd);
+    m_shutdownInhibitorFd = -1;
 }

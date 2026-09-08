@@ -15,8 +15,17 @@ if [ -f "$state" ]; then
 fi
 printf '%s\n' "$attempt" > "$state"
 
-if [ "${MOKO_FAIL_FIRST_START:-0}" = 1 ] && [ "$attempt" -eq 1 ]; then
-  exit 1
+if [ "${MOKO_FAIL_FIRST_AFTER_SOCKET:-0}" = 1 ] && [ "$attempt" -eq 1 ]; then
+  exec python3 - "${XDG_RUNTIME_DIR:?}/${MOKO_EXPECT_WAYLAND_DISPLAY:?}" <<'PY'
+import socket
+import sys
+import time
+
+server = socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1])
+server.listen(1)
+time.sleep(0.2)
+PY
 fi
 
 exec "$real_compositor" "$@"

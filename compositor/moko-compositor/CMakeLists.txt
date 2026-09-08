@@ -15,6 +15,7 @@ pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 find_program(GRIM grim)
+find_program(PYTHON3 python3)
 
 set(PROTOCOL_XML ${CMAKE_CURRENT_SOURCE_DIR}/protocols/moko-window-control-v1.xml)
 set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -75,6 +76,11 @@ install(FILES ${PROTOCOL_XML} DESTINATION share/moko/protocols)
 
 include(CTest)
 if(BUILD_TESTING)
+    set(MOKO_HEADLESS_CAPTURE_ARGS)
+    if(GRIM AND PYTHON3)
+        list(APPEND MOKO_HEADLESS_CAPTURE_ARGS ${GRIM} ${PYTHON3})
+    endif()
+
     add_executable(moko-window-geometry-tests tests/test_window_geometry.c)
     target_link_libraries(moko-window-geometry-tests PRIVATE moko-window-geometry)
     add_test(NAME moko-window-geometry-tests COMMAND moko-window-geometry-tests)
@@ -95,6 +101,7 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_headless_compositor.sh
                 $<TARGET_FILE:moko-compositor>
                 $<TARGET_FILE:moko-compositor-integration-client>
+                ${MOKO_HEADLESS_CAPTURE_ARGS}
     )
     set_tests_properties(moko-compositor-headless-integration PROPERTIES TIMEOUT 20)
 

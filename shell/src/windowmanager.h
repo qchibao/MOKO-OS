@@ -86,6 +86,7 @@ public:
     Q_INVOKABLE bool setKeyboardLayout(int layout);
     Q_INVOKABLE bool toggleKeyboardLayout();
     Q_INVOKABLE bool setShellOverlay(bool visible);
+    bool prepareShutdown();
     Q_INVOKABLE bool refreshConnection();
     Q_INVOKABLE void reportInputPanelOpened() const;
 
@@ -96,6 +97,7 @@ signals:
     void inputChanged();
     void desktopChanged();
     void globalActionRequested(const QString &action);
+    void shutdownBlackoutPresented();
 
 private:
     friend struct WindowManagerCallbacks;
@@ -117,6 +119,8 @@ private:
     void updateDesktopConfig(quint32 outputScale,
                              quint32 scaleCapabilities,
                              quint32 keyboardLayout);
+    void handleShutdownBlackoutPresented();
+    void pumpShutdownEvents(quint64 generation);
     bool flushRequest();
     const WindowInfo *windowForApplication(const QString &appId) const;
     bool sendRequest(const QString &appId, const std::function<void(quint32)> &request);
@@ -134,4 +138,7 @@ private:
     int m_outputScale = 100;
     quint32 m_outputScaleCapabilities = 1;
     int m_keyboardLayout = 0;
+    quint64 m_shutdownRequestGeneration = 0;
+    int m_shutdownEventPumpAttempts = 0;
+    bool m_shutdownBlackoutPending = false;
 };

@@ -25,6 +25,37 @@ ApplicationWindow {
     property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
     property string dateText: ""
+    readonly property real shutdownBlackoutOpacity: shutdownBlackout.opacity
+    property bool shutdownBlackoutAwaitingFrame: false
+
+    function acknowledgeShutdownBlackoutFrame() {
+        if (!shutdownBlackoutAwaitingFrame)
+            return
+        shutdownBlackoutAwaitingFrame = false
+        shutdownBlackoutFrameFallback.stop()
+        mokoSessionLifecycle.notifyShutdownBlackoutPrepared()
+    }
+
+    onFrameSwapped: {
+        if (shutdownBlackout.opacity >= 0.999
+                && mokoSessionLifecycle.shuttingDown) {
+            acknowledgeShutdownBlackoutFrame()
+        }
+    }
+
+    Connections {
+        target: mokoSessionLifecycle
+
+        function onShuttingDownChanged() {
+            if (mokoSessionLifecycle.shuttingDown) {
+                shutdownBlackoutAwaitingFrame = true
+                shutdownBlackoutFrameFallback.restart()
+                return
+            }
+            shutdownBlackoutAwaitingFrame = false
+            shutdownBlackoutFrameFallback.stop()
+        }
+    }
 
     function openApplication(appId) {
         activeSystemPanel = ""
@@ -277,6 +308,40 @@ ApplicationWindow {
             horizontalAlignment: Text.AlignHCenter
         }
         Timer { id: hideTimer; interval: 1800; onTriggered: toast.visible = false }
+    }
+
+    Rectangle {
+        id: shutdownBlackout
+        anchors.fill: parent
+        z: 1000
+        color: "#000000"
+        opacity: mokoSessionLifecycle.shuttingDown ? 1 : 0
+        visible: mokoSessionLifecycle.shuttingDown || opacity > 0
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 420
+                easing.type: Easing.InOutCubic
+                onStopped: {
+                    if (shutdownBlackout.opacity >= 0.999
+                            && mokoSessionLifecycle.shuttingDown) {
+                        window.acknowledgeShutdownBlackoutFrame()
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: shutdownBlackoutFrameFallback
+            interval: 750
+            onTriggered: window.acknowledgeShutdownBlackoutFrame()
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: parent.opacity > 0
+            cursorShape: Qt.BlankCursor
+        }
     }
 
     Shortcut { sequence: "Meta+Space"; onActivated: window.toggleSystemPanel("launcher") }

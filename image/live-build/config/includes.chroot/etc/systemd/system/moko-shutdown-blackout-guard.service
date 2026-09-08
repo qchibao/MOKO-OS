@@ -1,0 +1,15 @@
+[Unit]
+Description=Hold shutdown until the MOKO blackout is ready
+DefaultDependencies=no
+After=systemd-logind.service greetd.service
+Wants=systemd-logind.service greetd.service
+Before=shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/systemd-inhibit --what=shutdown --who=MOKO "--why=Keep displays black during poweroff" --mode=delay /usr/local/libexec/moko-shutdown-blackout-guard monitor
+Restart=on-failure
+RestartSec=250ms
+
+[Install]
+WantedBy=graphical.target

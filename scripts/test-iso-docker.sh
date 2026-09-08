@@ -361,6 +361,99 @@ wait_for_monitor() {
   done
 }
 
+assert_black_frame() {
+  local path=$1
+  docker exec -i "$CONTAINER" python3 - "$path" <<'PY'
+import sys
+from PIL import Image, ImageChops
+
+path = sys.argv[1]
+image = Image.open(path).convert("RGB")
+red, green, blue = image.split()
+maximum = ImageChops.lighter(red, ImageChops.lighter(green, blue))
+histogram = maximum.histogram()
+total = image.width * image.height
+bright = sum(histogram[9:])
+allowed = max(8, total // 10000)
+print(f"MOKO shutdown black frame: bright_pixels={bright} allowed={allowed} total={total}")
+if bright > allowed:
+    raise SystemExit("Shutdown framebuffer was not fully black")
+PY
+}
+
+black_frame_is_ready() {
+  local path=$1
+  docker exec -i "$CONTAINER" python3 - "$path" <<'PY'
+import sys
+from PIL import Image, ImageChops
+
+image = Image.open(sys.argv[1]).convert("RGB")
+red, green, blue = image.split()
+maximum = ImageChops.lighter(red, ImageChops.lighter(green, blue))
+histogram = maximum.histogram()
+total = image.width * image.height
+bright = sum(histogram[9:])
+allowed = max(8, total // 10000)
+raise SystemExit(bright > allowed)
+PY
+}
+
+capture_frame() {
+  local path=$1
+  local screenshot_name=$2
+  local deadline=$((SECONDS + 3))
+
+  docker exec "$CONTAINER" rm -f "$path"
+  monitor "screendump /artifacts/$screenshot_name -f png"
+  until docker exec -i "$CONTAINER" python3 - "$path" <<'PY'
+import sys
+from PIL import Image
+
+try:
+    with Image.open(sys.argv[1]) as image:
+        image.load()
+except (FileNotFoundError, OSError):
+    raise SystemExit(1)
+PY
+  do
+    if (( SECONDS >= deadline )); then
+      echo "QEMU did not finish writing $screenshot_name." >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+}
+
+wait_for_black_frame() {
+  local path=$1
+  local screenshot_name=$2
+  local timeout_seconds=${3:-5}
+  local deadline=$((SECONDS + timeout_seconds))
+  local attempts=0
+
+  while [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") == true ]]; do
+    # QEMU's human monitor can acknowledge screendump before the mounted PNG
+    # is complete. Remove the previous frame and wait for a decodable image so
+    # rapid polling never judges stale desktop pixels as the current frame.
+    capture_frame "$path" "$screenshot_name"
+    attempts=$((attempts + 1))
+    if black_frame_is_ready "$path"; then
+      assert_black_frame "$path"
+      return
+    fi
+    # A screendump requested immediately after a DRM presentation event can
+    # contain the previous scanout. Always request a second independent frame
+    # before treating the timeout as a real blackout failure.
+    if (( SECONDS >= deadline && attempts >= 2 )); then
+      assert_black_frame "$path"
+    fi
+    sleep 0.1
+  done
+
+  echo "MOKO powered off before the framebuffer blackout was observed." >&2
+  exit 1
+}
+
 select_boot_profile() {
   local hotkey=""
   local menu_delay=${MOKO_BOOT_MENU_DELAY:-}
@@ -404,8 +497,10 @@ docker run --rm --platform linux/amd64 \
       -extract /isolinux/isolinux.cfg /tmp/isolinux.cfg \
       -extract /isolinux/menu.cfg /tmp/isolinux-menu.cfg \
       -extract /isolinux/live.cfg /tmp/syslinux-live.cfg \
+      -extract /isolinux/splash.png /tmp/isolinux-splash.png \
       -extract /boot/grub/config.cfg /tmp/grub-config.cfg \
       -extract /boot/grub/grub.cfg /tmp/grub-menu.cfg \
+      -extract /boot/grub/splash.png /tmp/grub-splash.png \
       -extract /EFI/boot/bootx64.efi /tmp/bootx64.efi \
       -extract /MOKO/BUILD-INFO.txt /tmp/moko-build-info.txt \
       -extract /MOKO/KNOWN-ISSUES.txt /tmp/moko-known-issues.txt \
@@ -427,7 +522,7 @@ docker run --rm --platform linux/amd64 \
     for package in \
       live-config network-manager rfkill iw pipewire wireplumber \
       libspa-0.2-bluetooth libspa-0.2-libcamera alsa-utils \
-      brightnessctl grim bluez power-profiles-daemon cage libwlroots-0.18 greetd xwayland mesa-utils mesa-vulkan-drivers \
+      brightnessctl grim bluez power-profiles-daemon cage libwlroots-0.18 greetd plymouth plymouth-themes xwayland mesa-utils mesa-vulkan-drivers \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland \
       qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
@@ -450,6 +545,24 @@ docker run --rm --platform linux/amd64 \
       grep -Fq "moko.mode=$mode" /tmp/syslinux-live.cfg
       grep -Fq "moko.mode=$mode" /tmp/grub-menu.cfg
     done
+    cmp /tmp/isolinux-splash.png /source/image/live-build/config/bootloaders/isolinux/splash.png
+    cmp /tmp/grub-splash.png /source/image/live-build/config/bootloaders/grub-pc/splash.png
+    normal_append=$(grep "moko.mode=desktop" /tmp/syslinux-live.cfg)
+    safe_append=$(grep "moko.mode=safe-graphics" /tmp/syslinux-live.cfg)
+    diagnostics_append=$(grep "moko.mode=hardware-diagnostics" /tmp/syslinux-live.cfg)
+    for line in "$normal_append" "$safe_append"; do
+      grep -Fq "quiet splash" <<<"$line"
+      grep -Fq "noprompt" <<<"$line"
+      grep -Fq "systemd.show_status=false" <<<"$line"
+      grep -Fq "vt.global_cursor_default=0" <<<"$line"
+      if grep -Fq "console=tty0" <<<"$line"; then
+        echo "Normal consumer profile writes to tty0." >&2
+        exit 1
+      fi
+    done
+    for flag in plymouth.enable=0 systemd.show_status=true loglevel=4 console=tty0; do
+      grep -Fq "$flag" <<<"$diagnostics_append"
+    done
     test -s /tmp/bootx64.efi
     grep -Fxq "Artifact: MOKO-OS-v0.1.1-dev-amd64.hybrid.iso" /tmp/moko-build-info.txt
     grep -Fq "Installer: disabled" /tmp/moko-build-info.txt
@@ -467,9 +580,15 @@ docker run --rm --platform linux/amd64 \
       usr/local/bin/moko-terminal \
       usr/local/bin/moko-hardware-diagnostics \
       usr/local/bin/moko-ai-daemon \
+      usr/share/plymouth/themes/moko/moko.plymouth \
+      usr/share/plymouth/themes/moko/moko.script \
+      usr/share/plymouth/themes/moko/moko-boot.png \
+      usr/share/plymouth/themes/moko/moko-highlight-dim.png \
+      usr/share/plymouth/themes/moko/moko-highlight-bright.png \
       usr/local/libexec/moko-live-health-check \
       usr/local/libexec/moko-live-disk-safety-check \
       usr/local/libexec/moko-live-launch-monitor \
+      usr/local/libexec/moko-shutdown-blackout-guard \
       usr/local/share/applications/org.moko.Files.desktop \
       usr/local/share/applications/org.moko.Browser.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
@@ -482,7 +601,8 @@ docker run --rm --platform linux/amd64 \
       etc/systemd/system/greetd.service.d/10-moko-live-safety.conf \
       etc/systemd/system/moko-live-disk-safety.service \
       etc/systemd/system/moko-live-health.service \
-      etc/systemd/system/moko-live-launch-monitor.service
+      etc/systemd/system/moko-live-launch-monitor.service \
+      etc/systemd/system/moko-shutdown-blackout-guard.service
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
     done
@@ -506,6 +626,14 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_NOTIFICATION_*" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SLEEP" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_RESUME_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_SHUTDOWN_*" /tmp/moko-live-launch-monitor
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/share/plymouth/themes/moko/moko.script > /tmp/moko-plymouth.script
+    grep -Fq "pulse_frames = 210" /tmp/moko-plymouth.script
+    grep -Fq "pulse_opacity = 0.75 + 0.25 * Math.Cos" /tmp/moko-plymouth.script
+    grep -Fq "Plymouth.SetDisplayMessageFunction(ignore_message)" /tmp/moko-plymouth.script
+    unsquashfs -cat /tmp/filesystem.squashfs etc/plymouth/plymouthd.conf \
+      | grep -Fq "Theme=moko"
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       | grep -Fq "method name=\"providerStatus\""
@@ -1351,8 +1479,33 @@ for run in $(seq 1 "$RUNS"); do
     fi
   fi
 
+  shutdown_marker=0
   if [[ "$QEMU_EXIT_ACTION" == powerdown ]]; then
+    if [[ "$BOOT_MODE" == desktop ]]; then
+      wait_for_serial_since 0 \
+        "MOKO_SHUTDOWN_INHIBITOR state=ready uid=1000" 15 \
+        "MOKO Shell did not acquire its shutdown delay inhibitor."
+    fi
+    shutdown_marker=$(serial_line_count)
     monitor system_powerdown
+    if [[ "$BOOT_MODE" == desktop ]]; then
+      wait_for_serial_since "$shutdown_marker" \
+        "MOKO_SHUTDOWN_VISUAL state=blackout uid=1000" 15 \
+        "MOKO Shell did not begin the required shutdown blackout."
+      SHUTDOWN_BLACK_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-shutdown-black.png"
+      wait_for_black_frame "/artifacts/$SHUTDOWN_BLACK_SCREENSHOT_NAME" \
+        "$SHUTDOWN_BLACK_SCREENSHOT_NAME"
+      wait_for_serial_since "$shutdown_marker" \
+        "MOKO_SHUTDOWN_VISUAL state=ready uid=1000" 15 \
+        "MOKO Shell did not complete the shutdown fade before releasing logind."
+      sleep 0.4
+      if [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") == true ]]; then
+        SHUTDOWN_HOLD_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-shutdown-hold.png"
+        capture_frame "/artifacts/$SHUTDOWN_HOLD_SCREENSHOT_NAME" \
+          "$SHUTDOWN_HOLD_SCREENSHOT_NAME"
+        assert_black_frame "/artifacts/$SHUTDOWN_HOLD_SCREENSHOT_NAME"
+      fi
+    fi
   else
     # QEMU standard VGA/q35 can fail its emulated S5 transition after S3.
     # Normal regression runs still use powerdown; this only cleans up after

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <defs>
+    <radialGradient id="sphere" cx="58%" cy="36%" r="68%">
+      <stop offset="0" stop-color="#07090d"/>
+      <stop offset="0.72" stop-color="#020305"/>
+      <stop offset="1" stop-color="#000000"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0.12" y1="0.82" x2="0.82" y2="0.12">
+      <stop offset="0" stop-color="#17202a" stop-opacity="0.05"/>
+      <stop offset="0.45" stop-color="#7f8a96" stop-opacity="0.35"/>
+      <stop offset="0.76" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.12"/>
+    </linearGradient>
+    <radialGradient id="flare">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.98"/>
+      <stop offset="0.22" stop-color="#ffffff" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ray" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur24" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="600" fill="#000000"/>
+  <circle cx="400" cy="196" r="142" fill="url(#sphere)"/>
+  <circle cx="400" cy="196" r="142" fill="none" stroke="url(#rim)" stroke-width="2"/>
+  <path d="M315 267 L245 358 L358 272 Z" fill="url(#ray)" opacity="0.35"/>
+  <path d="M360 277 L332 363 L400 278 Z" fill="url(#ray)" opacity="0.28"/>
+  <path d="M442 277 L475 363 L402 278 Z" fill="url(#ray)" opacity="0.24"/>
+  <path d="M484 267 L554 358 L444 272 Z" fill="url(#ray)" opacity="0.30"/>
+  <ellipse cx="493" cy="90" rx="56" ry="44" fill="url(#flare)" filter="url(#blur24)"/>
+  <ellipse cx="493" cy="90" rx="32" ry="24" fill="url(#flare)"/>
+
+  <text x="400" y="224" fill="#ffffff" font-family="DejaVu Sans, sans-serif"
+        font-size="76" font-weight="700" text-anchor="middle">MOKO</text>
+  <line x1="348" y1="252" x2="376" y2="252" stroke="#ffffff" stroke-opacity="0.62"/>
+  <text x="400" y="260" fill="#ffffff" font-family="DejaVu Sans, sans-serif"
+        font-size="22" font-weight="300" letter-spacing="9" text-anchor="middle">OS</text>
+  <line x1="424" y1="252" x2="452" y2="252" stroke="#ffffff" stroke-opacity="0.62"/>
+</svg>

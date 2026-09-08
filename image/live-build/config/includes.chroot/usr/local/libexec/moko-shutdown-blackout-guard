@@ -1,0 +1,65 @@
+#!/bin/sh
+# Keep a system-owned delay inhibitor until the compositor blackout is ready.
+set -eu
+
+if [ -n "${MOKO_SHUTDOWN_GUARD_EVENTS:-}" ]; then
+  events=$MOKO_SHUTDOWN_GUARD_EVENTS
+else
+  uid=$(id -u moko)
+  events="/run/user/$uid/moko-launch-events"
+fi
+attempt_limit=${MOKO_SHUTDOWN_GUARD_ATTEMPTS:-0}
+sleep_interval=${MOKO_SHUTDOWN_GUARD_SLEEP:-0.05}
+
+line_count() {
+  if [ -r "$events" ]; then
+    awk 'END { print NR + 0 }' "$events" 2>/dev/null || printf '0\n'
+  else
+    printf '0\n'
+  fi
+}
+
+[ "${1:-}" = monitor ] || {
+  printf 'Usage: %s monitor\n' "$0" >&2
+  exit 2
+}
+
+cursor=$(line_count)
+case "$cursor" in
+  ''|*[!0-9]*) cursor=0 ;;
+esac
+fading_seen=0
+attempts=0
+
+while :; do
+  current=$(line_count)
+  case "$current" in
+    ''|*[!0-9]*) current=0 ;;
+  esac
+  if [ "$current" -lt "$cursor" ]; then
+    cursor=0
+    fading_seen=0
+  fi
+
+  if [ "$current" -gt "$cursor" ] && [ -r "$events" ]; then
+    if awk -v start="$cursor" '
+        NR > start && $0 ~ /^MOKO_SHUTDOWN_VISUAL state=fading / { found = 1 }
+        END { exit !found }
+      ' "$events"; then
+      fading_seen=1
+    fi
+    if [ "$fading_seen" -eq 1 ] && awk -v start="$cursor" '
+        NR > start && $0 ~ /^MOKO_SHUTDOWN_VISUAL state=ready / { found = 1 }
+        END { exit !found }
+      ' "$events"; then
+      exit 0
+    fi
+    cursor=$current
+  fi
+
+  attempts=$((attempts + 1))
+  if [ "$attempt_limit" -gt 0 ] && [ "$attempts" -ge "$attempt_limit" ]; then
+    exit 1
+  fi
+  sleep "$sleep_interval"
+done
