@@ -62,8 +62,12 @@ ApplicationWindow {
         const view = currentView()
         if (!view)
             return
+        // Capture the user's text before leaving the Home tab. Changing
+        // tabHome updates the address-field binding, which otherwise replaces
+        // the pending query with the Home view's about:blank URL.
+        const requestedUrl = mokoBrowser.urlFromInput(addressField.text)
         tabs.setProperty(currentTab, "tabHome", false)
-        view.url = mokoBrowser.urlFromInput(addressField.text)
+        view.url = requestedUrl
         view.forceActiveFocus()
     }
 
