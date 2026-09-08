@@ -246,6 +246,7 @@ ApplicationWindow {
 
     MokoDialog {
         id: confirmDialog
+        objectName: "confirmDialog"
         title: "Confirm installation"
         primaryText: "Install"
         onAccepted: mokoPackageInstaller.install()
@@ -303,14 +304,16 @@ ApplicationWindow {
     // the primary button yet (common during a Wayland window-map transition).
     Shortcut {
         sequence: "Return"
-        enabled: window.active && (failureDialog.visible || confirmDialog.visible
-                                   || mokoPackageInstaller.installable)
+        context: Qt.ApplicationShortcut
+        enabled: failureDialog.visible || confirmDialog.visible
+                 || mokoPackageInstaller.installable
         onActivated: window.activatePrimaryAction()
     }
     Shortcut {
         sequence: "Enter"
-        enabled: window.active && (failureDialog.visible || confirmDialog.visible
-                                   || mokoPackageInstaller.installable)
+        context: Qt.ApplicationShortcut
+        enabled: failureDialog.visible || confirmDialog.visible
+                 || mokoPackageInstaller.installable
         onActivated: window.activatePrimaryAction()
     }
     Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }

@@ -50,6 +50,22 @@ if(BUILD_TESTING)
         TIMEOUT 10
     )
 
+    qt_add_executable(moko-package-installer-confirmation-tests
+        tests/test_confirmation_qml.cpp
+    )
+    target_compile_definitions(moko-package-installer-confirmation-tests PRIVATE
+        MOKO_PACKAGE_INSTALLER_QML="${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml"
+    )
+    target_link_libraries(moko-package-installer-confirmation-tests PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    add_test(NAME moko-package-installer-confirmation-tests
+        COMMAND moko-package-installer-confirmation-tests)
+    set_tests_properties(moko-package-installer-confirmation-tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        TIMEOUT 10
+    )
+
     add_test(NAME moko-package-helper-safety
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_helper_safety.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/data/moko-package-install-helper)
