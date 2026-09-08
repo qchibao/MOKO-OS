@@ -11,7 +11,9 @@ ApplicationWindow {
     height: 760
     minimumWidth: 720
     minimumHeight: 480
-    title: currentView() ? currentView().title + " - MOKO Browser" : "MOKO Browser"
+    title: currentTab >= 0 && tabs.get(currentTab).tabHome
+           ? "New Tab - MOKO Browser"
+           : currentView() ? currentView().title + " - MOKO Browser" : "MOKO Browser"
     color: "#F5F9FC"
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -219,7 +221,9 @@ ApplicationWindow {
                 Rectangle { width: 1; height: 18; color: "#C4D4E0" }
                 Text {
                     Layout.fillWidth: true
-                    text: currentView() && currentView().title.length > 0
+                    text: currentTab >= 0 && tabs.get(currentTab).tabHome
+                          ? "New Tab"
+                          : currentView() && currentView().title.length > 0
                           ? currentView().title : "New Tab"
                     color: "#4B6073"
                     font.pixelSize: 11
@@ -559,7 +563,10 @@ ApplicationWindow {
                         }
                     }
 
-                    onTitleChanged: tabs.setProperty(index, "tabTitle", title.length > 0 ? title : "New Tab")
+                    onTitleChanged: {
+                        if (!tabs.get(index).tabHome)
+                            tabs.setProperty(index, "tabTitle", title.length > 0 ? title : "New Tab")
+                    }
                     onUrlChanged: {
                         if (!tabs.get(index).tabHome)
                             tabs.setProperty(index, "tabUrl", url.toString())
@@ -651,6 +658,7 @@ ApplicationWindow {
                     }
 
                     GridLayout {
+                        id: quickSitesGrid
                         Layout.fillWidth: true
                         columns: width < 620 ? 2 : 4
                         columnSpacing: 10
@@ -662,6 +670,10 @@ ApplicationWindow {
                                 required property int index
                                 required property var modelData
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: (quickSitesGrid.width
+                                                        - quickSitesGrid.columnSpacing
+                                                          * (quickSitesGrid.columns - 1))
+                                                       / quickSitesGrid.columns
                                 Layout.preferredHeight: 86
                                 radius: 8
                                 color: siteMouse.containsMouse ? "#EAF4FD" : "#FFFFFF"
@@ -717,6 +729,10 @@ ApplicationWindow {
 
                         Button {
                             Layout.fillWidth: true
+                            Layout.preferredWidth: (quickSitesGrid.width
+                                                    - quickSitesGrid.columnSpacing
+                                                      * (quickSitesGrid.columns - 1))
+                                                   / quickSitesGrid.columns
                             Layout.preferredHeight: 86
                             text: "+  Add site"
                             onClicked: window.editQuickSite(-1, null)
