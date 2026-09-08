@@ -87,6 +87,14 @@ fi
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"
+compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
+grep -Fq 'all_outputs_presented_black_frame' "$compositor_source"
+grep -Fq 'if (!output->shutdown_black_frame_presented)' "$compositor_source"
+if sed -n '/static void output_frame/,/static void output_present/p' "$compositor_source" \
+    | grep -Fq 'announce_shutdown_blackout'; then
+  echo "Compositor acknowledges shutdown before the black frame is presented." >&2
+  exit 1
+fi
 grep -Eq '^After=(.*[[:space:]])?greetd\.service([[:space:]]|$)' "$shutdown_guard_unit"
 grep -Fq 'DefaultDependencies=no' "$shutdown_guard_unit"
 grep -Fq 'Before=shutdown.target' "$shutdown_guard_unit"

@@ -254,17 +254,15 @@ static void update_shutdown_overlay_geometry(struct moko_server *server);
 static void announce_shutdown_blackout(struct moko_server *server);
 static void report_event(const char *format, ...);
 
-static bool all_outputs_have_black_frame(const struct moko_server *server)
+static bool all_outputs_presented_black_frame(const struct moko_server *server)
 {
     if (wl_list_empty(&server->outputs))
         return false;
 
     struct moko_output *output;
     wl_list_for_each(output, &server->outputs, link) {
-        /* A committed opaque buffer is the earliest reliable point at which
-         * the compositor can acknowledge the blackout. Some DRM backends do
-         * not emit a present event before logind's delay window expires. */
-        if (!output->shutdown_black_frame_submitted)
+        /* A successful commit can still leave the previous scanout visible. */
+        if (!output->shutdown_black_frame_presented)
             return false;
     }
     return true;
@@ -1803,7 +1801,7 @@ static void update_shutdown_overlay_geometry(struct moko_server *server)
 
 static void announce_shutdown_blackout(struct moko_server *server)
 {
-    if (server->shutdown_presented || !all_outputs_have_black_frame(server))
+    if (server->shutdown_presented || !all_outputs_presented_black_frame(server))
         return;
     server->shutdown_presented = true;
     report_event("MOKO_COMPOSITOR_SHUTDOWN state=blackout");
@@ -1832,7 +1830,6 @@ static void output_frame(struct wl_listener *listener, void *data)
         if (committed && output->wlr_output->commit_seq != previous_commit_seq) {
             output->shutdown_black_commit_seq = output->wlr_output->commit_seq;
             output->shutdown_black_frame_submitted = true;
-            announce_shutdown_blackout(output->server);
         } else {
             wlr_output_schedule_frame(output->wlr_output);
         }

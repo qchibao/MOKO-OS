@@ -1642,7 +1642,7 @@ for run in $(seq 1 "$RUNS"); do
         "MOKO Shell did not begin the required shutdown blackout."
       SHUTDOWN_BLACK_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-shutdown-black.png"
       wait_for_black_frame "/artifacts/$SHUTDOWN_BLACK_SCREENSHOT_NAME" \
-        "$SHUTDOWN_BLACK_SCREENSHOT_NAME"
+        "$SHUTDOWN_BLACK_SCREENSHOT_NAME" "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS"
       wait_for_serial_since "$shutdown_marker" \
         "MOKO_SHUTDOWN_VISUAL state=ready uid=1000" "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" \
         "MOKO Shell did not complete the shutdown fade before releasing logind."
