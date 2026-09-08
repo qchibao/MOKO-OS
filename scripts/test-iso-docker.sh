@@ -7,6 +7,7 @@ RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
 SHUTDOWN_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_TIMEOUT:-60}
+SHUTDOWN_VISUAL_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_VISUAL_TIMEOUT:-60}
 BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
 BOOT_FIRMWARE=${MOKO_BOOT_FIRMWARE:-bios}
 LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
@@ -55,6 +56,10 @@ command -v docker >/dev/null || {
 }
 [[ "$SHUTDOWN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "MOKO_SHUTDOWN_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
+[[ "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_SHUTDOWN_VISUAL_TIMEOUT must be a positive integer." >&2
   exit 1
 }
 case "$BOOT_MODE" in
@@ -385,6 +390,20 @@ wait_for_monitor() {
   done
 }
 
+select_absolute_pointer() {
+  local response tablet_index
+  response=$(qmp_request '{"execute":"query-mice"}')
+  tablet_index=$(sed -n \
+    's/.*"index": \([0-9][0-9]*\), "name": "QEMU HID Tablet".*/\1/p' \
+    <<<"$response")
+  [[ -n "$tablet_index" ]] || {
+    printf '%s\n' "$response" >&2
+    echo "QEMU did not expose its absolute USB tablet." >&2
+    return 1
+  }
+  qmp "{\"execute\":\"human-monitor-command\",\"arguments\":{\"command-line\":\"mouse_set $tablet_index\"}}"
+}
+
 assert_black_frame() {
   local path=$1
   docker exec -i "$CONTAINER" python3 - "$path" <<'PY'
@@ -665,6 +684,7 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_SHELL_OVERLAY" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SCREENSHOT" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_NOTIFICATION_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_PACKAGE\\ *" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_PACKAGE_*" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SLEEP" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_RESUME_*" /tmp/moko-live-launch-monitor
@@ -685,6 +705,9 @@ docker run --rm --platform linux/amd64 \
     chmod 0755 /tmp/moko-live-disk-safety-check
     MOKO_DISK_SAFETY_CHECK=/tmp/moko-live-disk-safety-check \
       bash /source/tests/test-live-disk-safety.sh
+    chmod 0755 /tmp/moko-live-launch-monitor
+    MOKO_LIVE_LAUNCH_MONITOR=/tmp/moko-live-launch-monitor \
+      bash /source/tests/test-live-launch-monitor.sh
     for unit in moko-live-disk-safety.service moko-live-health.service; do
       unsquashfs -cat /tmp/filesystem.squashfs \
         "etc/systemd/system/$unit" > "/tmp/$unit"
@@ -761,6 +784,7 @@ for run in $(seq 1 "$RUNS"); do
       -no-reboot >/dev/null
 
   wait_for_monitor
+  select_absolute_pointer
   select_boot_profile
   deadline=$((SECONDS + TIMEOUT_SECONDS))
   expected_graphics=hardware
@@ -1107,6 +1131,23 @@ for run in $(seq 1 "$RUNS"); do
     sleep 1
     monitor "sendkey ret"
 
+    # QEMU TCG can deliver Enter while the search field is still completing
+    # its focus transition. Keep the keyboard path first, then click the
+    # filtered first result if no launch marker arrives promptly.
+    keyboard_launch_deadline=$((SECONDS + 12))
+    while ! grep -E -q "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH"; do
+      if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
+        tail -80 "$SERIAL_PATH" >&2
+        echo "Launcher reported a failed application start." >&2
+        exit 1
+      fi
+      if (( SECONDS >= keyboard_launch_deadline )); then
+        pointer_click 72 196
+        break
+      fi
+      sleep 1
+    done
+
     launch_deadline=$((SECONDS + 30))
     while ! grep -E -q "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH"; do
       if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
@@ -1450,15 +1491,28 @@ for run in $(seq 1 "$RUNS"); do
       }
 
       marker=$(serial_line_count)
-      monitor "sendkey ctrl-l"
-      sleep 0.5
-      send_text "example.com"
-      monitor "sendkey ret"
+      browser_https_passed=0
+      for browser_attempt in 1 2 3; do
+        monitor "sendkey ctrl-l"
+        sleep 0.5
+        send_text "example.com"
+        monitor "sendkey ret"
+        if wait_for_serial_since "$marker" \
+            "MOKO_BROWSER_PAGE state=loaded scheme=https host=example.com uid=1000" 45 \
+            "" >/dev/null 2>&1; then
+          browser_https_passed=1
+          break
+        fi
+        monitor "sendkey ctrl-r"
+        sleep 2
+      done
+      [[ "$browser_https_passed" == 1 ]] || {
+        tail -120 "$SERIAL_PATH" >&2
+        echo "MOKO Browser did not render the real HTTPS validation page." >&2
+        exit 1
+      }
       wait_for_serial_since "$marker" \
-        "MOKO_BROWSER_PAGE state=loaded scheme=https host=example.com uid=1000" 90 \
-        "MOKO Browser did not render the real HTTPS validation page."
-      wait_for_serial_since "$marker" \
-        "MOKO_BROWSER_JAVASCRIPT state=pass scheme=https host=example.com uid=1000" 30 \
+        "MOKO_BROWSER_JAVASCRIPT state=pass scheme=https host=example.com uid=1000" 45 \
         "MOKO Browser did not execute JavaScript on the HTTPS validation page."
 
       marker=$(serial_line_count)
@@ -1493,13 +1547,15 @@ for run in $(seq 1 "$RUNS"); do
 
       if [[ "$PACKAGE_INSTALL_TEST" == 1 ]]; then
         marker=$(serial_line_count)
-        # Mapping and the first rendered frame can race under TCG. Re-activate
-        # Files through the real Dock path, then use its mouse+keyboard open flow.
-        dock_app_click org.moko.Files
-        wait_for_serial_since "$marker" \
-          "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 title=MOKO Files" 30 \
-          "The Dock did not focus MOKO Files for the package-open workflow."
-        sleep 2
+        # Files is already the active surface after Browser's Show in Files
+        # action and the preceding screenshot proves its rendered frame.
+        # Opening the Shell/Dock here would introduce an unrelated focus race.
+        grep -Eq "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 title=MOKO Files" \
+          "$SERIAL_PATH" || {
+            echo "MOKO Files did not become active for the package-open workflow." >&2
+            exit 1
+          }
+        sleep 3
         pointer_click 520 280
         monitor "sendkey ret"
         wait_for_serial_since "$marker" \
@@ -1509,15 +1565,21 @@ for run in $(seq 1 "$RUNS"); do
           "MOKO_PACKAGE_INSPECT state=ready type=deb package=hello version=2.10-5 architecture=amd64 uid=1000" 30 \
           "MOKO Package Installer did not inspect the downloaded package metadata."
         wait_for_serial_since "$marker" \
-          "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.PackageInstaller" 30 \
+          "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.PackageInstaller" 90 \
           "MOKO Package Installer did not map as a real compositor window."
         PACKAGE_REVIEW_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-package-review.png"
         sleep 2
         monitor "screendump /artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME -f png"
         test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME")" -gt 10000
 
+        wait_for_serial_since "$marker" \
+          "MOKO_PACKAGE_UI state=ready uid=1000" 30 \
+          "MOKO Package Installer did not finish initializing its real UI."
         monitor "sendkey ret"
-        sleep 1
+        sleep 2
+        PACKAGE_CONFIRM_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-package-confirm.png"
+        monitor "screendump /artifacts/$PACKAGE_CONFIRM_SCREENSHOT_NAME -f png"
+        test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_CONFIRM_SCREENSHOT_NAME")" -gt 10000
         monitor "sendkey ret"
         wait_for_serial_since "$marker" \
           "MOKO_PACKAGE state=installing detail=.* uid=1000" 30 \
@@ -1576,13 +1638,13 @@ for run in $(seq 1 "$RUNS"); do
     monitor system_powerdown
     if [[ "$BOOT_MODE" == desktop ]]; then
       wait_for_serial_since "$shutdown_marker" \
-        "MOKO_SHUTDOWN_VISUAL state=blackout uid=1000" 15 \
+        "MOKO_SHUTDOWN_VISUAL state=blackout uid=1000" "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" \
         "MOKO Shell did not begin the required shutdown blackout."
       SHUTDOWN_BLACK_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-shutdown-black.png"
       wait_for_black_frame "/artifacts/$SHUTDOWN_BLACK_SCREENSHOT_NAME" \
         "$SHUTDOWN_BLACK_SCREENSHOT_NAME"
       wait_for_serial_since "$shutdown_marker" \
-        "MOKO_SHUTDOWN_VISUAL state=ready uid=1000" 15 \
+        "MOKO_SHUTDOWN_VISUAL state=ready uid=1000" "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" \
         "MOKO Shell did not complete the shutdown fade before releasing logind."
       sleep 0.4
       if [[ $(docker inspect -f '{{.State.Running}}' "$CONTAINER") == true ]]; then

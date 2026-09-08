@@ -18,6 +18,7 @@ docker run --rm --platform linux/amd64 \
     set -euo pipefail
     bash tests/test-boot-presentation.sh
     bash tests/test-live-disk-safety.sh
+    bash tests/test-live-launch-monitor.sh
 
     cmake -S compositor/moko-compositor -B /tmp/moko-compositor-build -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build /tmp/moko-compositor-build --parallel
