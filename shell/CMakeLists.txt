@@ -40,6 +40,8 @@ qt_add_executable(moko-shell
     src/applicationregistry.h
     src/applicationservice.cpp
     src/applicationservice.h
+    src/desktopsettingsservice.cpp
+    src/desktopsettingsservice.h
     src/main.cpp
     src/notificationmodel.cpp
     src/notificationmodel.h

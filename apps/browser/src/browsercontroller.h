@@ -34,6 +34,7 @@ public:
                                 bool succeeded, const QString &error = {});
     Q_INVOKABLE void reportJavaScript(const QUrl &url, const QVariant &result);
     Q_INVOKABLE bool showDownloadsInFiles();
+    Q_INVOKABLE bool browserHistorySwipeEnabled() const;
     Q_INVOKABLE bool addQuickSite(const QString &label, const QString &url);
     Q_INVOKABLE bool updateQuickSite(int index, const QString &label, const QString &url);
     Q_INVOKABLE bool removeQuickSite(int index);

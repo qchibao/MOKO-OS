@@ -198,6 +198,8 @@ struct moko_server {
     struct wl_list pointer_devices;
     bool natural_scroll_enabled;
     int32_t pointer_acceleration;
+    bool three_finger_drag_enabled;
+    bool browser_history_swipe_enabled;
 
     struct wlr_cursor *cursor;
     struct wlr_xcursor_manager *cursor_manager;
@@ -229,6 +231,8 @@ struct moko_server {
     struct moko_rect grab_start_geometry;
     struct moko_rect grab_last_geometry;
     uint32_t resize_edges;
+    bool gesture_move_active;
+    bool gesture_forward_active;
 
     struct wlr_output_layout *output_layout;
     struct wl_list outputs;
@@ -243,6 +247,7 @@ struct moko_server {
 
 static void set_shell_overlay(struct moko_server *server, bool visible);
 static void broadcast_desktop_config(struct moko_server *server);
+static void broadcast_gesture_config(struct moko_server *server);
 static void focus_fallback(struct moko_server *server, struct moko_toplevel *exclude);
 static bool apply_output_scale(struct moko_server *server, uint32_t scale_percent);
 static void update_shutdown_overlay_geometry(struct moko_server *server);
@@ -368,6 +373,11 @@ struct moko_input_snapshot {
     uint32_t capabilities;
     uint32_t state;
     int32_t pointer_acceleration;
+};
+
+struct moko_gesture_snapshot {
+    uint32_t capabilities;
+    uint32_t state;
 };
 
 static bool is_touchpad_device(struct libinput_device *device)
@@ -588,6 +598,56 @@ static void broadcast_input_config(struct moko_server *server)
                  snapshot.capabilities,
                  snapshot.state,
                  snapshot.pointer_acceleration);
+}
+
+static struct moko_gesture_snapshot gesture_snapshot(struct moko_server *server)
+{
+    struct moko_gesture_snapshot snapshot = {0};
+    struct moko_pointer_device *pointer;
+    wl_list_for_each(pointer, &server->pointer_devices, link) {
+        if (!pointer->is_touchpad)
+            continue;
+        const bool native_gestures = libinput_device_has_capability(
+            pointer->libinput_device, LIBINPUT_DEVICE_CAP_GESTURE) != 0;
+        const bool two_finger_scroll =
+            (libinput_device_config_scroll_get_methods(pointer->libinput_device)
+             & LIBINPUT_CONFIG_SCROLL_2FG) != 0;
+        if (native_gestures)
+            snapshot.capabilities |=
+                MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_THREE_FINGER_DRAG;
+        if (two_finger_scroll)
+            snapshot.capabilities |=
+                MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_BROWSER_HISTORY_SWIPE;
+        if (native_gestures && server->three_finger_drag_enabled)
+            snapshot.state |= MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_THREE_FINGER_DRAG_ENABLED;
+        if (two_finger_scroll && server->browser_history_swipe_enabled)
+            snapshot.state |= MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_BROWSER_HISTORY_SWIPE_ENABLED;
+    }
+    return snapshot;
+}
+
+static void send_gesture_config_to_resource(struct moko_server *server,
+                                            struct wl_resource *resource)
+{
+    if (wl_resource_get_version(resource) < 5)
+        return;
+    const struct moko_gesture_snapshot snapshot = gesture_snapshot(server);
+    moko_window_manager_v1_send_gesture_config(resource,
+                                                snapshot.capabilities,
+                                                snapshot.state);
+}
+
+static void broadcast_gesture_config(struct moko_server *server)
+{
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &server->window_manager_resources) {
+        send_gesture_config_to_resource(server, resource);
+        if (wl_resource_get_version(resource) >= 5)
+            moko_window_manager_v1_send_done(resource);
+    }
+    const struct moko_gesture_snapshot snapshot = gesture_snapshot(server);
+    report_event("MOKO_GESTURE_CONFIG capabilities=%u state=%u",
+                 snapshot.capabilities, snapshot.state);
 }
 
 static bool resolution_supports_scale(int width, int height, uint32_t scale_percent)
@@ -1327,24 +1387,64 @@ static void cursor_swipe_begin(struct wl_listener *listener, void *data)
 {
     struct moko_server *server = wl_container_of(listener, server, cursor_swipe_begin);
     struct wlr_pointer_swipe_begin_event *event = data;
-    wlr_pointer_gestures_v1_send_swipe_begin(
-        server->pointer_gestures, server->seat, event->time_msec, event->fingers);
+    server->gesture_move_active = false;
+    if (event->fingers == 3 && server->three_finger_drag_enabled
+        && server->active_toplevel != NULL && !server->active_toplevel->is_shell
+        && !server->active_toplevel->minimized) {
+        struct moko_toplevel *toplevel = server->active_toplevel;
+        restore_for_interaction(toplevel);
+        server->grabbed_toplevel = toplevel;
+        server->grab_start_geometry = current_geometry(toplevel);
+        server->grab_last_geometry = server->grab_start_geometry;
+        server->gesture_move_active = true;
+        report_event("MOKO_GESTURE state=begin type=three-finger-drag id=%u",
+                     toplevel->window_id);
+    }
+    server->gesture_forward_active = !server->gesture_move_active
+        && (event->fingers != 2 || server->browser_history_swipe_enabled);
+    if (server->gesture_forward_active) {
+        wlr_pointer_gestures_v1_send_swipe_begin(
+            server->pointer_gestures, server->seat, event->time_msec, event->fingers);
+    }
 }
 
 static void cursor_swipe_update(struct wl_listener *listener, void *data)
 {
     struct moko_server *server = wl_container_of(listener, server, cursor_swipe_update);
     struct wlr_pointer_swipe_update_event *event = data;
-    wlr_pointer_gestures_v1_send_swipe_update(
-        server->pointer_gestures, server->seat, event->time_msec, event->dx, event->dy);
+    if (server->gesture_move_active && server->grabbed_toplevel != NULL) {
+        struct moko_toplevel *toplevel = server->grabbed_toplevel;
+        const struct moko_rect translated = moko_translate_rect(
+            current_geometry(toplevel), event->dx, event->dy);
+        apply_geometry(toplevel, translated);
+        server->grab_last_geometry = current_geometry(toplevel);
+    }
+    if (server->gesture_forward_active) {
+        wlr_pointer_gestures_v1_send_swipe_update(
+            server->pointer_gestures, server->seat, event->time_msec, event->dx, event->dy);
+    }
 }
 
 static void cursor_swipe_end(struct wl_listener *listener, void *data)
 {
     struct moko_server *server = wl_container_of(listener, server, cursor_swipe_end);
     struct wlr_pointer_swipe_end_event *event = data;
-    wlr_pointer_gestures_v1_send_swipe_end(
-        server->pointer_gestures, server->seat, event->time_msec, event->cancelled);
+    if (server->gesture_move_active && server->grabbed_toplevel != NULL) {
+        struct moko_toplevel *toplevel = server->grabbed_toplevel;
+        if (event->cancelled)
+            apply_geometry(toplevel, server->grab_start_geometry);
+        else
+            capture_restore_geometry(toplevel);
+        report_event("MOKO_GESTURE state=end type=three-finger-drag id=%u cancelled=%d",
+                     toplevel->window_id, event->cancelled ? 1 : 0);
+        server->grabbed_toplevel = NULL;
+        server->gesture_move_active = false;
+    }
+    if (server->gesture_forward_active) {
+        wlr_pointer_gestures_v1_send_swipe_end(
+            server->pointer_gestures, server->seat, event->time_msec, event->cancelled);
+    }
+    server->gesture_forward_active = false;
 }
 
 static void cursor_pinch_begin(struct wl_listener *listener, void *data)
@@ -1622,6 +1722,7 @@ static void pointer_device_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&pointer->link);
     free(pointer);
     broadcast_input_config(server);
+    broadcast_gesture_config(server);
 }
 
 static void add_pointer_device(struct moko_server *server, struct wlr_input_device *device)
@@ -1648,6 +1749,7 @@ static void add_pointer_device(struct moko_server *server, struct wlr_input_devi
                      touchpad_capabilities(pointer->libinput_device));
     }
     broadcast_input_config(server);
+    broadcast_gesture_config(server);
 }
 
 static void new_input(struct wl_listener *listener, void *data)
@@ -2342,6 +2444,35 @@ static void manager_set_pointer_acceleration(struct wl_client *client,
     broadcast_input_config(server);
 }
 
+static void manager_set_gesture_enabled(struct wl_client *client,
+                                        struct wl_resource *resource,
+                                        uint32_t gesture,
+                                        uint32_t enabled)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    const struct moko_gesture_snapshot current = gesture_snapshot(server);
+    uint32_t capability = 0;
+    if (gesture == MOKO_WINDOW_MANAGER_V1_GESTURE_THREE_FINGER_DRAG)
+        capability = MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_THREE_FINGER_DRAG;
+    else if (gesture == MOKO_WINDOW_MANAGER_V1_GESTURE_BROWSER_HISTORY_SWIPE)
+        capability = MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_BROWSER_HISTORY_SWIPE;
+    if (capability == 0 || (current.capabilities & capability) == 0) {
+        report_event("MOKO_GESTURE action=set-enabled gesture=%u enabled=%u ok=0",
+                     gesture, enabled);
+        return;
+    }
+    if (gesture == MOKO_WINDOW_MANAGER_V1_GESTURE_THREE_FINGER_DRAG)
+        server->three_finger_drag_enabled = enabled != 0;
+    else if (gesture == MOKO_WINDOW_MANAGER_V1_GESTURE_BROWSER_HISTORY_SWIPE)
+        server->browser_history_swipe_enabled = enabled != 0;
+    else
+        return;
+    broadcast_gesture_config(server);
+    report_event("MOKO_GESTURE action=set-enabled gesture=%u enabled=%u ok=1",
+                 gesture, enabled);
+}
+
 static void manager_set_output_scale(struct wl_client *client,
                                      struct wl_resource *resource,
                                      uint32_t scale_percent)
@@ -2396,6 +2527,7 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .close = manager_close,
     .set_natural_scroll = manager_set_natural_scroll,
     .set_pointer_acceleration = manager_set_pointer_acceleration,
+    .set_gesture_enabled = manager_set_gesture_enabled,
     .set_output_scale = manager_set_output_scale,
     .set_keyboard_layout = manager_set_keyboard_layout,
     .set_shell_overlay = manager_set_shell_overlay,
@@ -2428,6 +2560,7 @@ static void bind_window_manager(struct wl_client *client,
     wl_list_for_each(toplevel, &server->toplevels, link)
         send_toplevel_to_resource(resource, toplevel);
     send_input_config_to_resource(server, resource);
+    send_gesture_config_to_resource(server, resource);
     send_desktop_config_to_resource(server, resource);
     moko_window_manager_v1_send_done(resource);
 }
@@ -2481,6 +2614,8 @@ int main(int argc, char **argv)
     server.next_window_id = 100;
     server.natural_scroll_enabled = true;
     server.pointer_acceleration = MOKO_DEFAULT_POINTER_ACCELERATION;
+    server.three_finger_drag_enabled = true;
+    server.browser_history_swipe_enabled = true;
     server.output_scale_percent = MOKO_DEFAULT_OUTPUT_SCALE;
     server.keyboard_layout = MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH;
     wl_list_init(&server.outputs);

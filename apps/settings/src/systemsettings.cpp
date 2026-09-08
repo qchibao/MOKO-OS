@@ -82,6 +82,12 @@ SystemSettings::SystemSettings(QObject *parent)
     m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
     m_twentyFourHour = sharedSettings().value(
         QStringLiteral("dateTime/twentyFourHour"), false).toBool();
+    QDBusConnection::sessionBus().connect(QStringLiteral("org.moko.Desktop1"),
+                                          QStringLiteral("/org/moko/Desktop1"),
+                                          QStringLiteral("org.moko.Desktop1"),
+                                          QStringLiteral("inputChanged"),
+                                          this,
+                                          SLOT(refresh()));
     refresh();
 }
 
@@ -115,6 +121,20 @@ QString SystemSettings::localDateTime() const { return m_localDateTime; }
 bool SystemSettings::automaticTime() const { return m_automaticTime; }
 bool SystemSettings::automaticTimeAvailable() const { return m_automaticTimeAvailable; }
 bool SystemSettings::twentyFourHour() const { return m_twentyFourHour; }
+bool SystemSettings::trackpadAvailable() const { return m_trackpadAvailable; }
+int SystemSettings::trackpadCount() const { return m_trackpadCount; }
+bool SystemSettings::naturalScrollAvailable() const { return m_naturalScrollAvailable; }
+bool SystemSettings::naturalScrollEnabled() const { return m_naturalScrollEnabled; }
+bool SystemSettings::threeFingerDragAvailable() const { return m_threeFingerDragAvailable; }
+bool SystemSettings::threeFingerDragEnabled() const { return m_threeFingerDragEnabled; }
+bool SystemSettings::browserHistorySwipeAvailable() const
+{
+    return m_browserHistorySwipeAvailable;
+}
+bool SystemSettings::browserHistorySwipeEnabled() const
+{
+    return m_browserHistorySwipeEnabled;
+}
 
 QStringList SystemSettings::timeZoneChoices() const
 {
@@ -139,7 +159,8 @@ void SystemSettings::setTwentyFourHour(bool enabled)
 QStringList SystemSettings::sectionIds() const
 {
     return {QStringLiteral("about"),      QStringLiteral("display"),
-            QStringLiteral("appearance"), QStringLiteral("date-time"),
+            QStringLiteral("appearance"), QStringLiteral("trackpad"),
+            QStringLiteral("date-time"),
             QStringLiteral("sound"),
             QStringLiteral("network"),    QStringLiteral("bluetooth"),
             QStringLiteral("power"),      QStringLiteral("storage"),
@@ -152,6 +173,7 @@ QString SystemSettings::sectionTitle(const QString &sectionId) const
         {QStringLiteral("about"), QStringLiteral("About")},
         {QStringLiteral("display"), QStringLiteral("Display")},
         {QStringLiteral("appearance"), QStringLiteral("Appearance")},
+        {QStringLiteral("trackpad"), QStringLiteral("Trackpad")},
         {QStringLiteral("date-time"), QStringLiteral("Date & Time")},
         {QStringLiteral("sound"), QStringLiteral("Sound")},
         {QStringLiteral("network"), QStringLiteral("Network")},
@@ -170,6 +192,7 @@ QString SystemSettings::sectionDescription(const QString &sectionId) const
         {QStringLiteral("about"), QStringLiteral("MOKO OS and device identity")},
         {QStringLiteral("display"), QStringLiteral("Connected displays and interface scale")},
         {QStringLiteral("appearance"), QStringLiteral("MOKO color and interface style")},
+        {QStringLiteral("trackpad"), QStringLiteral("Scrolling, pointer and window gestures")},
         {QStringLiteral("date-time"), QStringLiteral("Clock, network time and time zone")},
         {QStringLiteral("sound"), QStringLiteral("Audio availability")},
         {QStringLiteral("network"), QStringLiteral("Connection and Wi-Fi status")},
@@ -201,6 +224,7 @@ void SystemSettings::refresh()
     collectAbout();
     collectDisplay();
     collectAppearance();
+    collectTrackpad();
     collectDateTime();
     collectSound();
     collectNetwork();
@@ -215,6 +239,97 @@ void SystemSettings::refresh()
                              now.timeZoneAbbreviation());
     m_statusMessage = QStringLiteral("Live system data refreshed");
     emit dataChanged();
+}
+
+void SystemSettings::collectTrackpad()
+{
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    const QDBusReply<QVariantMap> reply = desktop.call(QStringLiteral("inputState"));
+    const QVariantMap state = reply.isValid() ? reply.value() : QVariantMap{};
+    m_trackpadAvailable = state.value(QStringLiteral("touchpadAvailable")).toBool();
+    m_trackpadCount = state.value(QStringLiteral("touchpadCount")).toInt();
+    m_naturalScrollAvailable = state.value(QStringLiteral("naturalScrollAvailable")).toBool();
+    m_naturalScrollEnabled = state.value(QStringLiteral("naturalScrollEnabled")).toBool();
+    m_threeFingerDragAvailable = state.value(
+        QStringLiteral("threeFingerDragAvailable")).toBool();
+    m_threeFingerDragEnabled = state.value(
+        QStringLiteral("threeFingerDragEnabled")).toBool();
+    m_browserHistorySwipeAvailable = state.value(
+        QStringLiteral("browserHistorySwipeAvailable")).toBool();
+    m_browserHistorySwipeEnabled = state.value(
+        QStringLiteral("browserHistorySwipeEnabled")).toBool();
+    m_rows.insert(QStringLiteral("trackpad"),
+                  {row(QStringLiteral("Trackpad"),
+                       m_trackpadAvailable
+                           ? QStringLiteral("%1 detected").arg(m_trackpadCount)
+                           : QStringLiteral("Not detected"),
+                       reply.isValid() ? QStringLiteral("MOKO compositor input state")
+                                       : QStringLiteral("MOKO desktop service unavailable"),
+                       m_trackpadAvailable),
+                   row(QStringLiteral("Tap to click"),
+                       state.value(QStringLiteral("tapToClickEnabled")).toBool()
+                           ? QStringLiteral("On") : QStringLiteral("Unavailable")),
+                   row(QStringLiteral("Two-finger scrolling"),
+                       state.value(QStringLiteral("twoFingerScrollEnabled")).toBool()
+                           ? QStringLiteral("On") : QStringLiteral("Unavailable")),
+                   row(QStringLiteral("Secondary click"),
+                       state.value(QStringLiteral("secondaryClickEnabled")).toBool()
+                           ? QStringLiteral("Two fingers") : QStringLiteral("Unavailable")),
+                   row(QStringLiteral("Palm rejection"),
+                       state.value(QStringLiteral("palmRejectionManaged")).toBool()
+                           ? QStringLiteral("Automatic") : QStringLiteral("Unavailable"))});
+    emit trackpadChanged();
+}
+
+bool SystemSettings::setNaturalScrollEnabled(bool enabled)
+{
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    const QDBusReply<bool> reply = desktop.call(
+        QStringLiteral("setNaturalScrollEnabled"), enabled);
+    m_statusMessage = reply.isValid() && reply.value()
+        ? QStringLiteral("Natural scrolling updated")
+        : QStringLiteral("Natural scrolling could not be changed");
+    collectTrackpad();
+    emit dataChanged();
+    return reply.isValid() && reply.value();
+}
+
+bool SystemSettings::setThreeFingerDragEnabled(bool enabled)
+{
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    const QDBusReply<bool> reply = desktop.call(
+        QStringLiteral("setThreeFingerDragEnabled"), enabled);
+    m_statusMessage = reply.isValid() && reply.value()
+        ? QStringLiteral("Three-finger window drag updated")
+        : QStringLiteral("Three-finger window drag could not be changed");
+    collectTrackpad();
+    emit dataChanged();
+    return reply.isValid() && reply.value();
+}
+
+bool SystemSettings::setBrowserHistorySwipeEnabled(bool enabled)
+{
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    const QDBusReply<bool> reply = desktop.call(
+        QStringLiteral("setBrowserHistorySwipeEnabled"), enabled);
+    m_statusMessage = reply.isValid() && reply.value()
+        ? QStringLiteral("Browser history swipe updated")
+        : QStringLiteral("Browser history swipe could not be changed");
+    collectTrackpad();
+    emit dataChanged();
+    return reply.isValid() && reply.value();
 }
 
 bool SystemSettings::setTimeZone(const QString &zoneId)

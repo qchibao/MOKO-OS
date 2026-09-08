@@ -295,11 +295,79 @@ ApplicationWindow {
                     }
                 }
 
+                Rectangle {
+                    visible: window.selectedSection === "trackpad"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 330
+                    radius: 8
+                    color: "#F7FAFD"
+                    border.color: "#DCE7EF"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 12
+                        Text {
+                            text: mokoSettings.trackpadAvailable
+                                  ? mokoSettings.trackpadCount + " trackpad detected"
+                                  : "No compatible trackpad detected"
+                            color: "#16263B"
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: "Natural scrolling"; color: "#40536A"; font.pixelSize: 12 }
+                            Switch {
+                                checked: mokoSettings.naturalScrollEnabled
+                                enabled: mokoSettings.naturalScrollAvailable
+                                onToggled: mokoSettings.setNaturalScrollEnabled(checked)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: "Three-finger window drag"; color: "#40536A"; font.pixelSize: 12 }
+                            Switch {
+                                checked: mokoSettings.threeFingerDragEnabled
+                                enabled: mokoSettings.threeFingerDragAvailable
+                                onToggled: mokoSettings.setThreeFingerDragEnabled(checked)
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: mokoSettings.threeFingerDragAvailable
+                                  ? "Move the active window with three fingers."
+                                  : "Three-finger drag is not supported by this device."
+                            color: "#718294"
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; text: "Browser history swipe"; color: "#40536A"; font.pixelSize: 12 }
+                            Switch {
+                                checked: mokoSettings.browserHistorySwipeEnabled
+                                enabled: mokoSettings.browserHistorySwipeAvailable
+                                onToggled: mokoSettings.setBrowserHistorySwipeEnabled(checked)
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Two-finger horizontal swipes navigate Browser history; vertical scrolling remains unchanged."
+                            color: "#718294"
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
                 ListView {
                     id: settingRows
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: window.selectedSection !== "date-time"
+                             && window.selectedSection !== "trackpad"
                     model: window.currentRows
                     spacing: 8
                     clip: true

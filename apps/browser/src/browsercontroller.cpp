@@ -117,6 +117,12 @@ bool BrowserController::showDownloadsInFiles()
     return m_downloads.showInFiles();
 }
 
+bool BrowserController::browserHistorySwipeEnabled() const
+{
+    return QSettings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"))
+        .value(QStringLiteral("input/browserHistorySwipe"), true).toBool();
+}
+
 void BrowserController::loadQuickSites()
 {
     const QSettings settings(QStringLiteral("MOKO"), QStringLiteral("MOKO Browser"));

@@ -54,6 +54,11 @@ int main(void)
     assert(moko_rect_valid(left));
     assert(!moko_rect_valid((struct moko_rect){0, 0, 0, 100}));
 
+    const struct moko_rect translated = moko_translate_rect(centered, 42.9, -18.4);
+    assert(translated.x == centered.x + 42);
+    assert(translated.y == centered.y - 18);
+    assert(translated.width == centered.width && translated.height == centered.height);
+
     puts("MOKO compositor geometry tests passed.");
     return 0;
 }

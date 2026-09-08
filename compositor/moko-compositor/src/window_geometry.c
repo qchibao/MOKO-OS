@@ -80,3 +80,12 @@ struct moko_rect moko_snap_rect(struct moko_rect area, bool right)
     };
     return result;
 }
+
+struct moko_rect moko_translate_rect(struct moko_rect rect, double dx, double dy)
+{
+    if (!moko_rect_valid(rect))
+        return rect;
+    rect.x += (int)dx;
+    rect.y += (int)dy;
+    return rect;
+}

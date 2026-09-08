@@ -1,6 +1,7 @@
 #include "applicationiconprovider.h"
 #include "applicationregistry.h"
 #include "applicationservice.h"
+#include "desktopsettingsservice.h"
 #include "aicontroller.h"
 #include "notificationmodel.h"
 #include "screenshotcontroller.h"
@@ -82,6 +83,7 @@ int main(int argc, char *argv[])
     ScreenshotController screenshotController;
     SystemControl systemControl;
     WindowManager windowManager;
+    DesktopSettingsService desktopSettingsService(&windowManager);
     SessionLifecycle::Options sessionOptions;
     // Preview mode drives the lifecycle locally; an unrelated system-bus
     // PrepareForShutdown(false) must not cancel the rendered blackout.
@@ -155,6 +157,16 @@ int main(int argc, char *argv[])
                                               &applicationService,
                                               QDBusConnection::ExportAllSlots)) {
             qWarning("Could not export MOKO application service: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        }
+        if (!sessionBus.registerService(QStringLiteral("org.moko.Desktop1"))) {
+            qWarning("Could not own org.moko.Desktop1: %s",
+                     qPrintable(sessionBus.lastError().message()));
+        } else if (!sessionBus.registerObject(QStringLiteral("/org/moko/Desktop1"),
+                                              &desktopSettingsService,
+                                              QDBusConnection::ExportAllSlots
+                                                  | QDBusConnection::ExportAllSignals)) {
+            qWarning("Could not export MOKO desktop settings service: %s",
                      qPrintable(sessionBus.lastError().message()));
         }
         if (!sessionBus.registerService(QStringLiteral("org.freedesktop.Notifications"))) {

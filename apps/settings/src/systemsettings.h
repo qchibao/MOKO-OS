@@ -16,6 +16,14 @@ class SystemSettings final : public QObject
     Q_PROPERTY(bool automaticTimeAvailable READ automaticTimeAvailable NOTIFY dateTimeChanged)
     Q_PROPERTY(QStringList timeZoneChoices READ timeZoneChoices CONSTANT)
     Q_PROPERTY(bool twentyFourHour READ twentyFourHour WRITE setTwentyFourHour NOTIFY dateTimeChanged)
+    Q_PROPERTY(bool trackpadAvailable READ trackpadAvailable NOTIFY trackpadChanged)
+    Q_PROPERTY(int trackpadCount READ trackpadCount NOTIFY trackpadChanged)
+    Q_PROPERTY(bool naturalScrollAvailable READ naturalScrollAvailable NOTIFY trackpadChanged)
+    Q_PROPERTY(bool naturalScrollEnabled READ naturalScrollEnabled NOTIFY trackpadChanged)
+    Q_PROPERTY(bool threeFingerDragAvailable READ threeFingerDragAvailable NOTIFY trackpadChanged)
+    Q_PROPERTY(bool threeFingerDragEnabled READ threeFingerDragEnabled NOTIFY trackpadChanged)
+    Q_PROPERTY(bool browserHistorySwipeAvailable READ browserHistorySwipeAvailable NOTIFY trackpadChanged)
+    Q_PROPERTY(bool browserHistorySwipeEnabled READ browserHistorySwipeEnabled NOTIFY trackpadChanged)
 
 public:
     explicit SystemSettings(QObject *parent = nullptr);
@@ -31,6 +39,14 @@ public:
     QStringList timeZoneChoices() const;
     bool twentyFourHour() const;
     void setTwentyFourHour(bool enabled);
+    bool trackpadAvailable() const;
+    int trackpadCount() const;
+    bool naturalScrollAvailable() const;
+    bool naturalScrollEnabled() const;
+    bool threeFingerDragAvailable() const;
+    bool threeFingerDragEnabled() const;
+    bool browserHistorySwipeAvailable() const;
+    bool browserHistorySwipeEnabled() const;
 
     Q_INVOKABLE QStringList sectionIds() const;
     Q_INVOKABLE QString sectionTitle(const QString &sectionId) const;
@@ -40,11 +56,15 @@ public:
     Q_INVOKABLE bool openHardwareDiagnostics();
     Q_INVOKABLE bool setTimeZone(const QString &zoneId);
     Q_INVOKABLE bool setAutomaticTime(bool enabled);
+    Q_INVOKABLE bool setNaturalScrollEnabled(bool enabled);
+    Q_INVOKABLE bool setThreeFingerDragEnabled(bool enabled);
+    Q_INVOKABLE bool setBrowserHistorySwipeEnabled(bool enabled);
 
 signals:
     void dataChanged();
     void developerModeChanged();
     void dateTimeChanged();
+    void trackpadChanged();
 
 private:
     using Rows = QVariantList;
@@ -72,6 +92,7 @@ private:
     void collectStorage();
     void collectSystem();
     void collectDateTime();
+    void collectTrackpad();
     void collectHardwareDiagnostics();
 
     QHash<QString, Rows> m_rows;
@@ -83,4 +104,12 @@ private:
     bool m_automaticTime = false;
     bool m_automaticTimeAvailable = false;
     bool m_twentyFourHour = false;
+    bool m_trackpadAvailable = false;
+    int m_trackpadCount = 0;
+    bool m_naturalScrollAvailable = false;
+    bool m_naturalScrollEnabled = false;
+    bool m_threeFingerDragAvailable = false;
+    bool m_threeFingerDragEnabled = false;
+    bool m_browserHistorySwipeAvailable = false;
+    bool m_browserHistorySwipeEnabled = false;
 };

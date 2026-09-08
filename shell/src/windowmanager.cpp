@@ -41,7 +41,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 4U);
+        native->owner->m_protocolVersion = qMin(version, 5U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -107,6 +107,15 @@ struct WindowManagerCallbacks
         native->owner->updateDesktopConfig(outputScale, scaleCapabilities, keyboardLayout);
     }
 
+    static void managerGestureConfig(void *data,
+                                     moko_window_manager_v1 *,
+                                     uint32_t capabilities,
+                                     uint32_t state)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->updateGestureConfig(capabilities, state);
+    }
+
     static void managerGlobalAction(void *data,
                                     moko_window_manager_v1 *,
                                     uint32_t action)
@@ -155,6 +164,7 @@ const moko_window_manager_v1_listener managerListener = {
     .desktop_config = WindowManagerCallbacks::managerDesktopConfig,
     .global_action = WindowManagerCallbacks::managerGlobalAction,
     .shutdown_blackout_presented = WindowManagerCallbacks::managerShutdownBlackoutPresented,
+    .gesture_config = WindowManagerCallbacks::managerGestureConfig,
 };
 
 constexpr int shutdownEventPumpIntervalMs = 20;
@@ -305,6 +315,27 @@ bool WindowManager::gesturesAvailable() const
 {
     return (m_inputCapabilities & MOKO_WINDOW_MANAGER_V1_INPUT_CAPABILITY_GESTURES) != 0;
 }
+bool WindowManager::gestureProtocolAvailable() const { return m_protocolVersion >= 5; }
+bool WindowManager::threeFingerDragAvailable() const
+{
+    return (m_gestureCapabilities
+            & MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_THREE_FINGER_DRAG) != 0;
+}
+bool WindowManager::threeFingerDragEnabled() const
+{
+    return (m_gestureState
+            & MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_THREE_FINGER_DRAG_ENABLED) != 0;
+}
+bool WindowManager::browserHistorySwipeAvailable() const
+{
+    return (m_gestureCapabilities
+            & MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_BROWSER_HISTORY_SWIPE) != 0;
+}
+bool WindowManager::browserHistorySwipeEnabled() const
+{
+    return (m_gestureState
+            & MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_BROWSER_HISTORY_SWIPE_ENABLED) != 0;
+}
 
 bool WindowManager::desktopProtocolAvailable() const { return m_protocolVersion >= 3; }
 int WindowManager::outputScale() const { return m_outputScale; }
@@ -428,6 +459,36 @@ bool WindowManager::setPointerAcceleration(int speed)
         disconnectWayland();
         return false;
     }
+    return true;
+}
+
+bool WindowManager::setThreeFingerDragEnabled(bool enabled)
+{
+    if (!gestureProtocolAvailable() || !threeFingerDragAvailable()
+        || m_native->manager == nullptr)
+        return false;
+    moko_window_manager_v1_set_gesture_enabled(
+        m_native->manager, MOKO_WINDOW_MANAGER_V1_GESTURE_THREE_FINGER_DRAG,
+        enabled ? 1 : 0);
+    if (!flushRequest())
+        return false;
+    QSettings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"))
+        .setValue(QStringLiteral("input/threeFingerDrag"), enabled);
+    return true;
+}
+
+bool WindowManager::setBrowserHistorySwipeEnabled(bool enabled)
+{
+    if (!gestureProtocolAvailable() || !browserHistorySwipeAvailable()
+        || m_native->manager == nullptr)
+        return false;
+    moko_window_manager_v1_set_gesture_enabled(
+        m_native->manager, MOKO_WINDOW_MANAGER_V1_GESTURE_BROWSER_HISTORY_SWIPE,
+        enabled ? 1 : 0);
+    if (!flushRequest())
+        return false;
+    QSettings(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"))
+        .setValue(QStringLiteral("input/browserHistorySwipe"), enabled);
     return true;
 }
 
@@ -587,6 +648,8 @@ void WindowManager::disconnectWayland()
     m_touchpadCount = 0;
     m_inputCapabilities = 0;
     m_inputState = 0;
+    m_gestureCapabilities = 0;
+    m_gestureState = 0;
     m_pointerAcceleration = 0;
     m_outputScale = 100;
     m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
@@ -617,6 +680,18 @@ void WindowManager::applySavedDesktopSettings()
         setOutputScale(savedScale);
     if (savedLayout != m_keyboardLayout)
         setKeyboardLayout(savedLayout);
+    if (gestureProtocolAvailable()) {
+        const QSettings shared(QStringLiteral("MOKO"), QStringLiteral("MOKO OS"));
+        const bool threeFinger = shared.value(
+            QStringLiteral("input/threeFingerDrag"), true).toBool();
+        const bool browserSwipe = shared.value(
+            QStringLiteral("input/browserHistorySwipe"), true).toBool();
+        if (threeFingerDragAvailable() && threeFinger != threeFingerDragEnabled())
+            setThreeFingerDragEnabled(threeFinger);
+        if (browserHistorySwipeAvailable()
+            && browserSwipe != browserHistorySwipeEnabled())
+            setBrowserHistorySwipeEnabled(browserSwipe);
+    }
 }
 
 void WindowManager::updateWindow(quint32 id,
@@ -662,6 +737,23 @@ void WindowManager::updateInputConfig(quint32 deviceCount,
     m_inputCapabilities = capabilities;
     m_inputState = state;
     m_pointerAcceleration = speed;
+    emit inputChanged();
+}
+
+void WindowManager::updateGestureConfig(quint32 capabilities, quint32 state)
+{
+    const quint32 capabilityMask =
+        MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_THREE_FINGER_DRAG
+        | MOKO_WINDOW_MANAGER_V1_GESTURE_CAPABILITY_BROWSER_HISTORY_SWIPE;
+    const quint32 stateMask =
+        MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_THREE_FINGER_DRAG_ENABLED
+        | MOKO_WINDOW_MANAGER_V1_GESTURE_STATE_BROWSER_HISTORY_SWIPE_ENABLED;
+    capabilities &= capabilityMask;
+    state &= stateMask;
+    if (m_gestureCapabilities == capabilities && m_gestureState == state)
+        return;
+    m_gestureCapabilities = capabilities;
+    m_gestureState = state;
     emit inputChanged();
 }
 

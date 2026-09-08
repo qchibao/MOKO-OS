@@ -980,6 +980,66 @@ GlassPanel {
                     RowLayout {
                         visible: root.windowManager && root.windowManager.touchpadAvailable
                         Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Three-finger window drag"
+                                color: "#556577"
+                                font.pixelSize: 11
+                            }
+                            Text {
+                                text: root.windowManager && root.windowManager.threeFingerDragAvailable
+                                      ? "Move the active window with three fingers"
+                                      : "Not supported by this trackpad"
+                                color: "#7B8998"
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                        MokoSwitch {
+                            checked: root.windowManager
+                                     ? root.windowManager.threeFingerDragEnabled : false
+                            enabled: root.windowManager
+                                     && root.windowManager.threeFingerDragAvailable
+                            onToggled: root.windowManager.setThreeFingerDragEnabled(checked)
+                        }
+                    }
+
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Browser history swipe"
+                                color: "#556577"
+                                font.pixelSize: 11
+                            }
+                            Text {
+                                text: root.windowManager && root.windowManager.browserHistorySwipeAvailable
+                                      ? "Two-finger horizontal swipe navigates Browser"
+                                      : "Not supported by this trackpad"
+                                color: "#7B8998"
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                        MokoSwitch {
+                            checked: root.windowManager
+                                     ? root.windowManager.browserHistorySwipeEnabled : false
+                            enabled: root.windowManager
+                                     && root.windowManager.browserHistorySwipeAvailable
+                            onToggled: root.windowManager.setBrowserHistorySwipeEnabled(checked)
+                        }
+                    }
+
+                    Separator { visible: root.windowManager && root.windowManager.touchpadAvailable }
+
+                    RowLayout {
+                        visible: root.windowManager && root.windowManager.touchpadAvailable
+                        Layout.fillWidth: true
                         Text {
                             Layout.fillWidth: true
                             text: "Natural scrolling"

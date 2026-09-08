@@ -508,6 +508,7 @@ ApplicationWindow {
                     required property int index
                     required property string initialUrl
                     required property bool tabHome
+                    property real horizontalSwipeDelta: 0
                     anchors.fill: parent
                     visible: index === window.currentTab && !tabHome
                     enabled: visible
@@ -519,6 +520,30 @@ ApplicationWindow {
                     settings.localContentCanAccessRemoteUrls: false
                     settings.localContentCanAccessFileUrls: false
                     settings.fullScreenSupportEnabled: true
+
+                    // Qt WebEngine receives libinput's two-finger horizontal
+                    // motion as a horizontal wheel event. Keep vertical
+                    // scrolling untouched and turn only a deliberate swipe
+                    // into browser history navigation.
+                    WheelHandler {
+                        acceptedDevices: PointerDevice.TouchPad
+                        onWheel: function(event) {
+                            if (!mokoBrowser.browserHistorySwipeEnabled())
+                                return
+                            if (Math.abs(event.angleDelta.x) <= Math.abs(event.angleDelta.y))
+                                return
+                            parent.horizontalSwipeDelta += event.angleDelta.x
+                            if (Math.abs(parent.horizontalSwipeDelta) < 120)
+                                return
+                            const backwards = parent.horizontalSwipeDelta > 0
+                            parent.horizontalSwipeDelta = 0
+                            if (backwards && parent.canGoBack)
+                                parent.goBack()
+                            else if (!backwards && parent.canGoForward)
+                                parent.goForward()
+                            event.accepted = true
+                        }
+                    }
 
                     Component.onCompleted: {
                         if (mokoBrowser.smokeTest) {

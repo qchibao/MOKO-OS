@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="4">
+  <interface name="moko_window_manager_v1" version="5">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -162,6 +162,24 @@
       </description>
     </event>
 
+    <request name="set_gesture_enabled" since="5">
+      <description summary="enable a bounded compositor gesture">
+        Changes only allowlisted MOKO gestures. Unsupported gestures are
+        rejected by the compositor and are never emulated in applications.
+      </description>
+      <arg name="gesture" type="uint" enum="gesture"/>
+      <arg name="enabled" type="uint"/>
+    </request>
+
+    <event name="gesture_config" since="5">
+      <description summary="actual compositor gesture capabilities and state">
+        Reports gesture support from the detected libinput devices and the
+        currently applied enablement state.
+      </description>
+      <arg name="capabilities" type="uint" enum="gesture_capability"/>
+      <arg name="state" type="uint" enum="gesture_state"/>
+    </event>
+
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>
       <entry name="maximized" value="2"/>
@@ -197,6 +215,21 @@
       <entry name="adaptive_acceleration_enabled" value="16"/>
       <entry name="disable_while_typing_enabled" value="32"/>
       <entry name="drag_enabled" value="64"/>
+    </enum>
+
+    <enum name="gesture_capability" bitfield="true">
+      <entry name="three_finger_drag" value="1"/>
+      <entry name="browser_history_swipe" value="2"/>
+    </enum>
+
+    <enum name="gesture_state" bitfield="true">
+      <entry name="three_finger_drag_enabled" value="1"/>
+      <entry name="browser_history_swipe_enabled" value="2"/>
+    </enum>
+
+    <enum name="gesture">
+      <entry name="three_finger_drag" value="1"/>
+      <entry name="browser_history_swipe" value="2"/>
     </enum>
 
     <enum name="keyboard_layout">

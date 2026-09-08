@@ -33,6 +33,11 @@ class WindowManager final : public QObject
     Q_PROPERTY(bool dragAvailable READ dragAvailable NOTIFY inputChanged)
     Q_PROPERTY(bool dragEnabled READ dragEnabled NOTIFY inputChanged)
     Q_PROPERTY(bool gesturesAvailable READ gesturesAvailable NOTIFY inputChanged)
+    Q_PROPERTY(bool gestureProtocolAvailable READ gestureProtocolAvailable NOTIFY inputChanged)
+    Q_PROPERTY(bool threeFingerDragAvailable READ threeFingerDragAvailable NOTIFY inputChanged)
+    Q_PROPERTY(bool threeFingerDragEnabled READ threeFingerDragEnabled NOTIFY inputChanged)
+    Q_PROPERTY(bool browserHistorySwipeAvailable READ browserHistorySwipeAvailable NOTIFY inputChanged)
+    Q_PROPERTY(bool browserHistorySwipeEnabled READ browserHistorySwipeEnabled NOTIFY inputChanged)
     Q_PROPERTY(bool desktopProtocolAvailable READ desktopProtocolAvailable NOTIFY desktopChanged)
     Q_PROPERTY(int outputScale READ outputScale NOTIFY desktopChanged)
     Q_PROPERTY(bool outputScale200Available READ outputScale200Available NOTIFY desktopChanged)
@@ -64,6 +69,11 @@ public:
     bool dragAvailable() const;
     bool dragEnabled() const;
     bool gesturesAvailable() const;
+    bool gestureProtocolAvailable() const;
+    bool threeFingerDragAvailable() const;
+    bool threeFingerDragEnabled() const;
+    bool browserHistorySwipeAvailable() const;
+    bool browserHistorySwipeEnabled() const;
     bool desktopProtocolAvailable() const;
     int outputScale() const;
     bool outputScale200Available() const;
@@ -82,6 +92,8 @@ public:
     Q_INVOKABLE bool closeApplication(const QString &appId);
     Q_INVOKABLE bool setNaturalScrollEnabled(bool enabled);
     Q_INVOKABLE bool setPointerAcceleration(int speed);
+    Q_INVOKABLE bool setThreeFingerDragEnabled(bool enabled);
+    Q_INVOKABLE bool setBrowserHistorySwipeEnabled(bool enabled);
     Q_INVOKABLE bool setOutputScale(int scalePercent);
     Q_INVOKABLE bool saveOutputScale(int scalePercent = -1);
     Q_INVOKABLE bool setKeyboardLayout(int layout);
@@ -117,6 +129,7 @@ private:
                            quint32 capabilities,
                            quint32 state,
                            qint32 pointerAcceleration);
+    void updateGestureConfig(quint32 capabilities, quint32 state);
     void updateDesktopConfig(quint32 outputScale,
                              quint32 scaleCapabilities,
                              quint32 keyboardLayout);
@@ -135,6 +148,8 @@ private:
     quint32 m_touchpadCount = 0;
     quint32 m_inputCapabilities = 0;
     quint32 m_inputState = 0;
+    quint32 m_gestureCapabilities = 0;
+    quint32 m_gestureState = 0;
     int m_pointerAcceleration = 0;
     int m_outputScale = 100;
     quint32 m_outputScaleCapabilities = 1;
