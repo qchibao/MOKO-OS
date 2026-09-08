@@ -22,16 +22,19 @@ ApplicationWindow {
     property int findActiveMatch: 0
     property bool validationDownloadStarted: false
     property string fileDialogPurpose: "open"
+    property int editingQuickSite: -1
 
     function currentView() {
         return currentTab >= 0 ? webViews.itemAt(currentTab) : null
     }
 
     function createTab(target) {
-        const requested = target && target.toString().length > 0
-                        ? target.toString() : "https://duckduckgo.com/"
+        const value = target ? target.toString() : ""
+        const home = value.length === 0 || value === "moko://home"
+        const requested = home ? "about:blank" : value
         tabs.append({"initialUrl": requested, "tabTitle": "New Tab",
-                     "tabUrl": requested, "tabLoading": true})
+                     "tabUrl": home ? "moko://home" : requested,
+                     "tabLoading": !home, "tabHome": home})
         currentTab = tabs.count - 1
         Qt.callLater(function() {
             const view = currentView()
@@ -59,8 +62,35 @@ ApplicationWindow {
         const view = currentView()
         if (!view)
             return
+        tabs.setProperty(currentTab, "tabHome", false)
         view.url = mokoBrowser.urlFromInput(addressField.text)
         view.forceActiveFocus()
+    }
+
+    function openHome() {
+        const view = currentView()
+        if (!view)
+            return
+        view.stop()
+        view.url = "about:blank"
+        tabs.setProperty(currentTab, "tabHome", true)
+        tabs.setProperty(currentTab, "tabUrl", "moko://home")
+        tabs.setProperty(currentTab, "tabTitle", "New Tab")
+        addressField.text = ""
+    }
+
+    function openQuickSite(url) {
+        tabs.setProperty(currentTab, "tabHome", false)
+        currentView().url = url
+        currentView().forceActiveFocus()
+    }
+
+    function editQuickSite(index, site) {
+        editingQuickSite = index
+        quickSiteName.text = site ? site.label : ""
+        quickSiteUrl.text = site ? site.url : "https://"
+        quickSiteDialog.visible = true
+        Qt.callLater(function() { quickSiteName.forceActiveFocus() })
     }
 
     function togglePanel(name) {
@@ -340,6 +370,12 @@ ApplicationWindow {
                     ToolTip.text: "Open local file"
                     onClicked: window.chooseLocalFile()
                 }
+                MokoToolButton {
+                    text: "M"
+                    ToolTip.visible: hovered
+                    ToolTip.text: "MOKO home"
+                    onClicked: window.openHome()
+                }
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -365,7 +401,8 @@ ApplicationWindow {
                         TextField {
                             id: addressField
                             Layout.fillWidth: true
-                            text: currentView() ? currentView().url.toString() : ""
+                            text: window.currentTab >= 0 && tabs.get(window.currentTab).tabHome
+                                  ? "" : currentView() ? currentView().url.toString() : ""
                             selectByMouse: true
                             placeholderText: "Search or enter address"
                             color: "#1D3042"
@@ -470,8 +507,9 @@ ApplicationWindow {
                 delegate: WebEngineView {
                     required property int index
                     required property string initialUrl
+                    required property bool tabHome
                     anchors.fill: parent
-                    visible: index === window.currentTab
+                    visible: index === window.currentTab && !tabHome
                     enabled: visible
                     focus: visible
                     url: initialUrl
@@ -494,8 +532,10 @@ ApplicationWindow {
 
                     onTitleChanged: tabs.setProperty(index, "tabTitle", title.length > 0 ? title : "New Tab")
                     onUrlChanged: {
-                        tabs.setProperty(index, "tabUrl", url.toString())
-                        if (index === window.currentTab && !addressField.activeFocus)
+                        if (!tabs.get(index).tabHome)
+                            tabs.setProperty(index, "tabUrl", url.toString())
+                        if (index === window.currentTab && !tabs.get(index).tabHome
+                                && !addressField.activeFocus)
                             addressField.text = url.toString()
                     }
                     onLoadingChanged: function(loadRequest) {
@@ -523,6 +563,135 @@ ApplicationWindow {
                     onRenderProcessTerminated: function(terminationStatus, exitCode) {
                         mokoBrowser.recordLoad(title, url, false,
                                                "Page process stopped (" + exitCode + ")")
+                    }
+                }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                visible: window.currentTab >= 0 && tabs.get(window.currentTab).tabHome
+                color: "#F7FBFF"
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(760, parent.width - 48)
+                    spacing: 22
+
+                    ColumnLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 2
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "M O K O"
+                            color: "#101820"
+                            font.pixelSize: 42
+                            font.weight: Font.Black
+                            font.letterSpacing: 0
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "B R O W S E R"
+                            color: "#2F74E8"
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0
+                        }
+                    }
+
+                    TextField {
+                        id: homeSearch
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 48
+                        placeholderText: "Search the web or enter an address"
+                        selectByMouse: true
+                        color: "#1D3042"
+                        font.pixelSize: 13
+                        leftPadding: 18
+                        rightPadding: 18
+                        background: Rectangle {
+                            radius: 8
+                            color: "#FFFFFF"
+                            border.width: homeSearch.activeFocus ? 2 : 1
+                            border.color: homeSearch.activeFocus ? "#6B9FEF" : "#C8D8E4"
+                        }
+                        onAccepted: {
+                            addressField.text = text
+                            window.navigateFromAddress()
+                            clear()
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: width < 620 ? 2 : 4
+                        columnSpacing: 10
+                        rowSpacing: 10
+
+                        Repeater {
+                            model: mokoBrowser.quickSites
+                            delegate: Rectangle {
+                                required property int index
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 86
+                                radius: 8
+                                color: siteMouse.containsMouse ? "#EAF4FD" : "#FFFFFF"
+                                border.color: "#D3E2ED"
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 3
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.label
+                                        color: "#20384E"
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.url.replace(/^https?:\/\//, "")
+                                        color: "#708496"
+                                        font.pixelSize: 9
+                                        elide: Text.ElideRight
+                                    }
+                                    Item { Layout.fillHeight: true }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Item { Layout.fillWidth: true }
+                                        Button {
+                                            text: "Edit"
+                                            flat: true
+                                            font.pixelSize: 9
+                                            onClicked: window.editQuickSite(index, modelData)
+                                        }
+                                        Button {
+                                            text: "Remove"
+                                            flat: true
+                                            font.pixelSize: 9
+                                            onClicked: mokoBrowser.removeQuickSite(index)
+                                        }
+                                    }
+                                }
+                                MouseArea {
+                                    id: siteMouse
+                                    anchors.fill: parent
+                                    anchors.bottomMargin: 30
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: window.openQuickSite(modelData.url)
+                                }
+                            }
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 86
+                            text: "+  Add site"
+                            onClicked: window.editQuickSite(-1, null)
+                        }
                     }
                 }
             }
@@ -680,10 +849,18 @@ ApplicationWindow {
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: statusText; color: "#738594"; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: statusText + (canCancel && progress > 0
+                                              ? "  " + Math.round(progress * 100) + "%" : "")
+                                        color: canOpen ? "#2B8162" : "#738594"
+                                        font.pixelSize: 9
+                                        font.weight: canOpen ? Font.DemiBold : Font.Normal
+                                        elide: Text.ElideRight
+                                    }
                                     PanelButton { text: "Cancel"; visible: canCancel; onClicked: mokoBrowserDownloads.cancel(index) }
                                     PanelButton { text: "Open"; visible: canOpen; onClicked: mokoBrowserDownloads.open(index) }
-                                    PanelButton { text: "Files"; visible: canOpen; onClicked: mokoBrowserDownloads.showInFiles(index) }
+                                    PanelButton { text: "Show in Files"; visible: canOpen; onClicked: mokoBrowserDownloads.showInFiles(index) }
                                 }
                             }
                         }
@@ -752,6 +929,66 @@ ApplicationWindow {
             if (target.toString().length > 0 && window.currentView()) {
                 window.currentView().url = target
                 window.currentView().forceActiveFocus()
+            }
+        }
+    }
+
+    Rectangle {
+        id: quickSiteDialog
+        anchors.fill: parent
+        visible: false
+        z: 200
+        color: Qt.rgba(.10,.15,.21,.38)
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(410, parent.width - 40)
+            height: 230
+            radius: 8
+            color: "#F8FBFE"
+            border.color: "#C7D8E6"
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
+                Text {
+                    text: window.editingQuickSite < 0 ? "Add quick site" : "Edit quick site"
+                    color: "#172D40"
+                    font.pixelSize: 17
+                    font.weight: Font.Bold
+                }
+                TextField {
+                    id: quickSiteName
+                    Layout.fillWidth: true
+                    placeholderText: "Name"
+                    selectByMouse: true
+                }
+                TextField {
+                    id: quickSiteUrl
+                    Layout.fillWidth: true
+                    placeholderText: "https://example.com"
+                    selectByMouse: true
+                }
+                Item { Layout.fillHeight: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    PanelButton { text: "Cancel"; onClicked: quickSiteDialog.visible = false }
+                    PanelButton {
+                        text: "Save"
+                        enabled: quickSiteName.text.trim().length > 0
+                                 && quickSiteUrl.text.trim().length > 0
+                        onClicked: {
+                            const ok = window.editingQuickSite < 0
+                                     ? mokoBrowser.addQuickSite(quickSiteName.text, quickSiteUrl.text)
+                                     : mokoBrowser.updateQuickSite(window.editingQuickSite,
+                                                                   quickSiteName.text,
+                                                                   quickSiteUrl.text)
+                            if (ok)
+                                quickSiteDialog.visible = false
+                        }
+                    }
+                }
             }
         }
     }
