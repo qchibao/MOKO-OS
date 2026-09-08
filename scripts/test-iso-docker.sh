@@ -268,6 +268,12 @@ dock_app_click() {
       ;;
   esac
 
+  # Raise the Shell surface first. A client window can cover the reserved Dock
+  # strip while it is settling; Meta exposes the real Dock without bypassing
+  # the user-facing activation path.
+  monitor "sendkey meta_l-space"
+  sleep 1
+
   # Mirrors Dock.qml's compact 1280x800 geometry and pinned application order.
   local app_count=5
   local button_extent=44
