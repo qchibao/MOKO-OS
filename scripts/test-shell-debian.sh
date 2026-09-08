@@ -88,7 +88,7 @@ PY
       --size 1280x720 --screenshot /artifacts/moko-notification-center-preview.png
     test -s /artifacts/moko-notification-center-preview.png
 
-    for app in files settings terminal; do
+    for app in files settings terminal package-installer; do
       WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
         "/tmp/moko-apps-build/$app/moko-$app" \
         --screenshot "/artifacts/moko-$app-preview.png"

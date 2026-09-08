@@ -20,6 +20,7 @@ private slots:
     void interoperatesWithSystemFileClipboard();
     void rejectsUnsafeNamesAndDeleteTokens();
     void filtersEntriesAndBuildsBreadcrumbs();
+    void routesPackagesSafely();
 };
 
 void FileModelTest::navigatesAndTracksHistory()
@@ -160,6 +161,61 @@ void FileModelTest::filtersEntriesAndBuildsBreadcrumbs()
     QCOMPARE(QDir::cleanPath(breadcrumbs.constLast().toMap()
                                  .value(QStringLiteral("path")).toString()),
              QDir::cleanPath(root.filePath(QStringLiteral("Projects/Aurora"))));
+}
+
+void FileModelTest::routesPackagesSafely()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString bin = root.filePath(QStringLiteral("bin"));
+    QVERIFY(QDir().mkpath(bin));
+    const QString marker = root.filePath(QStringLiteral("installer-argument.txt"));
+    QFile installer(QDir(bin).filePath(QStringLiteral("moko-package-installer")));
+    QVERIFY(installer.open(QIODevice::WriteOnly));
+    installer.write("#!/bin/sh\nprintf '%s' \"$1\" > \"$MOKO_TEST_MARKER\"\n");
+    installer.close();
+    QVERIFY(installer.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                     | QFileDevice::ExeOwner));
+    const QByteArray originalPath = qgetenv("PATH");
+    qputenv("PATH", bin.toUtf8() + ':' + originalPath);
+    qputenv("MOKO_TEST_MARKER", marker.toUtf8());
+
+    QFile deb(root.filePath(QStringLiteral("sample.deb")));
+    QVERIFY(deb.open(QIODevice::WriteOnly));
+    deb.write("fixture\n");
+    deb.close();
+    QFile rpm(root.filePath(QStringLiteral("sample.rpm")));
+    QVERIFY(rpm.open(QIODevice::WriteOnly));
+    rpm.write("fixture\n");
+    rpm.close();
+
+    FileModel model(nullptr, root.path());
+    int debRow = -1;
+    int rpmRow = -1;
+    for (int row = 0; row < model.rowCount(); ++row) {
+        const QString name = model.data(model.index(row), FileModel::NameRole).toString();
+        if (name == QStringLiteral("sample.deb"))
+            debRow = row;
+        else if (name == QStringLiteral("sample.rpm"))
+            rpmRow = row;
+    }
+    QVERIFY(debRow >= 0);
+    QVERIFY(rpmRow >= 0);
+    QVERIFY(model.openEntry(debRow));
+    QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(marker), 3000);
+    QFile markerFile(marker);
+    QVERIFY(markerFile.open(QIODevice::ReadOnly));
+    QCOMPARE(QString::fromUtf8(markerFile.readAll()), deb.fileName());
+    markerFile.close();
+    QVERIFY(QFile::remove(marker));
+    QVERIFY(model.openEntry(rpmRow));
+    QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(marker), 3000);
+    markerFile.setFileName(marker);
+    QVERIFY(markerFile.open(QIODevice::ReadOnly));
+    QCOMPARE(QString::fromUtf8(markerFile.readAll()), rpm.fileName());
+
+    qputenv("PATH", originalPath);
+    qunsetenv("MOKO_TEST_MARKER");
 }
 
 QTEST_MAIN(FileModelTest)

@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'MOKO package install rejected: %s\n' "$1" >&2
+    exit "${2:-64}"
+}
+
+[ "$#" -eq 2 ] || fail "expected one package path and one SHA-256 digest"
+package=$1
+expected_sha=$2
+
+case "$package" in
+    /*.deb) ;;
+    *) fail "only an absolute .deb path is accepted" ;;
+esac
+case "$expected_sha" in
+    ''|*[!0-9a-f]*) fail "invalid SHA-256 digest" ;;
+esac
+[ "${#expected_sha}" -eq 64 ] || fail "invalid SHA-256 digest"
+
+[ -f "$package" ] || fail "package is not a regular file"
+[ ! -L "$package" ] || fail "symbolic links are not accepted"
+[ -r "$package" ] || fail "package is not readable"
+
+request_uid=${PKEXEC_UID:-}
+case "$request_uid" in
+    ''|0|*[!0-9]*) fail "missing unprivileged requester identity" 77 ;;
+esac
+package_uid=$(/usr/bin/stat -c '%u' -- "$package")
+[ "$package_uid" = "$request_uid" ] || fail "package must be owned by the requesting user" 77
+
+canonical=$(/usr/bin/realpath -e -- "$package")
+[ "$canonical" = "$package" ] || fail "package path must already be canonical"
+actual_sha=$(/usr/bin/sha256sum -- "$canonical" | /usr/bin/cut -d ' ' -f 1)
+[ "$actual_sha" = "$expected_sha" ] || fail "package changed after inspection" 65
+
+workdir=$(/usr/bin/mktemp -d /tmp/moko-package-install.XXXXXX)
+trap '/usr/bin/rm -rf -- "$workdir"' EXIT HUP INT TERM
+/usr/bin/install -m 0600 -- "$canonical" "$workdir/package.deb"
+copied_sha=$(/usr/bin/sha256sum -- "$workdir/package.deb" | /usr/bin/cut -d ' ' -f 1)
+[ "$copied_sha" = "$expected_sha" ] || fail "could not create a stable package copy" 65
+/usr/bin/dpkg-deb --info "$workdir/package.deb" >/dev/null \
+    || fail "invalid Debian package" 66
+
+export DEBIAN_FRONTEND=noninteractive
+printf 'Installing the confirmed Debian package and required dependencies...\n'
+/usr/bin/apt-get --assume-yes --no-remove install "$workdir/package.deb"

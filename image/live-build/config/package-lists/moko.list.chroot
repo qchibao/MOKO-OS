@@ -38,6 +38,8 @@ qml6-module-qtwebengine
 fonts-dejavu-core
 libvterm0
 xdg-utils
+polkitd
+pkexec
 firmware-linux
 firmware-misc-nonfree
 firmware-iwlwifi

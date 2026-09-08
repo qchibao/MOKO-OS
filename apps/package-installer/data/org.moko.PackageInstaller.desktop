@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=MOKO Package Installer
+GenericName=Package Installer
+Comment=Inspect and install a Debian package after confirmation
+Exec=moko-package-installer %f
+Icon=package-x-generic
+Terminal=false
+NoDisplay=true
+Categories=System;PackageManager;
+Keywords=package;deb;install;software;
+MimeType=application/vnd.debian.binary-package;application/x-deb;application/x-rpm;
+X-MOKO-AppId=org.moko.PackageInstaller
+X-MOKO-Category=System
+X-MOKO-Glyph=store

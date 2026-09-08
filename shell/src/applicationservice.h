@@ -15,6 +15,7 @@ public:
 
 public slots:
     QVariantMap openApplication(const QString &appId);
+    QVariantMap reloadApplications();
 
 private:
     ApplicationRegistry *m_registry;

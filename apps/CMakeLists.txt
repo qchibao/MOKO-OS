@@ -23,6 +23,7 @@ include(CTest)
 
 add_subdirectory(common)
 add_subdirectory(files)
+add_subdirectory(package-installer)
 add_subdirectory(browser)
 add_subdirectory(hardware)
 add_subdirectory(settings)

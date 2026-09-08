@@ -575,6 +575,7 @@ docker run --rm --platform linux/amd64 \
       usr/local/bin/moko-cage-session \
       usr/local/bin/moko-desktop-session \
       usr/local/bin/moko-files \
+      usr/local/bin/moko-package-installer \
       usr/local/bin/moko-browser \
       usr/local/bin/moko-settings \
       usr/local/bin/moko-terminal \
@@ -588,12 +589,15 @@ docker run --rm --platform linux/amd64 \
       usr/local/libexec/moko-live-health-check \
       usr/local/libexec/moko-live-disk-safety-check \
       usr/local/libexec/moko-live-launch-monitor \
+      usr/local/libexec/moko-package-install-helper \
       usr/local/libexec/moko-shutdown-blackout-guard \
       usr/local/share/applications/org.moko.Files.desktop \
       usr/local/share/applications/org.moko.Browser.desktop \
       usr/local/share/applications/org.moko.Settings.desktop \
       usr/local/share/applications/org.moko.Terminal.desktop \
       usr/local/share/applications/org.moko.HardwareDiagnostics.desktop \
+      usr/local/share/applications/org.moko.PackageInstaller.desktop \
+      usr/share/polkit-1/actions/org.moko.package-installer.policy \
       usr/local/share/applications/zutty.desktop \
       usr/local/share/dbus-1/interfaces/org.moko.AI1.xml \
       usr/local/share/dbus-1/services/org.moko.AI1.service \
@@ -606,6 +610,12 @@ docker run --rm --platform linux/amd64 \
     do
       unsquashfs -ll /tmp/filesystem.squashfs "$path" | grep -Fq "squashfs-root/$path"
     done
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/local/libexec/moko-package-install-helper > /tmp/moko-package-install-helper
+    grep -Fq '/usr/bin/apt-get --assume-yes --no-remove install "$workdir/package.deb"' \
+      /tmp/moko-package-install-helper
+    ! grep -Eq '(^|[[:space:]])(eval|sh -c|bash -c)([[:space:]]|$)' \
+      /tmp/moko-package-install-helper
     unsquashfs -cat /tmp/filesystem.squashfs etc/greetd/config.toml \
       | grep -Fxq "command = \"/usr/local/bin/moko-desktop-session\""
     unsquashfs -cat /tmp/filesystem.squashfs \

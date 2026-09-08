@@ -1,4 +1,5 @@
 #include "applicationregistry.h"
+#include "applicationservice.h"
 
 #include <QFile>
 #include <QSignalSpy>
@@ -24,6 +25,7 @@ private slots:
     void readsAndFiltersDesktopEntries();
     void launchesWithoutShellInterpretation();
     void reportsLaunchFailure();
+    void reloadsThroughApplicationService();
 };
 
 void ApplicationRegistryTest::readsAndFiltersDesktopEntries()
@@ -119,6 +121,26 @@ Exec=/definitely/not/a/moko-program
                  .value(QStringLiteral("launchState"))
                  .toString(),
              QStringLiteral("failed"));
+}
+
+void ApplicationRegistryTest::reloadsThroughApplicationService()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ApplicationRegistry registry(nullptr, {directory.path()});
+    ApplicationService service(&registry);
+    QCOMPARE(registry.rowCount(), 0);
+
+    writeDesktopFile(directory.filePath(QStringLiteral("installed.desktop")), R"DESKTOP(
+[Desktop Entry]
+Type=Application
+Name=Installed Application
+Exec=/bin/true
+)DESKTOP");
+    const QVariantMap result = service.reloadApplications();
+    QVERIFY(result.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(result.value(QStringLiteral("count")).toInt(), 1);
+    QCOMPARE(registry.rowCount(), 1);
 }
 
 QTEST_GUILESS_MAIN(ApplicationRegistryTest)

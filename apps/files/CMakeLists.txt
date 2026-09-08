@@ -26,7 +26,7 @@ if(BUILD_TESTING)
         src/filemodel.cpp
         src/filemodel.h
     )
-    target_include_directories(moko-files-tests PRIVATE src)
+    target_include_directories(moko-files-tests PRIVATE src ../common)
     target_link_libraries(moko-files-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME moko-files-tests COMMAND moko-files-tests)
     set_tests_properties(moko-files-tests PROPERTIES

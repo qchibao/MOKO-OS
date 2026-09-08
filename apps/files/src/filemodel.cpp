@@ -1,4 +1,5 @@
 #include "filemodel.h"
+#include "livemarker.h"
 
 #include <QDesktopServices>
 #include <QClipboard>
@@ -10,6 +11,7 @@
 #include <QMimeDatabase>
 #include <QMimeData>
 #include <QLocale>
+#include <QProcess>
 #include <QSet>
 #include <QStandardPaths>
 #include <QStorageInfo>
@@ -18,6 +20,8 @@
 
 #include <algorithm>
 #include <utility>
+
+#include <unistd.h>
 
 FileModel::FileModel(QObject *parent, const QString &initialPath)
     : QAbstractListModel(parent)
@@ -234,6 +238,24 @@ bool FileModel::openEntry(int row)
     const Entry item = m_entries.at(row);
     if (item.directory)
         return navigateInternal(item.path, true);
+    const QMimeType mime = QMimeDatabase().mimeTypeForFile(item.path, QMimeDatabase::MatchContent);
+    const bool packageFile = item.path.endsWith(QStringLiteral(".deb"), Qt::CaseInsensitive)
+        || item.path.endsWith(QStringLiteral(".rpm"), Qt::CaseInsensitive)
+        || mime.name() == QStringLiteral("application/vnd.debian.binary-package")
+        || mime.name() == QStringLiteral("application/x-deb")
+        || mime.name() == QStringLiteral("application/x-rpm");
+    if (packageFile) {
+        const QString installer = QStandardPaths::findExecutable(
+            QStringLiteral("moko-package-installer"));
+        if (installer.isEmpty())
+            return fail(QStringLiteral("MOKO Package Installer is not available."));
+        if (!QProcess::startDetached(installer, {item.path}))
+            return fail(QStringLiteral("MOKO Package Installer could not be started."));
+        writeMokoLiveEvent(QStringLiteral("MOKO_PACKAGE_REQUEST path=%1 uid=%2")
+                               .arg(item.path.left(240), QString::number(geteuid())));
+        setStatusMessage(QStringLiteral("Reviewing %1 before installation").arg(item.name));
+        return true;
+    }
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(item.path)))
         return fail(QStringLiteral("No system application could open %1.").arg(item.name));
     setStatusMessage(QStringLiteral("Opened %1").arg(item.name));

@@ -23,3 +23,10 @@ QVariantMap ApplicationService::openApplication(const QString &appId)
                  : QStringLiteral("Application could not be launched.")},
             {QStringLiteral("displayName"), application.value(QStringLiteral("displayName"))}};
 }
+
+QVariantMap ApplicationService::reloadApplications()
+{
+    m_registry->reload();
+    return {{QStringLiteral("ok"), true},
+            {QStringLiteral("count"), m_registry->rowCount()}};
+}

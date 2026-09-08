@@ -117,6 +117,8 @@ if(BUILD_TESTING)
 
     qt_add_executable(moko-application-registry-tests
         tests/test_applicationregistry.cpp
+        src/applicationservice.cpp
+        src/applicationservice.h
         src/applicationregistry.cpp
         src/applicationregistry.h
     )
