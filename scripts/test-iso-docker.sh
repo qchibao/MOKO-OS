@@ -1440,10 +1440,10 @@ for run in $(seq 1 "$RUNS"); do
       marker=$(serial_line_count)
       dock_app_click org.moko.Settings
       wait_for_serial_since "$marker" \
-        "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" 30 \
+        "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" "$APP_READY_TIMEOUT_SECONDS" \
         "MOKO Settings did not map alongside MOKO Files."
       wait_for_serial_since "$marker" \
-        "MOKO_APP_READY app_id=org.moko.Settings state=ready" 30 \
+        "MOKO_APP_READY app_id=org.moko.Settings state=ready" "$APP_READY_TIMEOUT_SECONDS" \
         "MOKO Settings did not become ready in the multi-window workflow."
 
       # Let the Qt client commit the compositor-requested work-area size before

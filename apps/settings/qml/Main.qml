@@ -43,15 +43,14 @@ ApplicationWindow {
     }
 
     function selectSection(sectionId) {
-        selectedSection = sectionId
-        currentRows = mokoSettings.rows(sectionId)
-        if (sectionId === "network" && mokoSystemControl)
-            mokoSystemControl.preloadNetwork()
-        if (sectionId === "bluetooth" && mokoSystemControl)
-            mokoSystemControl.preloadBluetooth()
+        if (selectedSection !== sectionId)
+            selectedSection = sectionId
+        else
+            refreshSelectedSection()
     }
 
-    onSelectedSectionChanged: {
+    function refreshSelectedSection() {
+        mokoSettings.refreshSection(selectedSection)
         currentRows = mokoSettings.rows(selectedSection)
         if (selectedSection === "network" && mokoSystemControl)
             mokoSystemControl.preloadNetwork()
@@ -59,7 +58,16 @@ ApplicationWindow {
             mokoSystemControl.preloadBluetooth()
     }
 
-    Component.onCompleted: selectSection(selectedSection)
+    onSelectedSectionChanged: refreshSectionTimer.restart()
+
+    Timer {
+        id: refreshSectionTimer
+        interval: 100
+        repeat: false
+        onTriggered: refreshSelectedSection()
+    }
+
+    Component.onCompleted: refreshSectionTimer.start()
 
     Connections {
         target: mokoSettings
@@ -246,7 +254,7 @@ ApplicationWindow {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
-                    onClicked: mokoSettings.refresh()
+                    onClicked: window.refreshSelectedSection()
                 }
                 Text {
                     Layout.fillWidth: true

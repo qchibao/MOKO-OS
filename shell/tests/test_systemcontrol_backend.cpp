@@ -24,8 +24,33 @@ class SystemControlBackendTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void defersInitialBackendProbe();
     void controlsFixtureBacklightBatteryAndAudio();
 };
+
+void SystemControlBackendTest::defersInitialBackendProbe()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString commandLog = directory.filePath(QStringLiteral("wpctl.log"));
+    const QString fakeWpctl = directory.filePath(QStringLiteral("wpctl"));
+    writeFile(fakeWpctl,
+              QStringLiteral("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '%1'\nexit 0\n")
+                  .arg(commandLog)
+                  .toUtf8(),
+              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+
+    qputenv("MOKO_SYSFS_ROOT", directory.path().toUtf8());
+    qputenv("MOKO_WPCTL", fakeWpctl.toUtf8());
+    SystemControl control(nullptr, true);
+
+    QVERIFY(!QFile::exists(commandLog));
+    control.refresh();
+    QVERIFY(QFile::exists(commandLog));
+
+    qunsetenv("MOKO_SYSFS_ROOT");
+    qunsetenv("MOKO_WPCTL");
+}
 
 void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
 {

@@ -68,7 +68,8 @@ class SystemControl final : public QObject
     Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
 
 public:
-    explicit SystemControl(QObject *parent = nullptr);
+    // Settings uses deferred startup so a slow system D-Bus cannot block its first frame.
+    explicit SystemControl(QObject *parent = nullptr, bool deferInitialRefresh = false);
     ~SystemControl() override;
 
     bool networkManagerAvailable() const;
@@ -181,6 +182,9 @@ private:
     void setOperationMessage(const QString &message);
 
     QTimer *m_refreshTimer = nullptr;
+    bool m_targetedRefreshOnly = false;
+    bool m_networkRefreshEnabled = false;
+    bool m_bluetoothRefreshEnabled = false;
     bool m_networkPreloadPending = false;
     bool m_bluetoothPreloadPending = false;
     BluetoothAgent m_bluetoothAgent;

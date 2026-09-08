@@ -30,7 +30,8 @@ class SystemSettings final : public QObject
     Q_PROPERTY(bool glassEffectsEnabled READ glassEffectsEnabled NOTIFY appearanceChanged)
 
 public:
-    explicit SystemSettings(QObject *parent = nullptr);
+    // The Settings window can render before optional system services respond.
+    explicit SystemSettings(QObject *parent = nullptr, bool deferInitialRefresh = false);
 
     QString refreshedAt() const;
     QString statusMessage() const;
@@ -61,6 +62,7 @@ public:
     Q_INVOKABLE QString sectionDescription(const QString &sectionId) const;
     Q_INVOKABLE QVariantList rows(const QString &sectionId) const;
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE void refreshSection(const QString &sectionId);
     Q_INVOKABLE bool openHardwareDiagnostics();
     Q_INVOKABLE bool setTimeZone(const QString &zoneId);
     Q_INVOKABLE bool setAutomaticTime(bool enabled);
@@ -75,6 +77,9 @@ signals:
     void dateTimeChanged();
     void trackpadChanged();
     void appearanceChanged();
+
+private slots:
+    void refreshTrackpad();
 
 private:
     using Rows = QVariantList;
@@ -104,6 +109,7 @@ private:
     void collectDateTime();
     void collectTrackpad();
     void collectHardwareDiagnostics();
+    void finishRefresh();
 
     QHash<QString, Rows> m_rows;
     QString m_refreshedAt;

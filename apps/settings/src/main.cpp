@@ -39,8 +39,9 @@ int main(int argc, char *argv[])
         return 77;
     }
 
-    SystemSettings settings;
-    SystemControl systemControl;
+    // Keep the first frame independent from optional/slow system services.
+    SystemSettings settings(nullptr, true);
+    SystemControl systemControl(nullptr, true);
     bool qmlWarningsFound = false;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("mokoSettings"), &settings);
@@ -56,7 +57,7 @@ int main(int argc, char *argv[])
     if (!parser.value(QStringLiteral("section")).isEmpty())
         engine.rootObjects().constFirst()->setProperty(
             "selectedSection", parser.value(QStringLiteral("section")));
-    writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.Settings state=ready detail=system-data-loaded"));
+    writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.Settings state=ready detail=ui-ready"));
     if (validationMode) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         QTimer::singleShot(1000, &app, [&, window]() {

@@ -66,6 +66,7 @@ QVariant dbusProperty(const QString &service,
                       const QString &name)
 {
     QDBusInterface object(service, path, interface, QDBusConnection::systemBus());
+    object.setTimeout(1500);
     return object.isValid() ? unwrapped(object.property(name.toUtf8().constData())) : QVariant{};
 }
 
@@ -80,6 +81,7 @@ bool setDbusProperty(const QString &service,
                               path,
                               QStringLiteral("org.freedesktop.DBus.Properties"),
                               QDBusConnection::systemBus());
+    properties.setTimeout(3000);
     const QDBusMessage reply = properties.call(QStringLiteral("Set"),
                                                 interface,
                                                 name,
@@ -178,8 +180,9 @@ void writeLiveEvent(const QString &event)
 
 } // namespace
 
-SystemControl::SystemControl(QObject *parent)
+SystemControl::SystemControl(QObject *parent, bool deferInitialRefresh)
     : QObject(parent)
+    , m_targetedRefreshOnly(deferInitialRefresh)
     , m_bluetoothAgent()
     , m_bluetoothAgentPath(QStringLiteral("/org/moko/BluetoothAgent_%1").arg(getpid()))
 {
@@ -198,13 +201,24 @@ SystemControl::SystemControl(QObject *parent)
 
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(5000);
-    connect(m_refreshTimer, &QTimer::timeout, this, &SystemControl::refresh);
-    m_refreshTimer->start();
+    connect(m_refreshTimer, &QTimer::timeout, this, [this] {
+        if (!m_targetedRefreshOnly) {
+            refresh();
+            return;
+        }
+        if (m_networkRefreshEnabled)
+            refreshNetwork();
+        if (m_bluetoothRefreshEnabled)
+            refreshBluetooth();
+    });
+    if (!deferInitialRefresh)
+        m_refreshTimer->start();
     auto *clockTimer = new QTimer(this);
     clockTimer->setInterval(1000);
     connect(clockTimer, &QTimer::timeout, this, &SystemControl::refreshTime);
     clockTimer->start();
-    refresh();
+    if (!deferInitialRefresh)
+        refresh();
 }
 
 SystemControl::~SystemControl()
@@ -283,6 +297,9 @@ void SystemControl::refresh()
 
 void SystemControl::preloadNetwork()
 {
+    m_networkRefreshEnabled = true;
+    if (!m_refreshTimer->isActive())
+        m_refreshTimer->start();
     if (m_networkPreloadPending)
         return;
     m_networkPreloadPending = true;
@@ -298,6 +315,9 @@ void SystemControl::preloadNetwork()
 
 void SystemControl::preloadBluetooth()
 {
+    m_bluetoothRefreshEnabled = true;
+    if (!m_refreshTimer->isActive())
+        m_refreshTimer->start();
     if (m_bluetoothPreloadPending)
         return;
     m_bluetoothPreloadPending = true;

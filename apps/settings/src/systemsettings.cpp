@@ -75,20 +75,27 @@ QSettings sharedSettings()
 
 } // namespace
 
-SystemSettings::SystemSettings(QObject *parent)
+SystemSettings::SystemSettings(QObject *parent, bool deferInitialRefresh)
     : QObject(parent)
 {
     QSettings settings;
     m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
     m_twentyFourHour = sharedSettings().value(
         QStringLiteral("dateTime/twentyFourHour"), false).toBool();
+    const QString storedAppearance = sharedSettings().value(
+        QStringLiteral("appearance/mode"), QStringLiteral("light")).toString().toLower();
+    m_appearanceMode = appearanceModes().contains(storedAppearance)
+        ? storedAppearance : QStringLiteral("light");
+    m_safeGraphics = qEnvironmentVariableIntValue("MOKO_SAFE_GRAPHICS") == 1;
+    m_glassEffectsEnabled = m_appearanceMode == QStringLiteral("glass") && !m_safeGraphics;
     QDBusConnection::sessionBus().connect(QStringLiteral("org.moko.Desktop1"),
                                           QStringLiteral("/org/moko/Desktop1"),
                                           QStringLiteral("org.moko.Desktop1"),
                                           QStringLiteral("inputChanged"),
                                           this,
-                                          SLOT(refresh()));
-    refresh();
+                                          SLOT(refreshTrackpad()));
+    if (!deferInitialRefresh)
+        refresh();
 }
 
 QString SystemSettings::refreshedAt() const
@@ -240,6 +247,42 @@ void SystemSettings::refresh()
     collectStorage();
     collectHardwareDiagnostics();
     collectSystem();
+    finishRefresh();
+}
+
+void SystemSettings::refreshSection(const QString &sectionId)
+{
+    if (sectionId == QStringLiteral("about"))
+        collectAbout();
+    else if (sectionId == QStringLiteral("display"))
+        collectDisplay();
+    else if (sectionId == QStringLiteral("appearance"))
+        collectAppearance();
+    else if (sectionId == QStringLiteral("trackpad"))
+        collectTrackpad();
+    else if (sectionId == QStringLiteral("date-time"))
+        collectDateTime();
+    else if (sectionId == QStringLiteral("sound"))
+        collectSound();
+    else if (sectionId == QStringLiteral("power"))
+        collectPower();
+    else if (sectionId == QStringLiteral("storage"))
+        collectStorage();
+    else if (sectionId == QStringLiteral("hardware"))
+        collectHardwareDiagnostics();
+    else if (sectionId == QStringLiteral("system"))
+        collectSystem();
+    else if (sectionId == QStringLiteral("network")
+             || sectionId == QStringLiteral("bluetooth")) {
+        // These pages are backed by SystemControl and preload their live state.
+    } else {
+        return;
+    }
+    finishRefresh();
+}
+
+void SystemSettings::finishRefresh()
+{
     const QDateTime now = QDateTime::currentDateTime();
     m_refreshedAt = QStringLiteral("%1 %2")
                         .arg(QLocale::system().toString(now, QLocale::ShortFormat),
@@ -248,12 +291,19 @@ void SystemSettings::refresh()
     emit dataChanged();
 }
 
+void SystemSettings::refreshTrackpad()
+{
+    collectTrackpad();
+    finishRefresh();
+}
+
 void SystemSettings::collectTrackpad()
 {
     QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
                            QStringLiteral("/org/moko/Desktop1"),
                            QStringLiteral("org.moko.Desktop1"),
                            QDBusConnection::sessionBus());
+    desktop.setTimeout(1500);
     const QDBusReply<QVariantMap> reply = desktop.call(QStringLiteral("inputState"));
     const QVariantMap state = reply.isValid() ? reply.value() : QVariantMap{};
     m_trackpadAvailable = state.value(QStringLiteral("touchpadAvailable")).toBool();

@@ -8,11 +8,25 @@ class SystemSettingsTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void deferredInitialRefresh();
     void exposesAllRequiredSections();
     void returnsStructuredRealRows();
     void hidesTechnicalRowsUntilDeveloperMode();
     void validatesAppearanceModes();
 };
+
+void SystemSettingsTest::deferredInitialRefresh()
+{
+    SystemSettings settings(nullptr, true);
+
+    QVERIFY(settings.refreshedAt().isEmpty());
+    QVERIFY(settings.rows(QStringLiteral("about")).isEmpty());
+
+    settings.refreshSection(QStringLiteral("about"));
+    QVERIFY(!settings.refreshedAt().isEmpty());
+    QVERIFY(!settings.rows(QStringLiteral("about")).isEmpty());
+    QVERIFY(settings.rows(QStringLiteral("sound")).isEmpty());
+}
 
 void SystemSettingsTest::exposesAllRequiredSections()
 {
