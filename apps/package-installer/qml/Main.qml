@@ -28,6 +28,15 @@ ApplicationWindow {
         return "Review package"
     }
 
+    function activatePrimaryAction() {
+        if (failureDialog.visible)
+            failureDialog.accept()
+        else if (confirmDialog.visible)
+            confirmDialog.accept()
+        else if (mokoPackageInstaller.installable)
+            confirmDialog.open()
+    }
+
     component MokoDialog: Dialog {
         id: mokoDialog
         property string primaryText: "OK"
@@ -89,8 +98,6 @@ ApplicationWindow {
                 }
             }
         }
-        Shortcut { sequence: "Return"; enabled: mokoDialog.visible; onActivated: mokoDialog.accept() }
-        Shortcut { sequence: "Enter"; enabled: mokoDialog.visible; onActivated: mokoDialog.accept() }
     }
 
     Rectangle { anchors.fill: parent; color: "#F7FBFE" }
@@ -292,6 +299,20 @@ ApplicationWindow {
         }
     }
     MouseArea { width: 14; height: 14; anchors.right: parent.right; anchors.bottom: parent.bottom; z: 100; cursorShape: Qt.SizeFDiagCursor; onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge) }
+    // Keep Enter usable even when Qt Quick Controls has not assigned focus to
+    // the primary button yet (common during a Wayland window-map transition).
+    Shortcut {
+        sequence: "Return"
+        enabled: window.active && (failureDialog.visible || confirmDialog.visible
+                                   || mokoPackageInstaller.installable)
+        onActivated: window.activatePrimaryAction()
+    }
+    Shortcut {
+        sequence: "Enter"
+        enabled: window.active && (failureDialog.visible || confirmDialog.visible
+                                   || mokoPackageInstaller.installable)
+        onActivated: window.activatePrimaryAction()
+    }
     Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
     Shortcut { sequence: "Escape"; onActivated: window.close() }
 }
