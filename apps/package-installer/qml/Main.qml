@@ -14,6 +14,11 @@ ApplicationWindow {
     color: "#F7FBFE"
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    onActiveChanged: {
+        if (active && !confirmDialog.visible && mokoPackageInstaller.installable)
+            Qt.callLater(installButton.forceActiveFocus)
+    }
+
     function stateTitle() {
         if (mokoPackageInstaller.state === "installed") return "Installed"
         if (mokoPackageInstaller.state === "unsupported") return "Unsupported package"
@@ -33,6 +38,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         padding: 20
         closePolicy: Popup.CloseOnEscape
+        onOpened: Qt.callLater(primaryButton.forceActiveFocus)
         background: Rectangle {
             radius: 8
             color: "#F8FBFE"
@@ -72,6 +78,7 @@ ApplicationWindow {
                     contentItem: Text { text: parent.text; color: "#24384C"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
                 Button {
+                    id: primaryButton
                     text: mokoDialog.primaryText
                     implicitHeight: 36
                     leftPadding: 16
@@ -217,6 +224,7 @@ ApplicationWindow {
                         contentItem: Text { text: parent.text; color: "#24384C"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     }
                     Button {
+                        id: installButton
                         text: mokoPackageInstaller.busy ? "Installing..." : "Install"
                         implicitHeight: 38
                         enabled: mokoPackageInstaller.installable

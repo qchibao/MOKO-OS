@@ -1487,7 +1487,15 @@ for run in $(seq 1 "$RUNS"); do
 
       if [[ "$PACKAGE_INSTALL_TEST" == 1 ]]; then
         marker=$(serial_line_count)
-        pointer_double_click 520 280
+        # Mapping and the first rendered frame can race under TCG. Re-activate
+        # Files through the real Dock path, then use its mouse+keyboard open flow.
+        dock_app_click org.moko.Files
+        wait_for_serial_since "$marker" \
+          "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 title=MOKO Files" 30 \
+          "The Dock did not focus MOKO Files for the package-open workflow."
+        sleep 2
+        pointer_click 520 280
+        monitor "sendkey ret"
         wait_for_serial_since "$marker" \
           "MOKO_PACKAGE_REQUEST path=/home/moko/Downloads/hello_2.10-5_amd64.deb uid=1000" 30 \
           "MOKO Files did not route the downloaded Debian package to the package installer."
@@ -1502,7 +1510,7 @@ for run in $(seq 1 "$RUNS"); do
         monitor "screendump /artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME -f png"
         test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_REVIEW_SCREENSHOT_NAME")" -gt 10000
 
-        pointer_click 972 628
+        monitor "sendkey ret"
         sleep 1
         monitor "sendkey ret"
         wait_for_serial_since "$marker" \
