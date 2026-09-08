@@ -20,8 +20,23 @@ ApplicationWindow {
             return developerMode || sectionId !== "system"
         })
     }
+    property string sectionQuery: ""
+    property var filteredSections: sections.filter(function(sectionId) {
+        if (!window.sectionQuery.trim().length)
+            return true
+        const needle = window.sectionQuery.trim().toLowerCase()
+        return mokoSettings.sectionTitle(sectionId).toLowerCase().indexOf(needle) >= 0
+               || mokoSettings.sectionDescription(sectionId).toLowerCase().indexOf(needle) >= 0
+    })
     property string selectedSection: sections.length ? sections[0] : "about"
     readonly property string appearanceMode: mokoSettings.appearanceMode
+    readonly property color pageColor: appearanceMode === "dark" ? "#0E1723"
+                                                        : appearanceMode === "glass" ? "#EAF5FE" : "#F7FBFF"
+    readonly property color panelColor: appearanceMode === "dark" ? "#172334" : "#FFFFFF"
+    readonly property color cardColor: appearanceMode === "dark" ? "#1D2D40" : "#F7FAFD"
+    readonly property color primaryText: appearanceMode === "dark" ? "#F2F7FD" : "#111923"
+    readonly property color secondaryText: appearanceMode === "dark" ? "#B7C7D9" : "#687A8B"
+    readonly property color lineColor: appearanceMode === "dark" ? "#30445D" : "#DCE7EF"
     property var currentRows: {
         mokoSettings.developerMode
         return mokoSettings.rows(selectedSection)
@@ -57,82 +72,100 @@ ApplicationWindow {
         }
     }
 
+    Rectangle { anchors.fill: parent; color: window.pageColor }
+
     Rectangle {
-        anchors.fill: parent
-        color: window.appearanceMode === "dark" ? "#0E1723"
-                                                : window.appearanceMode === "glass" ? "#EAF5FE" : "#F7FBFF"
+        id: titleBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 54
+        z: 10
+        color: window.appearanceMode === "dark" ? "#111D2B" : "#F2F8FD"
+        border.color: window.lineColor
+        MouseArea {
+            anchors.fill: parent
+            onPressed: window.startSystemMove()
+            onDoubleClicked: window.visibility = window.visibility === Window.Maximized
+                                                ? Window.Windowed : Window.Maximized
+        }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 20
+            anchors.rightMargin: 12
+            spacing: 9
+            Text { text: "MOKO"; color: window.primaryText; font.pixelSize: 20; font.weight: Font.Black }
+            Text { text: "SETTINGS"; color: "#3978F6"; font.pixelSize: 11; font.weight: Font.Bold }
+            Item { Layout.fillWidth: true }
+            Button {
+                text: "-"
+                implicitWidth: 36
+                implicitHeight: 32
+                ToolTip.visible: hovered
+                ToolTip.text: "Minimize MOKO Settings"
+                background: Rectangle { radius: 6; color: parent.hovered ? "#DCEBFA" : "transparent"; border.color: window.lineColor }
+                contentItem: Text { text: parent.text; color: window.primaryText; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                onClicked: window.showMinimized()
+            }
+            Button {
+                text: window.visibility === Window.Maximized ? "o" : "[]"
+                implicitWidth: 38
+                implicitHeight: 32
+                ToolTip.visible: hovered
+                ToolTip.text: window.visibility === Window.Maximized ? "Restore" : "Maximize"
+                background: Rectangle { radius: 6; color: parent.hovered ? "#DCEBFA" : "transparent"; border.color: window.lineColor }
+                contentItem: Text { text: parent.text; color: window.primaryText; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                onClicked: window.visibility = window.visibility === Window.Maximized ? Window.Windowed : Window.Maximized
+            }
+            Button {
+                text: "X"
+                implicitWidth: 36
+                implicitHeight: 32
+                ToolTip.visible: hovered
+                ToolTip.text: "Close MOKO Settings"
+                background: Rectangle { radius: 6; color: parent.hovered ? "#F0DDE0" : "transparent"; border.color: window.lineColor }
+                contentItem: Text { text: parent.text; color: parent.hovered ? "#A53D4B" : window.primaryText; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                onClicked: window.close()
+            }
+        }
     }
 
     RowLayout {
         anchors.fill: parent
+        anchors.topMargin: titleBar.height
         spacing: 0
 
         Rectangle {
-            Layout.preferredWidth: 260
+            Layout.preferredWidth: 248
             Layout.fillHeight: true
-            color: "#EAF4FC"
-            border.color: "#D2E1EC"
-
-            MouseArea {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 54
-                onPressed: window.startSystemMove()
-                onDoubleClicked: window.visibility = window.visibility === Window.Maximized
-                                                    ? Window.Windowed : Window.Maximized
-            }
+            color: window.appearanceMode === "dark" ? "#142131" : "#EAF4FC"
+            border.color: window.lineColor
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 18
-                spacing: 12
+                anchors.margins: 14
+                spacing: 10
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "MOKO"; color: "#10151C"; font.pixelSize: 22; font.weight: Font.Black }
-                    Text { text: "SETTINGS"; color: "#3978F6"; font.pixelSize: 11; font.weight: Font.Bold }
+                    Text { text: "PREFERENCES"; color: window.appearanceMode === "dark" ? "#B7C7D9" : "#59718A"; font.pixelSize: 10; font.weight: Font.Bold }
                     Item { Layout.fillWidth: true }
-                    Button {
-                        text: "-"
-                        implicitWidth: 34
-                        implicitHeight: 32
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Minimize MOKO Settings"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
-                            border.color: "#C6D7E5"
-                        }
-                        onClicked: window.showMinimized()
-                    }
-                    Button {
-                        text: window.visibility === Window.Maximized ? "[]" : "[ ]"
-                        implicitWidth: 38
-                        implicitHeight: 32
-                        ToolTip.visible: hovered
-                        ToolTip.text: window.visibility === Window.Maximized ? "Restore MOKO Settings"
-                                                                            : "Maximize MOKO Settings"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
-                            border.color: "#C6D7E5"
-                        }
-                        onClicked: window.visibility = window.visibility === Window.Maximized
-                                                       ? Window.Windowed : Window.Maximized
-                    }
-                    Button {
-                        text: "X"
-                        implicitWidth: 34
-                        implicitHeight: 32
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Close MOKO Settings"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.hovered ? "#DCEBFA" : "#FFFFFF"
-                            border.color: "#C6D7E5"
-                        }
-                        onClicked: window.close()
+                }
+
+                TextField {
+                    id: sectionSearch
+                    Layout.fillWidth: true
+                    implicitHeight: 40
+                    placeholderText: "Search settings..."
+                    text: window.sectionQuery
+                    selectByMouse: true
+                    onTextEdited: window.sectionQuery = text
+                    color: window.primaryText
+                    placeholderTextColor: "#8798A9"
+                    background: Rectangle {
+                        radius: 8
+                        color: window.appearanceMode === "dark" ? "#1B2C3F" : "#FFFFFF"
+                        border.color: sectionSearch.activeFocus ? "#5C91FF" : window.lineColor
                     }
                 }
 
@@ -140,7 +173,7 @@ ApplicationWindow {
                     id: sectionList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    model: window.sections
+                    model: window.filteredSections
                     spacing: 4
                     clip: true
                     currentIndex: 0
@@ -158,7 +191,7 @@ ApplicationWindow {
                             anchors.leftMargin: 13
                             anchors.verticalCenter: parent.verticalCenter
                             text: mokoSettings.sectionTitle(modelData)
-                            color: "#182536"
+                            color: window.appearanceMode === "dark" ? "#E2ECF7" : "#182536"
                             font.pixelSize: 13
                             font.weight: window.selectedSection === modelData ? Font.DemiBold : Font.Normal
                         }
@@ -183,12 +216,12 @@ ApplicationWindow {
                     background: Rectangle {
                         radius: 7
                         color: parent.checked ? "#DCEAFF"
-                                              : parent.hovered ? "#F5FAFF" : "#FFFFFF"
-                        border.color: parent.checked ? "#8EB6F8" : "#C7D9EA"
+                                              : parent.hovered ? "#F5FAFF" : window.appearanceMode === "dark" ? "#1B2C3F" : "#FFFFFF"
+                        border.color: parent.checked ? "#8EB6F8" : window.lineColor
                     }
                     contentItem: Text {
                         text: parent.text
-                        color: "#1F3247"
+                        color: window.appearanceMode === "dark" && !parent.checked ? "#DCE8F4" : "#1F3247"
                         font.pixelSize: 11
                         font.weight: parent.checked ? Font.DemiBold : Font.Normal
                         horizontalAlignment: Text.AlignHCenter
@@ -203,12 +236,12 @@ ApplicationWindow {
                     implicitHeight: 38
                     background: Rectangle {
                         radius: 7
-                        color: parent.down ? "#D4E5FA" : parent.hovered ? "#F5FAFF" : "#FFFFFF"
-                        border.color: "#C7D9EA"
+                        color: parent.down ? "#D4E5FA" : parent.hovered ? "#F5FAFF" : window.appearanceMode === "dark" ? "#1B2C3F" : "#FFFFFF"
+                        border.color: window.lineColor
                     }
                     contentItem: Text {
                         text: parent.text
-                        color: "#1F3247"
+                        color: window.appearanceMode === "dark" ? "#DCE8F4" : "#1F3247"
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -218,7 +251,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     text: "Updated " + mokoSettings.refreshedAt
-                    color: "#718294"
+                    color: window.secondaryText
                     font.pixelSize: 9
                     wrapMode: Text.Wrap
                 }
@@ -228,7 +261,7 @@ ApplicationWindow {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: "#FFFFFF"
+                    color: window.panelColor
 
             ColumnLayout {
                 anchors.fill: parent
@@ -240,14 +273,14 @@ ApplicationWindow {
                     spacing: 5
                     Text {
                         text: mokoSettings.sectionTitle(window.selectedSection)
-                        color: "#111923"
-                        font.pixelSize: 28
+                        color: window.primaryText
+                        font.pixelSize: 26
                         font.weight: Font.Bold
                     }
                     Text {
                         Layout.fillWidth: true
                         text: mokoSettings.sectionDescription(window.selectedSection)
-                        color: "#6A7A8B"
+                        color: window.secondaryText
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
                     }
@@ -258,8 +291,8 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 250
                     radius: 8
-                    color: "#F7FAFD"
-                    border.color: "#DCE7EF"
+                    color: window.cardColor
+                    border.color: window.lineColor
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -269,18 +302,18 @@ ApplicationWindow {
                         Text {
                             Layout.fillWidth: true
                             text: mokoSettings.localDateTime
-                            color: "#16263B"
+                            color: window.primaryText
                             font.pixelSize: 18
                             font.weight: Font.DemiBold
                             wrapMode: Text.Wrap
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { text: "Time zone"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { text: "Time zone"; color: window.secondaryText; font.pixelSize: 12 }
                             Item { Layout.fillWidth: true }
                             ComboBox {
                                 id: timeZoneCombo
-                                Layout.preferredWidth: Math.min(340, parent.width * .58)
+                                Layout.preferredWidth: 300
                                 model: mokoSettings.timeZoneChoices
                                 currentIndex: Math.max(0, mokoSettings.timeZoneChoices.indexOf(mokoSettings.timeZoneId))
                                 onActivated: mokoSettings.setTimeZone(currentText)
@@ -293,7 +326,7 @@ ApplicationWindow {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: "Set time automatically"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { Layout.fillWidth: true; text: "Set time automatically"; color: window.secondaryText; font.pixelSize: 12 }
                             Switch {
                                 checked: mokoSettings.automaticTime
                                 enabled: mokoSettings.automaticTimeAvailable
@@ -302,7 +335,7 @@ ApplicationWindow {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: "24-hour clock"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { Layout.fillWidth: true; text: "24-hour clock"; color: window.secondaryText; font.pixelSize: 12 }
                             Switch {
                                 checked: mokoSettings.twentyFourHour
                                 onToggled: mokoSettings.twentyFourHour = checked
@@ -316,8 +349,8 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 330
                     radius: 8
-                    color: "#F7FAFD"
-                    border.color: "#DCE7EF"
+                    color: window.cardColor
+                    border.color: window.lineColor
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -327,13 +360,13 @@ ApplicationWindow {
                             text: mokoSettings.trackpadAvailable
                                   ? mokoSettings.trackpadCount + " trackpad detected"
                                   : "No compatible trackpad detected"
-                            color: "#16263B"
+                            color: window.primaryText
                             font.pixelSize: 16
                             font.weight: Font.DemiBold
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: "Natural scrolling"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { Layout.fillWidth: true; text: "Natural scrolling"; color: window.secondaryText; font.pixelSize: 12 }
                             Switch {
                                 checked: mokoSettings.naturalScrollEnabled
                                 enabled: mokoSettings.naturalScrollAvailable
@@ -342,7 +375,7 @@ ApplicationWindow {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: "Three-finger window drag"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { Layout.fillWidth: true; text: "Three-finger window drag"; color: window.secondaryText; font.pixelSize: 12 }
                             Switch {
                                 checked: mokoSettings.threeFingerDragEnabled
                                 enabled: mokoSettings.threeFingerDragAvailable
@@ -354,13 +387,13 @@ ApplicationWindow {
                             text: mokoSettings.threeFingerDragAvailable
                                   ? "Move the active window with three fingers."
                                   : "Three-finger drag is not supported by this device."
-                            color: "#718294"
+                            color: window.secondaryText
                             font.pixelSize: 10
                             wrapMode: Text.Wrap
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: "Browser history swipe"; color: "#40536A"; font.pixelSize: 12 }
+                            Text { Layout.fillWidth: true; text: "Browser history swipe"; color: window.secondaryText; font.pixelSize: 12 }
                             Switch {
                                 checked: mokoSettings.browserHistorySwipeEnabled
                                 enabled: mokoSettings.browserHistorySwipeAvailable
@@ -370,7 +403,7 @@ ApplicationWindow {
                         Text {
                             Layout.fillWidth: true
                             text: "Two-finger horizontal swipes navigate Browser history; vertical scrolling remains unchanged."
-                            color: "#718294"
+                            color: window.secondaryText
                             font.pixelSize: 10
                             wrapMode: Text.Wrap
                         }
@@ -639,7 +672,7 @@ ApplicationWindow {
                     delegate: Rectangle {
                         required property var modelData
                         width: settingRows.width
-                        height: Math.max(66, rowContent.implicitHeight + 24)
+                        height: mokoSettings.developerMode ? 92 : 66
                         radius: 8
                         color: "#F7FAFD"
                         border.color: modelData.available ? "#DCE7EF" : "#E5E9ED"
@@ -678,7 +711,7 @@ ApplicationWindow {
                             }
 
                             ColumnLayout {
-                                Layout.preferredWidth: Math.min(330, settingRows.width * .42)
+                                Layout.preferredWidth: 300
                                 spacing: 3
                                 Text {
                                     Layout.fillWidth: true
@@ -754,7 +787,7 @@ ApplicationWindow {
         onAccepted: mokoSystemControl.connectWifi(settingsWifiName.text,
                                                    settingsWifiPassword.text)
         ColumnLayout {
-            width: parent.width
+            width: 370
             spacing: 10
             TextField {
                 id: settingsWifiName
@@ -790,7 +823,7 @@ ApplicationWindow {
                         bluetoothPromptInput.visible ? bluetoothPromptInput.text : "", true)
         onRejected: mokoSystemControl.answerBluetoothPrompt("", false)
         ColumnLayout {
-            width: parent.width
+            width: 380
             spacing: 10
             Text {
                 Layout.fillWidth: true

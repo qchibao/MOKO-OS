@@ -6,47 +6,121 @@ import QtQuick.Window
 ApplicationWindow {
     id: window
     visible: true
-    width: 1100
-    height: 720
-    minimumWidth: 820
+    width: 1180
+    height: 760
+    minimumWidth: 860
     minimumHeight: 560
     title: "MOKO Files"
-    color: "#EAF4FC"
+    color: "#F6FAFD"
     flags: Qt.Window | Qt.FramelessWindowHint
 
     property int selectedIndex: -1
     property string deleteToken: ""
     property var selectedEntry: selectedIndex >= 0 ? mokoFiles.entry(selectedIndex) : ({})
     property var propertyRows: []
+    property bool gridView: false
+    property bool detailsVisible: true
 
     function resetSelection() {
         selectedIndex = -1
         fileList.currentIndex = -1
+        fileGrid.currentIndex = -1
+    }
+
+    function selectEntry(index) {
+        selectedIndex = index
+        fileList.currentIndex = index
+        fileGrid.currentIndex = index
+    }
+
+    function openEntry(index) {
+        selectEntry(index)
+        if (mokoFiles.openEntry(index))
+            resetSelection()
     }
 
     component CommandButton: Button {
         id: command
         property string hint: text
-        implicitHeight: 36
-        leftPadding: 13
-        rightPadding: 13
-        enabled: true
-        font.pixelSize: 12
+        implicitHeight: 34
+        leftPadding: 12
+        rightPadding: 12
+        font.pixelSize: 11
         background: Rectangle {
             radius: 7
-            color: command.down ? "#D7E8FA" : command.hovered ? "#EFF7FF" : "#FFFFFF"
-            border.color: command.enabled ? "#C7D9EA" : "#DCE5ED"
+            color: command.down ? "#D6E7FA" : command.hovered ? "#EFF6FD" : "#FFFFFF"
+            border.color: command.enabled ? "#C9D9E6" : "#DFE7ED"
         }
         contentItem: Text {
             text: command.text
-            color: command.enabled ? "#172334" : "#91A0AF"
+            color: command.enabled ? "#1A2A3B" : "#98A5B2"
             font: command.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        ToolTip.visible: hovered
+        ToolTip.text: hint
+        ToolTip.delay: 450
+    }
+
+    component WindowButton: Button {
+        id: control
+        property string hint: ""
+        implicitWidth: 36
+        implicitHeight: 32
+        padding: 0
+        background: Rectangle {
+            radius: 6
+            color: control.down ? "#D6E7F7" : control.hovered ? "#E7F1FA" : "transparent"
+        }
+        contentItem: Text {
+            text: control.text
+            color: "#294057"
+            font.pixelSize: 13
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
         ToolTip.visible: hovered
         ToolTip.text: hint
-        ToolTip.delay: 500
+        ToolTip.delay: 450
+    }
+
+    component FileGlyph: Item {
+        id: glyph
+        property bool folder: false
+        property string fileName: ""
+        implicitWidth: 34
+        implicitHeight: 30
+        Rectangle {
+            visible: glyph.folder
+            x: 4
+            y: 3
+            width: 13
+            height: 8
+            radius: 3
+            color: "#73A9FF"
+        }
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: glyph.folder ? 8 : 2
+            width: 30
+            height: glyph.folder ? 21 : 27
+            radius: glyph.folder ? 5 : 4
+            color: glyph.folder ? "#4A8CFF" : "#F2F6FA"
+            border.color: glyph.folder ? "#3475E5" : "#BAC9D5"
+            Text {
+                visible: !glyph.folder
+                anchors.centerIn: parent
+                text: {
+                    const parts = glyph.fileName.split(".")
+                    return parts.length > 1 ? parts[parts.length - 1].slice(0, 3).toUpperCase() : "FILE"
+                }
+                color: "#66798C"
+                font.pixelSize: 7
+                font.weight: Font.Bold
+            }
+        }
     }
 
     component DialogField: TextField {
@@ -135,10 +209,7 @@ ApplicationWindow {
         }
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#F8FBFE"
-    }
+    Rectangle { anchors.fill: parent; color: "#F7FBFE" }
 
     ColumnLayout {
         anchors.fill: parent
@@ -146,346 +217,454 @@ ApplicationWindow {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 62
-            color: "#F4FAFF"
-            border.color: "#D5E3EF"
-
+            Layout.preferredHeight: 54
+            color: "#F2F8FD"
+            border.color: "#D4E2ED"
             MouseArea {
                 anchors.fill: parent
                 onPressed: window.startSystemMove()
                 onDoubleClicked: window.visibility = window.visibility === Window.Maximized
                                                     ? Window.Windowed : Window.Maximized
             }
-
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.rightMargin: 12
                 spacing: 8
-
-                Text {
-                    text: "MOKO"
-                    color: "#10151C"
-                    font.pixelSize: 21
-                    font.weight: Font.Black
-                }
-                Text {
-                    text: "FILES"
-                    color: "#3978F6"
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                }
-                Item { Layout.preferredWidth: 14 }
-                CommandButton {
-                    text: "<"
-                    hint: "Back"
-                    enabled: mokoFiles.canGoBack
-                    onClicked: { mokoFiles.goBack(); window.resetSelection() }
-                }
-                CommandButton {
-                    text: ">"
-                    hint: "Forward"
-                    enabled: mokoFiles.canGoForward
-                    onClicked: { mokoFiles.goForward(); window.resetSelection() }
-                }
-                CommandButton {
-                    text: "Up"
-                    hint: "Parent folder"
-                    onClicked: { mokoFiles.navigateUp(); window.resetSelection() }
-                }
-
                 Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 36
-                    radius: 7
-                    color: "#FFFFFF"
-                    border.color: pathInput.activeFocus ? "#5C91FF" : "#C7D9EA"
-
-                    TextInput {
-                        id: pathInput
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        verticalAlignment: TextInput.AlignVCenter
-                        text: mokoFiles.currentPath
-                        color: "#273445"
-                        font.pixelSize: 12
-                        selectByMouse: true
-                        clip: true
-                        onAccepted: {
-                            if (mokoFiles.navigateTo(text))
-                                window.resetSelection()
-                            text = Qt.binding(function() { return mokoFiles.currentPath })
-                        }
-                    }
+                    width: 22
+                    height: 17
+                    radius: 4
+                    color: "#4A8CFF"
+                    Rectangle { x: 3; y: -3; width: 10; height: 6; radius: 2; color: "#73A9FF" }
                 }
-                CommandButton { text: "Refresh"; onClicked: mokoFiles.refresh() }
-                CommandButton {
-                    text: "-"
-                    hint: "Minimize MOKO Files"
-                    onClicked: window.showMinimized()
-                }
-                CommandButton {
-                    text: window.visibility === Window.Maximized ? "Restore" : "Maximize"
-                    hint: text + " MOKO Files"
+                Text { text: "MOKO Files"; color: "#111923"; font.pixelSize: 15; font.weight: Font.Bold }
+                Item { Layout.fillWidth: true }
+                WindowButton { text: "-"; hint: "Minimize"; onClicked: window.showMinimized() }
+                WindowButton {
+                    text: window.visibility === Window.Maximized ? "o" : "[]"
+                    hint: window.visibility === Window.Maximized ? "Restore" : "Maximize"
                     onClicked: window.visibility = window.visibility === Window.Maximized
                                                    ? Window.Windowed : Window.Maximized
                 }
-                CommandButton { text: "X"; hint: "Close MOKO Files"; onClicked: window.close() }
+                WindowButton { text: "X"; hint: "Close"; onClicked: window.close() }
             }
         }
 
-        RowLayout {
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 0
+            orientation: Qt.Horizontal
 
             Rectangle {
-                Layout.preferredWidth: 190
-                Layout.fillHeight: true
+                SplitView.minimumWidth: 176
+                SplitView.preferredWidth: 205
+                SplitView.maximumWidth: 260
                 color: "#EDF6FD"
                 border.color: "#D5E3EF"
-
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
+                    anchors.margins: 13
                     spacing: 8
-
+                    Text { text: "PLACES"; color: "#687A8C"; font.pixelSize: 10; font.weight: Font.Bold }
+                    ListView {
+                        id: placesList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        model: mokoFiles.places
+                        clip: true
+                        spacing: 3
+                        delegate: Button {
+                            required property var modelData
+                            width: placesList.width
+                            implicitHeight: 36
+                            leftPadding: 10
+                            rightPadding: 8
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Rectangle {
+                                    Layout.preferredWidth: 20
+                                    Layout.preferredHeight: 16
+                                    radius: 3
+                                    color: modelData.kind === "trash" ? "#A8B6C5" : "#5A96F8"
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData.kind === "volume" ? "U" : modelData.kind === "network" ? "N" : ""
+                                        color: "#FFFFFF"
+                                        font.pixelSize: 7
+                                        font.weight: Font.Bold
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    color: "#18283A"
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            background: Rectangle {
+                                radius: 7
+                                color: mokoFiles.currentPath === modelData.path
+                                       ? "#D7E8FF" : parent.hovered ? "#F5FAFE" : "transparent"
+                                border.color: mokoFiles.currentPath === modelData.path
+                                              ? "#B1CDF5" : "transparent"
+                            }
+                            onClicked: {
+                                if (mokoFiles.navigateTo(modelData.path))
+                                    window.resetSelection()
+                            }
+                        }
+                    }
                     Text {
-                        text: "PLACES"
-                        color: "#667789"
-                        font.pixelSize: 10
-                        font.weight: Font.Bold
-                    }
-                    Button {
                         Layout.fillWidth: true
-                        text: "Home"
-                        leftPadding: 14
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#172334"
-                            font.pixelSize: 13
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        background: Rectangle {
-                            radius: 7
-                            color: parent.hovered ? "#DCEEFF" : "#FFFFFF"
-                            border.color: "#CADDEC"
-                        }
-                        onClicked: { mokoFiles.navigateHome(); window.resetSelection() }
-                    }
-                    Button {
-                        Layout.fillWidth: true
-                        text: "File System"
-                        leftPadding: 14
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#172334"
-                            font.pixelSize: 13
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        background: Rectangle {
-                            radius: 7
-                            color: parent.hovered ? "#DCEEFF" : "transparent"
-                        }
-                        onClicked: { mokoFiles.navigateTo("/"); window.resetSelection() }
-                    }
-                    Item { Layout.fillHeight: true }
-                    Text {
-                        Layout.fillWidth: true
-                        text: "Operations use your current account permissions."
+                        text: "Mounted USB and network locations appear here when available."
                         wrapMode: Text.Wrap
-                        color: "#728294"
-                        font.pixelSize: 10
+                        color: "#718294"
+                        font.pixelSize: 9
                         lineHeight: 1.25
                     }
                 }
             }
 
             ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                SplitView.fillWidth: true
                 spacing: 0
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 54
+                    Layout.preferredHeight: 58
                     color: "#FFFFFF"
-                    border.color: "#E0E9F0"
-
+                    border.color: "#DFE8EF"
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 15
-                        anchors.rightMargin: 15
+                        anchors.leftMargin: 13
+                        anchors.rightMargin: 13
                         spacing: 7
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: mokoFiles.displayPath
-                            color: "#172334"
-                            font.pixelSize: 16
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideMiddle
+                        CommandButton {
+                            text: "<"
+                            hint: "Back"
+                            enabled: mokoFiles.canGoBack
+                            onClicked: { mokoFiles.goBack(); window.resetSelection() }
                         }
-                        CommandButton { text: "New Folder"; onClicked: { folderName.text = ""; newFolderDialog.open() } }
-                        CommandButton { text: "Rename"; enabled: window.selectedIndex >= 0; onClicked: { renameName.text = window.selectedEntry.name || ""; renameDialog.open() } }
-                        CommandButton { text: "Copy"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.stageCopy(window.selectedIndex) }
-                        CommandButton { text: "Move"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.stageMove(window.selectedIndex) }
-                        CommandButton { text: mokoFiles.canPaste ? "Paste " + mokoFiles.clipboardMode : "Paste"; enabled: mokoFiles.canPaste; onClicked: mokoFiles.paste() }
-                        CommandButton { text: "Properties"; enabled: window.selectedIndex >= 0; onClicked: { window.propertyRows = mokoFiles.propertiesFor(window.selectedIndex); propertiesDialog.open() } }
-                        CommandButton { text: "Delete"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.requestDelete(window.selectedIndex) }
+                        CommandButton {
+                            text: ">"
+                            hint: "Forward"
+                            enabled: mokoFiles.canGoForward
+                            onClicked: { mokoFiles.goForward(); window.resetSelection() }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 180
+                            Layout.preferredHeight: 36
+                            radius: 7
+                            color: "#F9FBFD"
+                            border.color: "#D1DFE9"
+                            clip: true
+                            Flickable {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                contentWidth: breadcrumbRow.width
+                                contentHeight: height
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                Row {
+                                    id: breadcrumbRow
+                                    height: parent.height
+                                    spacing: 1
+                                    Repeater {
+                                        model: mokoFiles.breadcrumbs
+                                        delegate: Row {
+                                            required property int index
+                                            required property var modelData
+                                            height: breadcrumbRow.height
+                                            spacing: 1
+                                            Button {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: modelData.label
+                                                implicitHeight: 28
+                                                leftPadding: 7
+                                                rightPadding: 7
+                                                background: Rectangle { radius: 5; color: parent.hovered ? "#E7F1FA" : "transparent" }
+                                                contentItem: Text {
+                                                    text: parent.text
+                                                    color: "#31465A"
+                                                    font.pixelSize: 11
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+                                                onClicked: {
+                                                    if (mokoFiles.navigateTo(modelData.path))
+                                                        window.resetSelection()
+                                                }
+                                            }
+                                            Text {
+                                                visible: index < mokoFiles.breadcrumbs.length - 1
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: ">"
+                                                color: "#91A1AF"
+                                                font.pixelSize: 10
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        TextField {
+                            id: fileSearch
+                            Layout.preferredWidth: Math.min(220, window.width * 0.2)
+                            Layout.minimumWidth: 130
+                            implicitHeight: 36
+                            placeholderText: "Search in " + mokoFiles.displayPath
+                            text: mokoFiles.searchText
+                            selectByMouse: true
+                            onTextEdited: mokoFiles.searchText = text
+                            color: "#1D2C3D"
+                            placeholderTextColor: "#8997A5"
+                            background: Rectangle {
+                                radius: 7
+                                color: "#F9FBFD"
+                                border.color: fileSearch.activeFocus ? "#5C91FF" : "#D1DFE9"
+                            }
+                        }
+                        CommandButton { text: "List"; hint: "List view"; checkable: true; checked: !window.gridView; onClicked: window.gridView = false }
+                        CommandButton { text: "Grid"; hint: "Grid view"; checkable: true; checked: window.gridView; onClicked: window.gridView = true }
+                        CommandButton { text: "Info"; hint: "Show or hide details"; checkable: true; checked: window.detailsVisible; onClicked: window.detailsVisible = !window.detailsVisible }
                     }
                 }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 34
-                    color: "#F5F9FC"
-                    border.color: "#E0E9F0"
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 52
-                        anchors.rightMargin: 18
-                        spacing: 12
-                        Text { Layout.fillWidth: true; text: "Name"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
-                        Text { Layout.preferredWidth: 130; text: "Type / Size"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
-                        Text { Layout.preferredWidth: 145; text: "Modified"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
-                    }
-                }
-
-                ListView {
-                    id: fileList
+                RowLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    model: mokoFiles
-                    clip: true
-                    currentIndex: -1
-                    boundsBehavior: Flickable.StopAtBounds
-                    keyNavigationEnabled: true
+                    spacing: 0
+                    StackLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        currentIndex: window.gridView ? 1 : 0
 
-                    delegate: Rectangle {
-                        id: rowItem
-                        required property int index
-                        required property string name
-                        required property string typeName
-                        required property string sizeText
-                        required property string modifiedText
-                        required property bool isDirectory
-                        width: fileList.width
-                        height: 46
-                        color: fileList.currentIndex === index ? "#DCEBFF" : mouse.containsMouse ? "#F2F8FD" : "#FFFFFF"
-                        border.color: "#EDF2F6"
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 18
-                            spacing: 12
-
+                        ColumnLayout {
+                            spacing: 0
                             Rectangle {
-                                width: 24
-                                height: 20
-                                radius: 4
-                                color: rowItem.isDirectory ? "#5E94FF" : "#EEF3F8"
-                                border.color: rowItem.isDirectory ? "#3F7CFF" : "#B9C8D5"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: rowItem.isDirectory ? "" : "F"
-                                    color: "#68798A"
-                                    font.pixelSize: 9
-                                    font.bold: true
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                color: "#F6F9FC"
+                                border.color: "#E1E9F0"
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 54
+                                    anchors.rightMargin: 16
+                                    spacing: 12
+                                    Text { Layout.fillWidth: true; text: "Name"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
+                                    Text { Layout.preferredWidth: 135; text: "Kind / Size"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
+                                    Text { Layout.preferredWidth: 142; text: "Modified"; color: "#657587"; font.pixelSize: 10; font.weight: Font.Bold }
                                 }
+                            }
+                            ListView {
+                                id: fileList
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                model: mokoFiles
+                                clip: true
+                                currentIndex: -1
+                                boundsBehavior: Flickable.StopAtBounds
+                                keyNavigationEnabled: true
+                                delegate: Rectangle {
+                                    id: rowItem
+                                    required property int index
+                                    required property string name
+                                    required property string typeName
+                                    required property string sizeText
+                                    required property string modifiedText
+                                    required property bool isDirectory
+                                    width: fileList.width
+                                    height: 45
+                                    color: fileList.currentIndex === index ? "#DCEBFF"
+                                           : rowMouse.containsMouse ? "#F2F8FD" : "#FFFFFF"
+                                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#EEF3F6" }
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 14
+                                        anchors.rightMargin: 16
+                                        spacing: 10
+                                        FileGlyph { folder: rowItem.isDirectory; fileName: rowItem.name }
+                                        Text { Layout.fillWidth: true; text: rowItem.name; color: "#172334"; font.pixelSize: 12; elide: Text.ElideRight }
+                                        Text {
+                                            Layout.preferredWidth: 135
+                                            text: rowItem.isDirectory ? "Folder" : rowItem.typeName + " - " + rowItem.sizeText
+                                            color: "#68798A"
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                        }
+                                        Text { Layout.preferredWidth: 142; text: rowItem.modifiedText; color: "#68798A"; font.pixelSize: 10; elide: Text.ElideRight }
+                                    }
+                                    MouseArea {
+                                        id: rowMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onClicked: { window.selectEntry(rowItem.index); fileList.forceActiveFocus() }
+                                        onDoubleClicked: window.openEntry(rowItem.index)
+                                    }
+                                }
+                                Keys.onReturnPressed: function(event) { if (currentIndex >= 0) window.openEntry(currentIndex); event.accepted = true }
+                                Keys.onEnterPressed: function(event) { if (currentIndex >= 0) window.openEntry(currentIndex); event.accepted = true }
+                                Keys.onDeletePressed: function(event) { if (currentIndex >= 0) mokoFiles.requestDelete(currentIndex); event.accepted = true }
+                                Keys.onPressed: function(event) {
+                                    if (event.key === Qt.Key_Backspace) {
+                                        mokoFiles.navigateUp(); window.resetSelection(); event.accepted = true
+                                    } else if (event.key === Qt.Key_F2 && currentIndex >= 0) {
+                                        renameName.text = window.selectedEntry.name || ""; renameDialog.open(); event.accepted = true
+                                    }
+                                }
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                Text {
+                                    visible: fileList.count === 0
+                                    anchors.centerIn: parent
+                                    text: mokoFiles.searchText.length ? "No matching files" : "This folder is empty"
+                                    color: "#748597"
+                                    font.pixelSize: 13
+                                }
+                            }
+                        }
+
+                        GridView {
+                            id: fileGrid
+                            model: mokoFiles
+                            clip: true
+                            currentIndex: -1
+                            cellWidth: 132
+                            cellHeight: 112
+                            leftMargin: 12
+                            topMargin: 12
+                            keyNavigationEnabled: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            delegate: Rectangle {
+                                id: gridItem
+                                required property int index
+                                required property string name
+                                required property string sizeText
+                                required property bool isDirectory
+                                width: 120
+                                height: 98
+                                radius: 7
+                                color: fileGrid.currentIndex === index ? "#DCEBFF"
+                                       : gridMouse.containsMouse ? "#F0F7FD" : "transparent"
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 5
+                                    FileGlyph {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 42
+                                        Layout.preferredHeight: 38
+                                        folder: gridItem.isDirectory
+                                        fileName: gridItem.name
+                                        scale: 1.2
+                                    }
+                                    Text { Layout.fillWidth: true; text: gridItem.name; color: "#172334"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                                    Text { Layout.fillWidth: true; text: gridItem.isDirectory ? "Folder" : gridItem.sizeText; color: "#758597"; font.pixelSize: 9; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                                }
+                                MouseArea {
+                                    id: gridMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: { window.selectEntry(gridItem.index); fileGrid.forceActiveFocus() }
+                                    onDoubleClicked: window.openEntry(gridItem.index)
+                                }
+                            }
+                            Keys.onReturnPressed: function(event) { if (currentIndex >= 0) window.openEntry(currentIndex); event.accepted = true }
+                            Keys.onEnterPressed: function(event) { if (currentIndex >= 0) window.openEntry(currentIndex); event.accepted = true }
+                            Keys.onDeletePressed: function(event) { if (currentIndex >= 0) mokoFiles.requestDelete(currentIndex); event.accepted = true }
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            Text { visible: fileGrid.count === 0; anchors.centerIn: parent; text: mokoFiles.searchText.length ? "No matching files" : "This folder is empty"; color: "#748597"; font.pixelSize: 13 }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: window.detailsVisible
+                        Layout.preferredWidth: 218
+                        Layout.minimumWidth: 0
+                        Layout.maximumWidth: window.detailsVisible ? 218 : 0
+                        Layout.fillHeight: true
+                        color: "#F3F8FC"
+                        border.color: "#DDE7EF"
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 8
+                            FileGlyph {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.topMargin: 14
+                                Layout.preferredWidth: 68
+                                Layout.preferredHeight: 62
+                                folder: window.selectedEntry.isDirectory || false
+                                fileName: window.selectedEntry.name || ""
+                                scale: 1.8
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: rowItem.name
-                                color: "#172334"
-                                font.pixelSize: 13
+                                text: window.selectedEntry.name || "Nothing selected"
+                                color: "#142437"
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 3
                                 elide: Text.ElideRight
                             }
                             Text {
-                                Layout.preferredWidth: 130
-                                text: rowItem.isDirectory ? "Folder" : rowItem.sizeText
-                                color: "#68798A"
-                                font.pixelSize: 11
-                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                                text: window.selectedIndex >= 0
+                                      ? (window.selectedEntry.typeName || "File") + " - " + (window.selectedEntry.sizeText || "")
+                                      : "Select an item to see its details."
+                                color: "#687A8C"
+                                font.pixelSize: 10
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
                             }
-                            Text {
-                                Layout.preferredWidth: 145
-                                text: rowItem.modifiedText
-                                color: "#68798A"
-                                font.pixelSize: 11
-                            }
-                        }
-
-                        MouseArea {
-                            id: mouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton
-                            onClicked: {
-                                fileList.currentIndex = rowItem.index
-                                window.selectedIndex = rowItem.index
-                                fileList.forceActiveFocus()
-                            }
-                            onDoubleClicked: {
-                                fileList.currentIndex = rowItem.index
-                                window.selectedIndex = rowItem.index
-                                if (mokoFiles.openEntry(rowItem.index))
-                                    window.resetSelection()
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#D9E4EC" }
+                            Text { visible: window.selectedIndex >= 0; Layout.fillWidth: true; text: "Modified"; color: "#82909E"; font.pixelSize: 9 }
+                            Text { visible: window.selectedIndex >= 0; Layout.fillWidth: true; text: window.selectedEntry.modifiedText || ""; color: "#26384B"; font.pixelSize: 10; wrapMode: Text.Wrap }
+                            Text { visible: window.selectedIndex >= 0; Layout.fillWidth: true; text: "Location"; color: "#82909E"; font.pixelSize: 9 }
+                            Text { visible: window.selectedIndex >= 0; Layout.fillWidth: true; text: mokoFiles.displayPath; color: "#26384B"; font.pixelSize: 10; wrapMode: Text.WrapAnywhere; maximumLineCount: 5; elide: Text.ElideMiddle }
+                            Item { Layout.fillHeight: true }
+                            CommandButton {
+                                Layout.fillWidth: true
+                                text: "Properties"
+                                enabled: window.selectedIndex >= 0
+                                onClicked: { window.propertyRows = mokoFiles.propertiesFor(window.selectedIndex); propertiesDialog.open() }
                             }
                         }
-                    }
-
-                    Keys.onReturnPressed: function(event) {
-                        if (currentIndex >= 0 && mokoFiles.openEntry(currentIndex))
-                            window.resetSelection()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: function(event) {
-                        if (currentIndex >= 0 && mokoFiles.openEntry(currentIndex))
-                            window.resetSelection()
-                        event.accepted = true
-                    }
-                    Keys.onDeletePressed: function(event) {
-                        if (currentIndex >= 0)
-                            mokoFiles.requestDelete(currentIndex)
-                        event.accepted = true
-                    }
-                    Keys.onPressed: function(event) {
-                        if (event.key === Qt.Key_Backspace) {
-                            mokoFiles.navigateUp()
-                            window.resetSelection()
-                            event.accepted = true
-                        } else if (event.key === Qt.Key_F2 && currentIndex >= 0) {
-                            renameName.text = window.selectedEntry.name || ""
-                            renameDialog.open()
-                            event.accepted = true
-                        }
-                    }
-
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                    Text {
-                        visible: fileList.count === 0
-                        anchors.centerIn: parent
-                        text: "This folder is empty"
-                        color: "#748597"
-                        font.pixelSize: 14
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-                    color: "#F5F9FC"
+                    Layout.preferredHeight: 58
+                    color: "#FFFFFF"
+                    border.color: "#DFE8EF"
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 7
+                        CommandButton { text: "New Folder"; onClicked: { folderName.text = ""; newFolderDialog.open() } }
+                        CommandButton { text: "Copy"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.stageCopy(window.selectedIndex) }
+                        CommandButton { text: "Move"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.stageMove(window.selectedIndex) }
+                        CommandButton { text: mokoFiles.canPaste ? "Paste " + mokoFiles.clipboardMode : "Paste"; enabled: mokoFiles.canPaste; onClicked: mokoFiles.paste() }
+                        CommandButton { text: "Rename"; enabled: window.selectedIndex >= 0; onClicked: { renameName.text = window.selectedEntry.name || ""; renameDialog.open() } }
+                        CommandButton { text: "Delete"; enabled: window.selectedIndex >= 0; onClicked: mokoFiles.requestDelete(window.selectedIndex) }
+                        CommandButton { text: "Properties"; enabled: window.selectedIndex >= 0; onClicked: { window.propertyRows = mokoFiles.propertiesFor(window.selectedIndex); propertiesDialog.open() } }
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    color: "#F4F8FB"
                     border.color: "#DDE7EF"
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 15
-                        anchors.rightMargin: 15
-                        Text { Layout.fillWidth: true; text: mokoFiles.statusMessage; color: "#657587"; font.pixelSize: 10; elide: Text.ElideRight }
-                        Text { text: mokoFiles.count + (mokoFiles.count === 1 ? " item" : " items"); color: "#657587"; font.pixelSize: 10 }
+                        anchors.leftMargin: 13
+                        anchors.rightMargin: 13
+                        Text { Layout.fillWidth: true; text: mokoFiles.statusMessage; color: "#657587"; font.pixelSize: 9; elide: Text.ElideRight }
+                        Text { text: mokoFiles.count + (mokoFiles.count === 1 ? " item" : " items"); color: "#657587"; font.pixelSize: 9 }
                     }
                 }
             }
@@ -499,10 +678,8 @@ ApplicationWindow {
             deleteText.text = "Delete '" + name + "'?\n\nThis cannot be undone."
             deleteDialog.open()
         }
-        function onErrorOccurred(message) {
-            errorText.text = message
-            errorDialog.open()
-        }
+        function onErrorOccurred(message) { errorText.text = message; errorDialog.open() }
+        function onCountChanged() { if (window.selectedIndex >= mokoFiles.count) window.resetSelection() }
     }
 
     MokoDialog {
@@ -510,28 +687,17 @@ ApplicationWindow {
         title: "Create Folder"
         primaryText: "Create"
         onAccepted: mokoFiles.createFolder(folderName.text)
-        DialogField {
-            id: folderName
-            width: 360
-            placeholderText: "Folder name"
-            onAccepted: newFolderDialog.accept()
-        }
+        DialogField { id: folderName; width: 360; placeholderText: "Folder name"; onAccepted: newFolderDialog.accept() }
         onOpened: folderName.forceActiveFocus()
     }
-
     MokoDialog {
         id: renameDialog
         title: "Rename Item"
         primaryText: "Rename"
         onAccepted: mokoFiles.renameEntry(window.selectedIndex, renameName.text)
-        DialogField {
-            id: renameName
-            width: 360
-            onAccepted: renameDialog.accept()
-        }
+        DialogField { id: renameName; width: 360; onAccepted: renameDialog.accept() }
         onOpened: { renameName.forceActiveFocus(); renameName.selectAll() }
     }
-
     MokoDialog {
         id: deleteDialog
         title: "Confirm Delete"
@@ -541,7 +707,6 @@ ApplicationWindow {
         onRejected: mokoFiles.cancelDelete()
         Text { id: deleteText; width: 360; wrapMode: Text.Wrap; color: "#263444"; font.pixelSize: 12 }
     }
-
     MokoDialog {
         id: propertiesDialog
         title: "Properties"
@@ -561,7 +726,6 @@ ApplicationWindow {
             }
         }
     }
-
     MokoDialog {
         id: errorDialog
         title: "MOKO Files"
@@ -579,27 +743,13 @@ ApplicationWindow {
         cursorShape: Qt.SizeFDiagCursor
         onPressed: window.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
     }
-
     Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
-    Shortcut {
-        sequence: "Ctrl+C"
-        enabled: window.selectedIndex >= 0
-        onActivated: mokoFiles.stageCopy(window.selectedIndex)
-    }
-    Shortcut {
-        sequence: "Ctrl+X"
-        enabled: window.selectedIndex >= 0
-        onActivated: mokoFiles.stageMove(window.selectedIndex)
-    }
-    Shortcut {
-        sequence: "Ctrl+V"
-        enabled: mokoFiles.canPaste
-        onActivated: mokoFiles.paste()
-    }
+    Shortcut { sequence: "Ctrl+F"; onActivated: fileSearch.forceActiveFocus() }
+    Shortcut { sequence: "Ctrl+L"; onActivated: fileSearch.forceActiveFocus() }
+    Shortcut { sequence: "Ctrl+C"; enabled: window.selectedIndex >= 0; onActivated: mokoFiles.stageCopy(window.selectedIndex) }
+    Shortcut { sequence: "Ctrl+X"; enabled: window.selectedIndex >= 0; onActivated: mokoFiles.stageMove(window.selectedIndex) }
+    Shortcut { sequence: "Ctrl+V"; enabled: mokoFiles.canPaste; onActivated: mokoFiles.paste() }
+    Shortcut { sequence: "Ctrl+Shift+N"; onActivated: { folderName.text = ""; newFolderDialog.open() } }
     Shortcut { sequence: "Meta+M"; onActivated: window.showMinimized() }
-    Shortcut {
-        sequence: "F11"
-        onActivated: window.visibility = window.visibility === Window.FullScreen
-                                       ? Window.Windowed : Window.FullScreen
-    }
+    Shortcut { sequence: "F11"; onActivated: window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen }
 }

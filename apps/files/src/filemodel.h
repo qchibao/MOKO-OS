@@ -17,6 +17,9 @@ class FileModel final : public QAbstractListModel
     Q_PROPERTY(QString clipboardMode READ clipboardMode NOTIFY clipboardChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
+    Q_PROPERTY(QVariantList places READ places NOTIFY placesChanged)
+    Q_PROPERTY(QVariantList breadcrumbs READ breadcrumbs NOTIFY currentPathChanged)
 
 public:
     enum Role {
@@ -47,6 +50,10 @@ public:
     bool canPaste() const;
     QString clipboardMode() const;
     QString statusMessage() const;
+    QString searchText() const;
+    void setSearchText(const QString &searchText);
+    QVariantList places() const;
+    QVariantList breadcrumbs() const;
 
     Q_INVOKABLE bool navigateHome();
     Q_INVOKABLE bool navigateTo(const QString &path);
@@ -72,6 +79,8 @@ signals:
     void clipboardChanged();
     void statusMessageChanged();
     void countChanged();
+    void searchTextChanged();
+    void placesChanged();
     void errorOccurred(const QString &message);
     void deleteConfirmationRequested(const QString &name,
                                      const QString &path,
@@ -98,6 +107,7 @@ private:
     bool removePath(const QString &path, QString *error) const;
     void stageClipboard(int row, const QString &mode);
     void readSystemClipboard();
+    void reloadPlaces();
     QStringList clipboardPaths(const QMimeData *mimeData, QString *mode) const;
     void setStatusMessage(const QString &message);
     bool fail(const QString &message);
@@ -112,4 +122,6 @@ private:
     QString m_pendingDeletePath;
     QString m_pendingDeleteToken;
     QString m_statusMessage;
+    QString m_searchText;
+    QVariantList m_places;
 };

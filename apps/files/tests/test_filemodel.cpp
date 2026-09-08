@@ -19,6 +19,7 @@ private slots:
     void performsConfirmedFileOperations();
     void interoperatesWithSystemFileClipboard();
     void rejectsUnsafeNamesAndDeleteTokens();
+    void filtersEntriesAndBuildsBreadcrumbs();
 };
 
 void FileModelTest::navigatesAndTracksHistory()
@@ -129,6 +130,36 @@ void FileModelTest::rejectsUnsafeNamesAndDeleteTokens()
     model.cancelDelete();
     QVERIFY(!model.confirmDelete(token));
     QVERIFY(QFileInfo::exists(root.filePath(QStringLiteral("keep.txt"))));
+}
+
+void FileModelTest::filtersEntriesAndBuildsBreadcrumbs()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    QVERIFY(QDir(root.path()).mkpath(QStringLiteral("Projects/Aurora")));
+    QFile matching(root.filePath(QStringLiteral("Aurora notes.txt")));
+    QVERIFY(matching.open(QIODevice::WriteOnly));
+    matching.close();
+    QFile hidden(root.filePath(QStringLiteral("Roadmap.txt")));
+    QVERIFY(hidden.open(QIODevice::WriteOnly));
+    hidden.close();
+
+    FileModel model(nullptr, root.path());
+    model.setSearchText(QStringLiteral("aurora"));
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0), FileModel::NameRole).toString(),
+             QStringLiteral("Aurora notes.txt"));
+    model.setSearchText(QString());
+    QCOMPARE(model.rowCount(), 3);
+
+    QVERIFY(model.navigateTo(QStringLiteral("Projects/Aurora")));
+    const QVariantList breadcrumbs = model.breadcrumbs();
+    QVERIFY(breadcrumbs.size() >= 3);
+    QCOMPARE(breadcrumbs.constLast().toMap().value(QStringLiteral("label")).toString(),
+             QStringLiteral("Aurora"));
+    QCOMPARE(QDir::cleanPath(breadcrumbs.constLast().toMap()
+                                 .value(QStringLiteral("path")).toString()),
+             QDir::cleanPath(root.filePath(QStringLiteral("Projects/Aurora"))));
 }
 
 QTEST_MAIN(FileModelTest)

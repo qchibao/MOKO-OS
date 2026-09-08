@@ -10,6 +10,9 @@
 #include <QMimeDatabase>
 #include <QMimeData>
 #include <QLocale>
+#include <QSet>
+#include <QStandardPaths>
+#include <QStorageInfo>
 #include <QUrl>
 #include <QUuid>
 
@@ -25,6 +28,7 @@ FileModel::FileModel(QObject *parent, const QString &initialPath)
         readSystemClipboard();
     }
     const QString start = initialPath.isEmpty() ? QDir::homePath() : initialPath;
+    reloadPlaces();
     navigateInternal(start, true);
 }
 
@@ -124,6 +128,54 @@ QString FileModel::statusMessage() const
     return m_statusMessage;
 }
 
+QString FileModel::searchText() const
+{
+    return m_searchText;
+}
+
+void FileModel::setSearchText(const QString &searchText)
+{
+    const QString normalized = searchText.trimmed();
+    if (m_searchText == normalized)
+        return;
+    m_searchText = normalized;
+    reloadEntries();
+    emit searchTextChanged();
+}
+
+QVariantList FileModel::places() const
+{
+    return m_places;
+}
+
+QVariantList FileModel::breadcrumbs() const
+{
+    QVariantList result;
+    const QString path = QDir::cleanPath(m_currentPath);
+    const QString home = QDir::cleanPath(QDir::homePath());
+    QString cursor;
+    QString relative;
+
+    if (path == home || path.startsWith(home + u'/')) {
+        cursor = home;
+        relative = path == home ? QString() : path.mid(home.size() + 1);
+        result.append(QVariantMap{{QStringLiteral("label"), QStringLiteral("Home")},
+                                  {QStringLiteral("path"), home}});
+    } else {
+        cursor = QStringLiteral("/");
+        relative = path.mid(1);
+        result.append(QVariantMap{{QStringLiteral("label"), QStringLiteral("File System")},
+                                  {QStringLiteral("path"), cursor}});
+    }
+
+    for (const QString &part : relative.split(u'/', Qt::SkipEmptyParts)) {
+        cursor = cursor == QStringLiteral("/") ? cursor + part : cursor + u'/' + part;
+        result.append(QVariantMap{{QStringLiteral("label"), part},
+                                  {QStringLiteral("path"), cursor}});
+    }
+    return result;
+}
+
 bool FileModel::navigateHome()
 {
     return navigateInternal(QDir::homePath(), true);
@@ -170,6 +222,7 @@ bool FileModel::goForward()
 
 bool FileModel::refresh()
 {
+    reloadPlaces();
     return reloadEntries();
 }
 
@@ -502,6 +555,10 @@ bool FileModel::reloadEntries()
                                                         QDir::DirsFirst | QDir::IgnoreCase | QDir::Name);
     entries.reserve(infos.size());
     for (const QFileInfo &info : infos) {
+        if (!m_searchText.isEmpty()
+            && !info.fileName().contains(m_searchText, Qt::CaseInsensitive)) {
+            continue;
+        }
         Entry item;
         item.name = info.fileName();
         item.path = info.absoluteFilePath();
@@ -528,6 +585,94 @@ bool FileModel::reloadEntries()
     endResetModel();
     emit countChanged();
     return true;
+}
+
+void FileModel::reloadPlaces()
+{
+    QVariantList places;
+    const auto addDirectory = [&places](const QString &id, const QString &label,
+                                        const QString &path, const QString &kind) {
+        const QFileInfo info(path);
+        if (!info.exists() || !info.isDir() || !info.isReadable())
+            return;
+        places.append(QVariantMap{{QStringLiteral("id"), id},
+                                  {QStringLiteral("label"), label},
+                                  {QStringLiteral("path"), info.absoluteFilePath()},
+                                  {QStringLiteral("kind"), kind}});
+    };
+    addDirectory(QStringLiteral("home"), QStringLiteral("Home"), QDir::homePath(),
+                 QStringLiteral("home"));
+    const struct {
+        QStandardPaths::StandardLocation location;
+        const char *id;
+        const char *label;
+    } standardPlaces[] = {
+        {QStandardPaths::DesktopLocation, "desktop", "Desktop"},
+        {QStandardPaths::DocumentsLocation, "documents", "Documents"},
+        {QStandardPaths::DownloadLocation, "downloads", "Downloads"},
+        {QStandardPaths::PicturesLocation, "pictures", "Pictures"},
+        {QStandardPaths::MoviesLocation, "videos", "Videos"},
+        {QStandardPaths::MusicLocation, "music", "Music"},
+    };
+    for (const auto &place : standardPlaces) {
+        addDirectory(QString::fromLatin1(place.id), QString::fromLatin1(place.label),
+                     QStandardPaths::writableLocation(place.location),
+                     QStringLiteral("folder"));
+    }
+    addDirectory(QStringLiteral("filesystem"), QStringLiteral("File System"),
+                 QStringLiteral("/"), QStringLiteral("filesystem"));
+    addDirectory(QStringLiteral("trash"), QStringLiteral("Trash"),
+                 QDir::home().filePath(QStringLiteral(".local/share/Trash/files")),
+                 QStringLiteral("trash"));
+
+    const QSet<QByteArray> hiddenFileSystems = {
+        QByteArrayLiteral("autofs"), QByteArrayLiteral("binfmt_misc"),
+        QByteArrayLiteral("cgroup"), QByteArrayLiteral("cgroup2"),
+        QByteArrayLiteral("configfs"), QByteArrayLiteral("debugfs"),
+        QByteArrayLiteral("devpts"), QByteArrayLiteral("devtmpfs"),
+        QByteArrayLiteral("efivarfs"), QByteArrayLiteral("fusectl"),
+        QByteArrayLiteral("hugetlbfs"), QByteArrayLiteral("mqueue"),
+        QByteArrayLiteral("overlay"), QByteArrayLiteral("proc"),
+        QByteArrayLiteral("pstore"), QByteArrayLiteral("ramfs"),
+        QByteArrayLiteral("securityfs"), QByteArrayLiteral("squashfs"),
+        QByteArrayLiteral("sysfs"), QByteArrayLiteral("tmpfs"),
+        QByteArrayLiteral("tracefs"),
+    };
+    QSet<QString> seenRoots;
+    for (const QStorageInfo &storage : QStorageInfo::mountedVolumes()) {
+        if (!storage.isValid() || !storage.isReady() || storage.rootPath() == QStringLiteral("/")
+            || storage.rootPath().startsWith(QDir::homePath())) {
+            continue;
+        }
+        const QString path = QDir::cleanPath(storage.rootPath());
+        const QByteArray fileSystem = storage.fileSystemType().toLower();
+        const bool networkFileSystem = fileSystem.startsWith("nfs")
+            || fileSystem.startsWith("cifs") || fileSystem.startsWith("smb")
+            || fileSystem.contains("sshfs");
+        const bool userVisibleMount = path.startsWith(QStringLiteral("/media/"))
+            || path.startsWith(QStringLiteral("/run/media/"))
+            || path.startsWith(QStringLiteral("/mnt/"))
+            || (path.startsWith(QStringLiteral("/run/user/"))
+                && path.contains(QStringLiteral("/gvfs")));
+        if (hiddenFileSystems.contains(fileSystem) || (!networkFileSystem && !userVisibleMount))
+            continue;
+        if (seenRoots.contains(path))
+            continue;
+        seenRoots.insert(path);
+        const QString label = storage.displayName().trimmed().isEmpty()
+            ? QFileInfo(path).fileName() : storage.displayName().trimmed();
+        places.append(QVariantMap{
+            {QStringLiteral("id"), QStringLiteral("volume-%1").arg(places.size())},
+            {QStringLiteral("label"), label},
+            {QStringLiteral("path"), path},
+            {QStringLiteral("kind"), networkFileSystem ? QStringLiteral("network")
+                                                        : QStringLiteral("volume")},
+        });
+    }
+    if (m_places == places)
+        return;
+    m_places = places;
+    emit placesChanged();
 }
 
 bool FileModel::validRow(int row) const
