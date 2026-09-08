@@ -4,7 +4,9 @@ import QtQuick.Controls
 Rectangle {
     id: root
     height: 40
-    color: Qt.rgba(.94,.98,1,.74)
+    readonly property string appearanceMode: typeof mokoDesktopSettings !== "undefined"
+                                              ? mokoDesktopSettings.appearanceMode : "light"
+    color: appearanceMode === "dark" ? Qt.rgba(.04,.07,.12,.94) : Qt.rgba(.94,.98,1,.82)
     border.color: Qt.rgba(1,1,1,.64)
 
     property string clockText: "--:--"

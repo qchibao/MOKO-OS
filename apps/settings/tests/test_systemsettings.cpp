@@ -11,6 +11,7 @@ private slots:
     void exposesAllRequiredSections();
     void returnsStructuredRealRows();
     void hidesTechnicalRowsUntilDeveloperMode();
+    void validatesAppearanceModes();
 };
 
 void SystemSettingsTest::exposesAllRequiredSections()
@@ -70,6 +71,19 @@ void SystemSettingsTest::returnsStructuredRealRows()
     QVERIFY(!settings.refreshedAt().isEmpty());
     QVERIFY(settings.timeZoneChoices().contains(QStringLiteral("Asia/Ho_Chi_Minh")));
     QVERIFY(!settings.localDateTime().isEmpty());
+}
+
+void SystemSettingsTest::validatesAppearanceModes()
+{
+    SystemSettings settings;
+    QCOMPARE(settings.appearanceModes(),
+             QStringList({QStringLiteral("light"), QStringLiteral("dark"),
+                          QStringLiteral("glass")}));
+    QVERIFY(settings.setAppearanceMode(QStringLiteral("dark")));
+    QCOMPARE(settings.appearanceMode(), QStringLiteral("dark"));
+    QVERIFY(!settings.setAppearanceMode(QStringLiteral("untrusted-theme")));
+    QCOMPARE(settings.appearanceMode(), QStringLiteral("dark"));
+    QVERIFY(settings.setAppearanceMode(QStringLiteral("light")));
 }
 
 int main(int argc, char **argv)

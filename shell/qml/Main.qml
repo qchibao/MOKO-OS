@@ -17,6 +17,9 @@ ApplicationWindow {
     visibility: previewMode ? Window.Windowed : Window.FullScreen
     color: "#E8F4FF"
 
+    readonly property string appearanceMode: mokoDesktopSettings
+                                              ? mokoDesktopSettings.appearanceMode : "light"
+
     property bool launcherVisible: true
     property bool aiVisible: true
     property bool controlCenterVisible: false
@@ -124,7 +127,8 @@ ApplicationWindow {
 
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(.93,.97,1,.08)
+        color: window.appearanceMode === "dark" ? Qt.rgba(.02,.04,.08,.48)
+                                                   : Qt.rgba(.93,.97,1,.08)
     }
 
     TopBar {

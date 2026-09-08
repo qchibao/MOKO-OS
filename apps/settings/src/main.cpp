@@ -1,4 +1,5 @@
 #include "systemsettings.h"
+#include "systemcontrol.h"
 #include "livemarker.h"
 
 #include <QCommandLineParser>
@@ -27,6 +28,8 @@ int main(int argc, char *argv[])
     parser.addOption({QStringLiteral("smoke-test"), QStringLiteral("Load the QML UI and exit.")});
     parser.addOption({QStringLiteral("screenshot"), QStringLiteral("Save a validation screenshot and exit."),
                       QStringLiteral("path")});
+    parser.addOption({QStringLiteral("section"), QStringLiteral("Open a Settings section."),
+                      QStringLiteral("id")});
     parser.process(app);
     const bool smokeTest = parser.isSet(QStringLiteral("smoke-test"));
     const QString screenshotPath = parser.value(QStringLiteral("screenshot"));
@@ -37,9 +40,11 @@ int main(int argc, char *argv[])
     }
 
     SystemSettings settings;
+    SystemControl systemControl;
     bool qmlWarningsFound = false;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("mokoSettings"), &settings);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoSystemControl"), &systemControl);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {
         qmlWarningsFound = qmlWarningsFound || !warnings.isEmpty();
     });
@@ -48,6 +53,9 @@ int main(int argc, char *argv[])
     engine.loadFromModule(QStringLiteral("MokoSettings"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty())
         return 1;
+    if (!parser.value(QStringLiteral("section")).isEmpty())
+        engine.rootObjects().constFirst()->setProperty(
+            "selectedSection", parser.value(QStringLiteral("section")));
     writeMokoLiveEvent(QStringLiteral("MOKO_APP_READY app_id=org.moko.Settings state=ready detail=system-data-loaded"));
     if (validationMode) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());

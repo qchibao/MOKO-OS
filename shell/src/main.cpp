@@ -199,6 +199,8 @@ int main(int argc, char *argv[])
                                              &systemControl);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoWindowManager"),
                                              &windowManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("mokoDesktopSettings"),
+                                             &desktopSettingsService);
     engine.rootContext()->setContextProperty(QStringLiteral("mokoSessionLifecycle"),
                                              &sessionLifecycle);
     QObject::connect(&engine, &QQmlEngine::warnings, &app, [&](const QList<QQmlError> &warnings) {

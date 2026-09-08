@@ -126,6 +126,8 @@ public:
     QString operationMessage() const;
 
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE void preloadNetwork();
+    Q_INVOKABLE void preloadBluetooth();
     Q_INVOKABLE bool setWifiEnabled(bool enabled);
     Q_INVOKABLE bool requestWifiScan();
     Q_INVOKABLE bool connectWifi(const QString &ssid, const QString &password);
@@ -179,7 +181,10 @@ private:
     void setOperationMessage(const QString &message);
 
     QTimer *m_refreshTimer = nullptr;
+    bool m_networkPreloadPending = false;
+    bool m_bluetoothPreloadPending = false;
     BluetoothAgent m_bluetoothAgent;
+    QString m_bluetoothAgentPath;
     bool m_bluetoothAgentRegistered = false;
 
     bool m_networkManagerAvailable = false;

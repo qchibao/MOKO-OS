@@ -49,7 +49,6 @@ const QString accessPointInterface = QStringLiteral("org.freedesktop.NetworkMana
 const QString bluezService = QStringLiteral("org.bluez");
 const QString bluezAdapterInterface = QStringLiteral("org.bluez.Adapter1");
 const QString bluezDeviceInterface = QStringLiteral("org.bluez.Device1");
-const QString bluetoothAgentPath = QStringLiteral("/org/moko/BluetoothAgent");
 const QString logindService = QStringLiteral("org.freedesktop.login1");
 const QString logindPath = QStringLiteral("/org/freedesktop/login1");
 const QString logindInterface = QStringLiteral("org.freedesktop.login1.Manager");
@@ -182,6 +181,7 @@ void writeLiveEvent(const QString &event)
 SystemControl::SystemControl(QObject *parent)
     : QObject(parent)
     , m_bluetoothAgent()
+    , m_bluetoothAgentPath(QStringLiteral("/org/moko/BluetoothAgent_%1").arg(getpid()))
 {
     static const bool registered = [] {
         qDBusRegisterMetaType<DbusInterfaceMap>();
@@ -216,8 +216,8 @@ SystemControl::~SystemControl()
                                QDBusConnection::systemBus());
         manager.call(QDBus::NoBlock,
                      QStringLiteral("UnregisterAgent"),
-                     QVariant::fromValue(QDBusObjectPath(bluetoothAgentPath)));
-        QDBusConnection::systemBus().unregisterObject(bluetoothAgentPath);
+                     QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)));
+        QDBusConnection::systemBus().unregisterObject(m_bluetoothAgentPath);
     }
 }
 
@@ -279,6 +279,34 @@ void SystemControl::refresh()
     refreshAudio();
     refreshPower();
     refreshTime();
+}
+
+void SystemControl::preloadNetwork()
+{
+    if (m_networkPreloadPending)
+        return;
+    m_networkPreloadPending = true;
+    // Defer discovery until the event loop has rendered the page. This keeps
+    // Settings responsive while NetworkManager performs its own scan.
+    QTimer::singleShot(0, this, [this] {
+        refreshNetwork();
+        m_networkPreloadPending = false;
+        if (m_wifiAvailable && m_wifiEnabled && !m_wifiScanning)
+            requestWifiScan();
+    });
+}
+
+void SystemControl::preloadBluetooth()
+{
+    if (m_bluetoothPreloadPending)
+        return;
+    m_bluetoothPreloadPending = true;
+    QTimer::singleShot(0, this, [this] {
+        refreshBluetooth();
+        m_bluetoothPreloadPending = false;
+        if (m_bluetoothAvailable && m_bluetoothPowered && !m_bluetoothScanning)
+            setBluetoothScanning(true);
+    });
 }
 
 void SystemControl::refreshNetwork()
@@ -472,25 +500,28 @@ bool SystemControl::connectWifi(const QString &ssid, const QString &password)
 {
     if (!m_wifiAvailable || !m_wifiEnabled || m_networkBusy)
         return false;
-    const QVariantMap network = wifiNetwork(ssid);
-    const QString accessPointPath = network.value(QStringLiteral("id")).toString();
-    const bool secure = network.value(QStringLiteral("secure")).toBool();
-    if (network.isEmpty() || accessPointPath.isEmpty()) {
-        setOperationMessage(QStringLiteral("That Wi-Fi network is no longer available."));
+    const QString cleanSsid = ssid.trimmed();
+    if (cleanSsid.isEmpty() || cleanSsid.toUtf8().size() > 32) {
+        setOperationMessage(QStringLiteral("Enter a valid Wi-Fi network name."));
         return false;
     }
+    const QVariantMap network = wifiNetwork(cleanSsid);
+    const QString accessPointPath = network.value(
+        QStringLiteral("id"), QStringLiteral("/")).toString();
+    const bool secure = network.isEmpty() ? !password.isEmpty()
+                                          : network.value(QStringLiteral("secure")).toBool();
     if (secure && password.isEmpty()) {
-        setOperationMessage(QStringLiteral("A password is required for %1.").arg(ssid));
+        setOperationMessage(QStringLiteral("A password is required for %1.").arg(cleanSsid));
         return false;
     }
 
     NetworkSettings settings;
     settings.insert(QStringLiteral("connection"),
-                    {{QStringLiteral("id"), ssid},
+                    {{QStringLiteral("id"), cleanSsid},
                      {QStringLiteral("type"), QStringLiteral("802-11-wireless")},
                      {QStringLiteral("autoconnect"), true}});
     settings.insert(QStringLiteral("802-11-wireless"),
-                    {{QStringLiteral("ssid"), ssid.toUtf8()},
+                    {{QStringLiteral("ssid"), cleanSsid.toUtf8()},
                      {QStringLiteral("mode"), QStringLiteral("infrastructure")}});
     if (secure) {
         settings.insert(QStringLiteral("802-11-wireless-security"),
@@ -514,17 +545,17 @@ bool SystemControl::connectWifi(const QString &ssid, const QString &password)
         this);
     m_networkBusy = true;
     m_wifiState = QStringLiteral("Connecting");
-    setOperationMessage(QStringLiteral("Connecting to %1").arg(ssid));
+    setOperationMessage(QStringLiteral("Connecting to %1").arg(cleanSsid));
     emit networkChanged();
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, ssid](QDBusPendingCallWatcher *finished) {
+            [this, cleanSsid](QDBusPendingCallWatcher *finished) {
                 QDBusPendingReply<QDBusObjectPath, QDBusObjectPath> reply = *finished;
                 m_networkBusy = false;
                 if (reply.isError())
                     setOperationMessage(QStringLiteral("Could not connect to %1: %2")
-                                            .arg(ssid, reply.error().message()));
+                                            .arg(cleanSsid, reply.error().message()));
                 else
-                    setOperationMessage(QStringLiteral("Connected to %1").arg(ssid));
+                    setOperationMessage(QStringLiteral("Connected to %1").arg(cleanSsid));
                 finished->deleteLater();
                 QTimer::singleShot(300, this, &SystemControl::refreshNetwork);
             });
@@ -624,7 +655,7 @@ void SystemControl::ensureBluetoothAgent()
     if (m_bluetoothAgentRegistered)
         return;
     QDBusConnection bus = QDBusConnection::systemBus();
-    if (!bus.registerObject(bluetoothAgentPath,
+    if (!bus.registerObject(m_bluetoothAgentPath,
                             &m_bluetoothAgent,
                             QDBusConnection::ExportAllSlots)) {
         return;
@@ -634,16 +665,16 @@ void SystemControl::ensureBluetoothAgent()
                            QStringLiteral("org.bluez.AgentManager1"),
                            bus);
     QDBusMessage reply = manager.call(QStringLiteral("RegisterAgent"),
-                                      QVariant::fromValue(QDBusObjectPath(bluetoothAgentPath)),
+                                      QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)),
                                       QStringLiteral("KeyboardDisplay"));
     if (reply.type() != QDBusMessage::ReplyMessage
         && reply.errorName() != QStringLiteral("org.bluez.Error.AlreadyExists")) {
-        bus.unregisterObject(bluetoothAgentPath);
+        bus.unregisterObject(m_bluetoothAgentPath);
         return;
     }
     manager.call(QDBus::NoBlock,
                  QStringLiteral("RequestDefaultAgent"),
-                 QVariant::fromValue(QDBusObjectPath(bluetoothAgentPath)));
+                 QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)));
     m_bluetoothAgentRegistered = true;
 }
 

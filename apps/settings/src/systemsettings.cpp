@@ -135,6 +135,13 @@ bool SystemSettings::browserHistorySwipeEnabled() const
 {
     return m_browserHistorySwipeEnabled;
 }
+QString SystemSettings::appearanceMode() const { return m_appearanceMode; }
+QStringList SystemSettings::appearanceModes() const
+{
+    return {QStringLiteral("light"), QStringLiteral("dark"), QStringLiteral("glass")};
+}
+bool SystemSettings::safeGraphics() const { return m_safeGraphics; }
+bool SystemSettings::glassEffectsEnabled() const { return m_glassEffectsEnabled; }
 
 QStringList SystemSettings::timeZoneChoices() const
 {
@@ -330,6 +337,47 @@ bool SystemSettings::setBrowserHistorySwipeEnabled(bool enabled)
     collectTrackpad();
     emit dataChanged();
     return reply.isValid() && reply.value();
+}
+
+bool SystemSettings::setAppearanceMode(const QString &mode)
+{
+    const QString normalized = mode.trimmed().toLower();
+    if (!appearanceModes().contains(normalized)) {
+        m_statusMessage = QStringLiteral("That appearance mode is not available");
+        emit dataChanged();
+        return false;
+    }
+
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    bool applied = false;
+    if (desktop.isValid()) {
+        const QDBusReply<bool> reply = desktop.call(
+            QStringLiteral("setAppearanceMode"), normalized);
+        applied = reply.isValid() && reply.value();
+    } else {
+        sharedSettings().setValue(QStringLiteral("appearance/mode"), normalized);
+        applied = true;
+    }
+    if (!applied) {
+        m_statusMessage = QStringLiteral("Appearance could not be changed");
+        emit dataChanged();
+        return false;
+    }
+
+    m_appearanceMode = normalized;
+    m_safeGraphics = qEnvironmentVariableIntValue("MOKO_SAFE_GRAPHICS") == 1;
+    m_glassEffectsEnabled = normalized == QStringLiteral("glass") && !m_safeGraphics;
+    m_statusMessage = m_safeGraphics && normalized == QStringLiteral("glass")
+        ? QStringLiteral("Glass selected with reduced effects in Safe Graphics")
+        : QStringLiteral("Appearance changed to MOKO %1")
+              .arg(normalized.left(1).toUpper() + normalized.mid(1));
+    collectAppearance();
+    emit appearanceChanged();
+    emit dataChanged();
+    return true;
 }
 
 bool SystemSettings::setTimeZone(const QString &zoneId)
@@ -545,13 +593,36 @@ void SystemSettings::collectDisplay()
 
 void SystemSettings::collectAppearance()
 {
+    QDBusInterface desktop(QStringLiteral("org.moko.Desktop1"),
+                           QStringLiteral("/org/moko/Desktop1"),
+                           QStringLiteral("org.moko.Desktop1"),
+                           QDBusConnection::sessionBus());
+    const QDBusReply<QVariantMap> reply = desktop.call(QStringLiteral("appearanceState"));
+    const QVariantMap state = reply.isValid() ? reply.value() : QVariantMap{};
+    const QString stored = sharedSettings().value(
+        QStringLiteral("appearance/mode"), QStringLiteral("light")).toString().toLower();
+    m_appearanceMode = appearanceModes().contains(state.value(QStringLiteral("mode")).toString())
+        ? state.value(QStringLiteral("mode")).toString()
+        : appearanceModes().contains(stored) ? stored : QStringLiteral("light");
+    m_safeGraphics = state.contains(QStringLiteral("safeGraphics"))
+        ? state.value(QStringLiteral("safeGraphics")).toBool()
+        : qEnvironmentVariableIntValue("MOKO_SAFE_GRAPHICS") == 1;
+    m_glassEffectsEnabled = state.contains(QStringLiteral("glassEffectsEnabled"))
+        ? state.value(QStringLiteral("glassEffectsEnabled")).toBool()
+        : m_appearanceMode == QStringLiteral("glass") && !m_safeGraphics;
+    const QString displayMode = m_appearanceMode.left(1).toUpper() + m_appearanceMode.mid(1);
     m_rows.insert(QStringLiteral("appearance"),
-                  {row(QStringLiteral("Theme"), QStringLiteral("MOKO Light"),
-                       QStringLiteral("Read-only in v0.1.1")),
+                  {row(QStringLiteral("Theme"), QStringLiteral("MOKO %1").arg(displayMode),
+                       QStringLiteral("Applied to the current MOKO session"), true, true),
                    row(QStringLiteral("Accent"), QStringLiteral("Blue"),
-                       QStringLiteral("MOKO design token #3F7CFF; read-only")),
-                   row(QStringLiteral("Interface style"), QStringLiteral("Bright glass / ice"),
-                       QStringLiteral("Current shell design language"))});
+                       QStringLiteral("MOKO design token #3F7CFF")),
+                   row(QStringLiteral("Glass effects"),
+                       m_glassEffectsEnabled ? QStringLiteral("On")
+                           : m_safeGraphics && m_appearanceMode == QStringLiteral("glass")
+                               ? QStringLiteral("Reduced") : QStringLiteral("Off"),
+                       m_safeGraphics ? QStringLiteral("Safe Graphics uses opaque surfaces")
+                                      : QStringLiteral("Hardware rendering available"))});
+    emit appearanceChanged();
 }
 
 void SystemSettings::collectDateTime()

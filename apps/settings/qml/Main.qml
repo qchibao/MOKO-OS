@@ -21,6 +21,7 @@ ApplicationWindow {
         })
     }
     property string selectedSection: sections.length ? sections[0] : "about"
+    readonly property string appearanceMode: mokoSettings.appearanceMode
     property var currentRows: {
         mokoSettings.developerMode
         return mokoSettings.rows(selectedSection)
@@ -29,7 +30,21 @@ ApplicationWindow {
     function selectSection(sectionId) {
         selectedSection = sectionId
         currentRows = mokoSettings.rows(sectionId)
+        if (sectionId === "network" && mokoSystemControl)
+            mokoSystemControl.preloadNetwork()
+        if (sectionId === "bluetooth" && mokoSystemControl)
+            mokoSystemControl.preloadBluetooth()
     }
+
+    onSelectedSectionChanged: {
+        currentRows = mokoSettings.rows(selectedSection)
+        if (selectedSection === "network" && mokoSystemControl)
+            mokoSystemControl.preloadNetwork()
+        if (selectedSection === "bluetooth" && mokoSystemControl)
+            mokoSystemControl.preloadBluetooth()
+    }
+
+    Component.onCompleted: selectSection(selectedSection)
 
     Connections {
         target: mokoSettings
@@ -44,7 +59,8 @@ ApplicationWindow {
 
     Rectangle {
         anchors.fill: parent
-        color: "#F7FBFF"
+        color: window.appearanceMode === "dark" ? "#0E1723"
+                                                : window.appearanceMode === "glass" ? "#EAF5FE" : "#F7FBFF"
     }
 
     RowLayout {
@@ -362,12 +378,259 @@ ApplicationWindow {
                     }
                 }
 
+                Rectangle {
+                    visible: window.selectedSection === "appearance"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 260
+                    radius: 8
+                    color: window.appearanceMode === "dark" ? "#172334" : "#F7FAFD"
+                    border.color: window.appearanceMode === "dark" ? "#30445D" : "#DCE7EF"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 14
+                        Text {
+                            text: "MOKO appearance"
+                            color: window.appearanceMode === "dark" ? "#F2F7FD" : "#16263B"
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: mokoSettings.safeGraphics
+                                  ? "Safe Graphics is active; Glass uses reduced effects."
+                                  : "Choose the presentation that feels right for this session."
+                            color: window.appearanceMode === "dark" ? "#B7C7D9" : "#718294"
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Repeater {
+                                model: ["light", "dark", "glass"]
+                                delegate: Button {
+                                    required property string modelData
+                                    Layout.fillWidth: true
+                                    implicitHeight: 48
+                                    text: modelData === "light" ? "MOKO Light"
+                                          : modelData === "dark" ? "MOKO Dark" : "Glass"
+                                    checkable: true
+                                    checked: mokoSettings.appearanceMode === modelData
+                                    onClicked: mokoSettings.setAppearanceMode(modelData)
+                                    background: Rectangle {
+                                        radius: 7
+                                        color: parent.checked ? "#3978F6" : window.appearanceMode === "dark" ? "#22344A" : "#FFFFFF"
+                                        border.color: parent.checked ? "#3978F6" : window.appearanceMode === "dark" ? "#405871" : "#C7D9EA"
+                                    }
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: parent.checked ? "#FFFFFF" : window.appearanceMode === "dark" ? "#DCE8F4" : "#26384C"
+                                        font.pixelSize: 11
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Blue remains the default accent. Theme changes apply to the current MOKO session."
+                            color: window.appearanceMode === "dark" ? "#9DB0C5" : "#718294"
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                Rectangle {
+                    visible: window.selectedSection === "network"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 8
+                    color: "#F7FAFD"
+                    border.color: "#DCE7EF"
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 9
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: mokoSystemControl && mokoSystemControl.wifiAvailable
+                                      ? (mokoSystemControl.activeSsid || mokoSystemControl.wifiState)
+                                      : "Wi-Fi not detected"
+                                color: "#16263B"
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Switch {
+                                checked: mokoSystemControl && mokoSystemControl.wifiEnabled
+                                enabled: mokoSystemControl && mokoSystemControl.wifiAvailable
+                                onToggled: mokoSystemControl.setWifiEnabled(checked)
+                            }
+                            Button {
+                                text: mokoSystemControl && mokoSystemControl.wifiScanning ? "Scanning" : "Rescan"
+                                enabled: mokoSystemControl && mokoSystemControl.wifiAvailable
+                                         && mokoSystemControl.wifiEnabled && !mokoSystemControl.wifiScanning
+                                onClicked: mokoSystemControl.requestWifiScan()
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: mokoSystemControl && mokoSystemControl.networkBusy
+                                  ? mokoSystemControl.operationMessage
+                                  : "Nearby networks"
+                            color: "#718294"
+                            font.pixelSize: 10
+                        }
+                        ListView {
+                            id: settingsWifiList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: mokoSystemControl && mokoSystemControl.wifiEnabled
+                                   ? mokoSystemControl.wifiNetworks : []
+                            delegate: Item {
+                                required property var modelData
+                                width: settingsWifiList.width
+                                height: 48
+                                RowLayout {
+                                    anchors.fill: parent
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.ssid + "  " + modelData.strength + "%"
+                                        color: "#26384C"
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                    Text { text: modelData.secure ? "Secured" : "Open"; color: "#718294"; font.pixelSize: 9 }
+                                    Button {
+                                        text: modelData.connected ? "Disconnect" : "Connect"
+                                        enabled: !mokoSystemControl.networkBusy
+                                        onClicked: {
+                                            if (modelData.connected)
+                                                mokoSystemControl.disconnectWifi()
+                                            else if (modelData.secure) {
+                                                settingsWifiPassword.text = ""
+                                                settingsWifiName.text = modelData.ssid
+                                                settingsWifiDialog.open()
+                                            } else
+                                                mokoSystemControl.connectWifi(modelData.ssid, "")
+                                        }
+                                    }
+                                }
+                                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#E2EAF1" }
+                            }
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TextField {
+                                id: settingsManualSsid
+                                Layout.fillWidth: true
+                                placeholderText: "Other network name"
+                            }
+                            Button {
+                                text: "Join"
+                                enabled: settingsManualSsid.text.length > 0 && mokoSystemControl && !mokoSystemControl.networkBusy
+                                onClicked: {
+                                    settingsWifiName.text = settingsManualSsid.text
+                                    settingsWifiPassword.text = ""
+                                    settingsWifiDialog.open()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: window.selectedSection === "bluetooth"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 8
+                    color: "#F7FAFD"
+                    border.color: "#DCE7EF"
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 9
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: mokoSystemControl && mokoSystemControl.bluetoothAvailable
+                                      ? (mokoSystemControl.bluetoothScanning ? "Scanning for devices" : "Bluetooth ready")
+                                      : "Bluetooth not detected"
+                                color: "#16263B"
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
+                            Switch {
+                                checked: mokoSystemControl && mokoSystemControl.bluetoothPowered
+                                enabled: mokoSystemControl && mokoSystemControl.bluetoothAvailable
+                                onToggled: mokoSystemControl.setBluetoothPowered(checked)
+                            }
+                            Button {
+                                text: mokoSystemControl && mokoSystemControl.bluetoothScanning ? "Stop" : "Scan"
+                                enabled: mokoSystemControl && mokoSystemControl.bluetoothPowered
+                                onClicked: mokoSystemControl.setBluetoothScanning(!mokoSystemControl.bluetoothScanning)
+                            }
+                        }
+                        ListView {
+                            id: settingsBluetoothList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: mokoSystemControl ? mokoSystemControl.bluetoothDevices : []
+                            delegate: Item {
+                                required property var modelData
+                                width: settingsBluetoothList.width
+                                height: 52
+                                RowLayout {
+                                    anchors.fill: parent
+                                    spacing: 8
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: modelData.name; color: "#26384C"; font.pixelSize: 11; elide: Text.ElideRight }
+                                        Text { text: modelData.connected ? "Connected" : modelData.paired ? "Paired" : "Available"; color: "#718294"; font.pixelSize: 9 }
+                                    }
+                                    Button {
+                                        text: modelData.connected ? "Disconnect" : modelData.paired ? "Connect" : "Pair"
+                                        enabled: !mokoSystemControl.bluetoothBusy
+                                        onClicked: modelData.connected
+                                            ? mokoSystemControl.disconnectBluetoothDevice(modelData.id)
+                                            : modelData.paired
+                                              ? mokoSystemControl.connectBluetoothDevice(modelData.id)
+                                              : mokoSystemControl.pairBluetoothDevice(modelData.id)
+                                    }
+                                    Button {
+                                        text: "Forget"
+                                        visible: modelData.paired
+                                        onClicked: mokoSystemControl.forgetBluetoothDevice(modelData.id)
+                                    }
+                                }
+                                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#E2EAF1" }
+                            }
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        }
+                    }
+                }
+
                 ListView {
                     id: settingRows
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: window.selectedSection !== "date-time"
                              && window.selectedSection !== "trackpad"
+                             && window.selectedSection !== "appearance"
+                             && window.selectedSection !== "network"
+                             && window.selectedSection !== "bluetooth"
                     model: window.currentRows
                     spacing: 8
                     clip: true
@@ -477,6 +740,71 @@ ApplicationWindow {
                         elide: Text.ElideRight
                     }
                 }
+            }
+        }
+    }
+
+    Dialog {
+        id: settingsWifiDialog
+        anchors.centerIn: parent
+        modal: true
+        title: "Join Wi-Fi network"
+        width: Math.min(420, window.width - 48)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: mokoSystemControl.connectWifi(settingsWifiName.text,
+                                                   settingsWifiPassword.text)
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+            TextField {
+                id: settingsWifiName
+                Layout.fillWidth: true
+                placeholderText: "Network name"
+            }
+            TextField {
+                id: settingsWifiPassword
+                Layout.fillWidth: true
+                placeholderText: "Password (leave empty for an open network)"
+                echoMode: TextInput.Password
+                onAccepted: settingsWifiDialog.accept()
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "The password is sent only to NetworkManager for this connection."
+                color: "#718294"
+                font.pixelSize: 10
+                wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    Dialog {
+        id: settingsBluetoothPrompt
+        anchors.centerIn: parent
+        modal: true
+        visible: mokoSystemControl && mokoSystemControl.bluetoothPromptVisible
+        title: mokoSystemControl ? mokoSystemControl.bluetoothPromptTitle : "Bluetooth confirmation"
+        width: Math.min(430, window.width - 48)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: mokoSystemControl.answerBluetoothPrompt(
+                        bluetoothPromptInput.visible ? bluetoothPromptInput.text : "", true)
+        onRejected: mokoSystemControl.answerBluetoothPrompt("", false)
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+            Text {
+                Layout.fillWidth: true
+                text: mokoSystemControl ? mokoSystemControl.bluetoothPromptMessage : ""
+                color: "#26384C"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+            TextField {
+                id: bluetoothPromptInput
+                Layout.fillWidth: true
+                visible: mokoSystemControl && mokoSystemControl.bluetoothPromptNeedsInput
+                text: mokoSystemControl ? mokoSystemControl.bluetoothPromptValue : ""
+                inputMethodHints: Qt.ImhDigitsOnly
             }
         }
     }

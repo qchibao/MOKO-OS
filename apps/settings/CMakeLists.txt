@@ -2,6 +2,12 @@ qt_add_executable(moko-settings
     src/main.cpp
     src/systemsettings.cpp
     src/systemsettings.h
+    ../../shell/src/bluetoothagent.cpp
+    ../../shell/src/bluetoothagent.h
+    ../../shell/src/systemcontrol.cpp
+    ../../shell/src/systemcontrol.h
+    ../../shell/src/systemcontrolutils.cpp
+    ../../shell/src/systemcontrolutils.h
 )
 
 qt_add_qml_module(moko-settings
@@ -12,7 +18,7 @@ qt_add_qml_module(moko-settings
     QML_FILES qml/Main.qml
 )
 
-target_include_directories(moko-settings PRIVATE src ../common)
+target_include_directories(moko-settings PRIVATE src ../common ../../shell/src)
 target_link_libraries(moko-settings PRIVATE Qt6::Core Qt6::DBus Qt6::Gui Qt6::Quick Qt6::QuickControls2)
 
 install(TARGETS moko-settings RUNTIME DESTINATION bin)

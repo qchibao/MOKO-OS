@@ -24,6 +24,10 @@ class SystemSettings final : public QObject
     Q_PROPERTY(bool threeFingerDragEnabled READ threeFingerDragEnabled NOTIFY trackpadChanged)
     Q_PROPERTY(bool browserHistorySwipeAvailable READ browserHistorySwipeAvailable NOTIFY trackpadChanged)
     Q_PROPERTY(bool browserHistorySwipeEnabled READ browserHistorySwipeEnabled NOTIFY trackpadChanged)
+    Q_PROPERTY(QString appearanceMode READ appearanceMode NOTIFY appearanceChanged)
+    Q_PROPERTY(QStringList appearanceModes READ appearanceModes CONSTANT)
+    Q_PROPERTY(bool safeGraphics READ safeGraphics NOTIFY appearanceChanged)
+    Q_PROPERTY(bool glassEffectsEnabled READ glassEffectsEnabled NOTIFY appearanceChanged)
 
 public:
     explicit SystemSettings(QObject *parent = nullptr);
@@ -47,6 +51,10 @@ public:
     bool threeFingerDragEnabled() const;
     bool browserHistorySwipeAvailable() const;
     bool browserHistorySwipeEnabled() const;
+    QString appearanceMode() const;
+    QStringList appearanceModes() const;
+    bool safeGraphics() const;
+    bool glassEffectsEnabled() const;
 
     Q_INVOKABLE QStringList sectionIds() const;
     Q_INVOKABLE QString sectionTitle(const QString &sectionId) const;
@@ -59,12 +67,14 @@ public:
     Q_INVOKABLE bool setNaturalScrollEnabled(bool enabled);
     Q_INVOKABLE bool setThreeFingerDragEnabled(bool enabled);
     Q_INVOKABLE bool setBrowserHistorySwipeEnabled(bool enabled);
+    Q_INVOKABLE bool setAppearanceMode(const QString &mode);
 
 signals:
     void dataChanged();
     void developerModeChanged();
     void dateTimeChanged();
     void trackpadChanged();
+    void appearanceChanged();
 
 private:
     using Rows = QVariantList;
@@ -112,4 +122,7 @@ private:
     bool m_threeFingerDragEnabled = false;
     bool m_browserHistorySwipeAvailable = false;
     bool m_browserHistorySwipeEnabled = false;
+    QString m_appearanceMode = QStringLiteral("light");
+    bool m_safeGraphics = false;
+    bool m_glassEffectsEnabled = false;
 };
