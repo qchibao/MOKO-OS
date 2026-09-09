@@ -8,6 +8,7 @@ TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
 SHUTDOWN_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_TIMEOUT:-60}
 SHUTDOWN_VISUAL_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_VISUAL_TIMEOUT:-60}
+GUEST_BOOT_BUDGET_MS=${MOKO_GUEST_BOOT_BUDGET_MS:-0}
 BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
 BOOT_FIRMWARE=${MOKO_BOOT_FIRMWARE:-bios}
 LAUNCH_QUERY=${MOKO_LAUNCH_QUERY:-}
@@ -60,6 +61,10 @@ command -v docker >/dev/null || {
 }
 [[ "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "MOKO_SHUTDOWN_VISUAL_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
+[[ "$GUEST_BOOT_BUDGET_MS" =~ ^[0-9]+$ ]] || {
+  echo "MOKO_GUEST_BOOT_BUDGET_MS must be zero or a positive integer." >&2
   exit 1
 }
 case "$BOOT_MODE" in
@@ -499,29 +504,30 @@ wait_for_black_frame() {
 
 select_boot_profile() {
   local hotkey=""
-  local menu_delay=${MOKO_BOOT_MENU_DELAY:-}
+  local menu_delay=${MOKO_BOOT_MENU_DELAY:-1}
+  local attempts=${MOKO_BOOT_MENU_ATTEMPTS:-16}
   case "$BOOT_MODE" in
     hardware-diagnostics) hotkey=h ;;
     safe-graphics) hotkey=s ;;
     desktop) return ;;
   esac
 
-  if [[ -z "$menu_delay" ]]; then
-    if [[ "$BOOT_FIRMWARE" == uefi ]]; then
-      menu_delay=6
-    else
-      menu_delay=3
-    fi
-  fi
   [[ "$menu_delay" =~ ^[1-9][0-9]*$ ]] || {
     echo "MOKO_BOOT_MENU_DELAY must be a positive integer." >&2
     return 1
   }
+  [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || {
+    echo "MOKO_BOOT_MENU_ATTEMPTS must be a positive integer." >&2
+    return 1
+  }
 
-  # Let SeaBIOS/OVMF hand control to the ISO before sending a menu hotkey.
+  # The consumer menu is hidden and short. Send the selected hotkey across the
+  # firmware handoff window so BIOS and UEFI diagnostics remain testable.
   sleep "$menu_delay"
-  monitor "sendkey $hotkey"
-  sleep 0.5
+  for _ in $(seq 1 "$attempts"); do
+    monitor "sendkey $hotkey"
+    sleep 0.45
+  done
   monitor "sendkey ret"
 }
 
@@ -539,10 +545,12 @@ docker run --rm --platform linux/amd64 \
       -extract /live/filesystem.squashfs /tmp/filesystem.squashfs \
       -extract /isolinux/isolinux.cfg /tmp/isolinux.cfg \
       -extract /isolinux/menu.cfg /tmp/isolinux-menu.cfg \
+      -extract /isolinux/stdmenu.cfg /tmp/isolinux-stdmenu.cfg \
       -extract /isolinux/live.cfg /tmp/syslinux-live.cfg \
       -extract /isolinux/splash.png /tmp/isolinux-splash.png \
       -extract /boot/grub/config.cfg /tmp/grub-config.cfg \
       -extract /boot/grub/grub.cfg /tmp/grub-menu.cfg \
+      -extract /boot/grub/live-theme/theme.txt /tmp/grub-theme.txt \
       -extract /boot/grub/splash.png /tmp/grub-splash.png \
       -extract /EFI/boot/bootx64.efi /tmp/bootx64.efi \
       -extract /MOKO/BUILD-INFO.txt /tmp/moko-build-info.txt \
@@ -577,8 +585,12 @@ docker run --rm --platform linux/amd64 \
         }
     done
 
-    grep -q "timeout 100" /tmp/isolinux.cfg
-    grep -q "set timeout=10" /tmp/grub-config.cfg
+    grep -q "timeout 20" /tmp/isolinux.cfg
+    grep -q "set timeout_style=hidden" /tmp/grub-config.cfg
+    grep -q "set timeout=2" /tmp/grub-config.cfg
+    grep -q "menu hidden" /tmp/isolinux-stdmenu.cfg
+    ! grep -q "insmod play" /tmp/grub-config.cfg
+    ! grep -q "progress_bar" /tmp/grub-theme.txt
     grep -Fq "MOKO OS v0.1.1 Hardware & Usability Preview" /tmp/isolinux-menu.cfg
     for label in "Try MOKO OS" "Hardware Diagnostics" "Safe Graphics Mode"; do
       grep -Fq "$label" /tmp/syslinux-live.cfg
@@ -598,8 +610,8 @@ docker run --rm --platform linux/amd64 \
       grep -Fq "noprompt" <<<"$line"
       grep -Fq "systemd.show_status=false" <<<"$line"
       grep -Fq "vt.global_cursor_default=0" <<<"$line"
-      if grep -Fq "console=tty0" <<<"$line"; then
-        echo "Normal consumer profile writes to tty0." >&2
+      if grep -Eq "console=tty(0|S0)" <<<"$line"; then
+        echo "Normal consumer profile depends on a physical or QEMU console." >&2
         exit 1
       fi
     done
@@ -692,9 +704,28 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_SHUTDOWN_*" /tmp/moko-live-launch-monitor
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/share/plymouth/themes/moko/moko.script > /tmp/moko-plymouth.script
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      usr/share/plymouth/themes/moko/moko-boot.png > /tmp/moko-boot.png
     grep -Fq "pulse_frames = 210" /tmp/moko-plymouth.script
     grep -Fq "pulse_opacity = 0.75 + 0.25 * Math.Cos" /tmp/moko-plymouth.script
     grep -Fq "Plymouth.SetDisplayMessageFunction(ignore_message)" /tmp/moko-plymouth.script
+    python3 - <<'PY'
+from PIL import Image
+
+for path in ("/tmp/isolinux-splash.png", "/tmp/grub-splash.png"):
+    image = Image.open(path).convert("RGB")
+    if image.getextrema() != ((0, 0), (0, 0), (0, 0)):
+        raise SystemExit(f"Bootloader splash is not completely black: {path}")
+
+image = Image.open("/tmp/moko-boot.png").convert("RGB")
+lower = image.crop((0, 575, image.width, image.height))
+if max(channel[1] for channel in lower.getextrema()) > 8:
+    raise SystemExit("Plymouth still contains the inactive lower loading bar")
+center = image.crop((image.width // 3, image.height // 4,
+                     image.width * 2 // 3, image.height * 3 // 5))
+if max(channel[1] for channel in center.getextrema()) < 220:
+    raise SystemExit("Plymouth MOKO wordmark is missing")
+PY
     unsquashfs -cat /tmp/filesystem.squashfs etc/plymouth/plymouthd.conf \
       | grep -Fq "Theme=moko"
     unsquashfs -cat /tmp/filesystem.squashfs \
@@ -838,6 +869,26 @@ for run in $(seq 1 "$RUNS"); do
     fi
     sleep 1
   done
+
+  if [[ "$BOOT_MODE" != hardware-diagnostics ]]; then
+    timing_deadline=$((SECONDS + 30))
+    while ! grep -Eq 'MOKO_BOOT_TIMING stage=shell-ready uptime_ms=[0-9]+ uid=1000' "$SERIAL_PATH"; do
+      if (( SECONDS >= timing_deadline )); then
+        tail -100 "$SERIAL_PATH" >&2
+        echo "MOKO Shell did not publish guest boot timing." >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    timing_line=$(grep -E 'MOKO_BOOT_TIMING stage=shell-ready uptime_ms=[0-9]+ uid=1000' \
+      "$SERIAL_PATH" | tail -1)
+    guest_boot_ms=$(sed -n 's/.*uptime_ms=\([0-9][0-9]*\).*/\1/p' <<<"$timing_line")
+    echo "Guest Shell first-frame time: ${guest_boot_ms} ms"
+    if (( GUEST_BOOT_BUDGET_MS > 0 && guest_boot_ms > GUEST_BOOT_BUDGET_MS )); then
+      echo "Guest Shell exceeded the ${GUEST_BOOT_BUDGET_MS} ms boot budget." >&2
+      exit 1
+    fi
+  fi
 
   screenshot_deadline=$((SECONDS + SCREENSHOT_TIMEOUT_SECONDS))
   screenshot_size=0

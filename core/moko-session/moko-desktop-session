@@ -10,6 +10,24 @@ case " $cmdline " in
 esac
 export MOKO_BOOT_MODE
 
+if [ -d /run/live ]; then
+  export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:?}/moko-launch-events"
+fi
+
+boot_uptime_ms() {
+  awk '{ printf "%d", $1 * 1000 }' "${MOKO_BOOT_UPTIME_FILE:-/proc/uptime}" 2>/dev/null \
+    || printf '0'
+}
+
+report_boot_timing() {
+  stage=$1
+  [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ] || return 0
+  mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"
+  printf 'MOKO_BOOT_TIMING stage=%s uptime_ms=%s uid=%s\n' \
+    "$stage" "$(boot_uptime_ms)" "$(id -u)" \
+    >>"$MOKO_LIVE_LAUNCH_EVENTS" 2>/dev/null || true
+}
+
 blank_consumer_vt() {
   [ "$MOKO_BOOT_MODE" != hardware-diagnostics ] || return 0
   consumer_tty=${MOKO_CONSUMER_TTY:-/dev/tty}
@@ -31,6 +49,8 @@ if [ "$MOKO_BOOT_MODE" != hardware-diagnostics ] \
   exec "$0" "$@" >"$session_log" 2>&1
 fi
 
+report_boot_timing session-start
+
 requested_compositor=${MOKO_COMPOSITOR:-moko}
 case "$requested_compositor" in
   moko|cage) ;;
@@ -46,6 +66,7 @@ if [ "$MOKO_BOOT_MODE" = safe-graphics ] || [ "$requested_compositor" = cage ]; 
     export LIBGL_ALWAYS_SOFTWARE=1
     export QT_QUICK_BACKEND=software
   fi
+  report_boot_timing compositor-launch
   exec cage -s -- /usr/local/bin/moko-session
 fi
 
@@ -54,8 +75,7 @@ wayland_display=${MOKO_WAYLAND_DISPLAY:-wayland-moko-0}
 compositor_bin=${MOKO_COMPOSITOR_BIN:-/usr/local/bin/moko-compositor}
 session_bin=${MOKO_SESSION_BIN:-/usr/local/bin/moko-session}
 compositor_ready_file="${XDG_RUNTIME_DIR:?}/moko-compositor.ready"
-if [ -d /run/live ]; then
-  export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:?}/moko-launch-events"
+if [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ]; then
   mkdir -p "$(dirname "$MOKO_LIVE_LAUNCH_EVENTS")"
 fi
 compositor_pid=
@@ -118,6 +138,7 @@ while [ "$start_attempt" -lt 3 ]; do
 done
 
 [ "$compositor_ready" -eq 1 ] || exit 1
+report_boot_timing compositor-ready
 
 export WAYLAND_DISPLAY=$wayland_display
 "$session_bin"

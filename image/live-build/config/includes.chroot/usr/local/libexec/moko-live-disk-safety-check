@@ -6,10 +6,15 @@ report() {
   message=$1
   serial_device=${MOKO_SERIAL_LOG_DEVICE:-/dev/ttyS0}
 
-  # The journal is authoritative; QEMU serial output is optional diagnostics.
-  printf '%s\n' "$message" 2>/dev/null || :
+  # The journal is authoritative. Keep every diagnostic sink best-effort so a
+  # broken console can never alter the safety result or systemd exit status.
+  if ! printf '%s\n' "$message" 2>/dev/null; then
+    :
+  fi
   if [ -c "$serial_device" ] && [ -w "$serial_device" ]; then
-    (printf '%s\n' "$message" > "$serial_device") 2>/dev/null || :
+    if ! (printf '%s\n' "$message" >"$serial_device") 2>/dev/null; then
+      :
+    fi
   fi
   return 0
 }

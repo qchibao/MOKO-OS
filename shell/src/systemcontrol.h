@@ -127,6 +127,7 @@ public:
     QString operationMessage() const;
 
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE void startFullRefresh();
     Q_INVOKABLE void preloadNetwork();
     Q_INVOKABLE void preloadBluetooth();
     Q_INVOKABLE bool setWifiEnabled(bool enabled);

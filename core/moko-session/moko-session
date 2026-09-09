@@ -28,6 +28,14 @@ fi
 if [ -d /run/live ]; then
   export MOKO_LIVE_LAUNCH_EVENTS="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/moko-launch-events"
 fi
+
+report_boot_timing() {
+  [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ] || return 0
+  uptime_ms=$(awk '{ printf "%d", $1 * 1000 }' \
+    "${MOKO_BOOT_UPTIME_FILE:-/proc/uptime}" 2>/dev/null || printf '0')
+  printf 'MOKO_BOOT_TIMING stage=shell-launch uptime_ms=%s uid=%s\n' \
+    "$uptime_ms" "$(id -u)" >>"$MOKO_LIVE_LAUNCH_EVENTS" 2>/dev/null || true
+}
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
   dbus-update-activation-environment \
     XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP QT_QPA_PLATFORM \
@@ -44,6 +52,7 @@ if [ -n "${MOKO_LIVE_LAUNCH_EVENTS:-}" ]; then
   printf 'MOKO_BOOT_PROFILE mode=%s safe_graphics=%s uid=%s\n' \
     "$MOKO_BOOT_MODE" "${MOKO_SAFE_GRAPHICS:-0}" "$(id -u)" \
     >> "$MOKO_LIVE_LAUNCH_EVENTS"
+  report_boot_timing
 fi
 
 if [ "$MOKO_BOOT_MODE" = hardware-diagnostics ]; then

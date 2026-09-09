@@ -24,6 +24,8 @@
 #include <QSet>
 #include <QTimer>
 
+#include <unistd.h>
+
 namespace {
 
 void writeShellSurfaceEvent(const QString &state, const QString &appId)
@@ -37,6 +39,33 @@ void writeShellSurfaceEvent(const QString &state, const QString &appId)
     if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
         return;
     file.write(QStringLiteral("MOKO_SHELL_SURFACE state=%1 app_id=%2\n").arg(state, appId).toUtf8());
+    file.flush();
+}
+
+void writeBootTimingEvent(const QString &stage)
+{
+    const QString path = qEnvironmentVariable("MOKO_LIVE_LAUNCH_EVENTS");
+    if (path.isEmpty())
+        return;
+
+    QFile uptimeFile(QStringLiteral("/proc/uptime"));
+    qint64 uptimeMs = 0;
+    if (uptimeFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        bool ok = false;
+        const double seconds = uptimeFile.readLine().split(' ').constFirst().toDouble(&ok);
+        if (ok)
+            uptimeMs = static_cast<qint64>(seconds * 1000.0);
+    }
+
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        return;
+    file.write(QStringLiteral("MOKO_BOOT_TIMING stage=%1 uptime_ms=%2 uid=%3\n")
+                   .arg(stage)
+                   .arg(uptimeMs)
+                   .arg(static_cast<qulonglong>(geteuid()))
+                   .toUtf8());
     file.flush();
 }
 
@@ -81,7 +110,9 @@ int main(int argc, char *argv[])
     AiController aiController;
     NotificationModel notificationModel;
     ScreenshotController screenshotController;
-    SystemControl systemControl;
+    // Render the desktop before probing optional physical services. Some real
+    // D-Bus and audio backends take seconds to answer during early boot.
+    SystemControl systemControl(nullptr, true);
     WindowManager windowManager;
     DesktopSettingsService desktopSettingsService(&windowManager);
     SessionLifecycle::Options sessionOptions;
@@ -224,6 +255,17 @@ int main(int argc, char *argv[])
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window)
         return 1;
+
+    auto *bootTimingGuard = new QObject(&app);
+    bootTimingGuard->setProperty("reported", false);
+    QObject::connect(window, &QQuickWindow::frameSwapped, bootTimingGuard,
+                     [bootTimingGuard, &systemControl] {
+                         if (bootTimingGuard->property("reported").toBool())
+                             return;
+                         bootTimingGuard->setProperty("reported", true);
+                         writeBootTimingEvent(QStringLiteral("shell-ready"));
+                         QTimer::singleShot(250, &systemControl, &SystemControl::startFullRefresh);
+                     });
 
     if (parser.isSet("control-center")) {
         window->setProperty("activeSystemPanel", QStringLiteral("control-center"));

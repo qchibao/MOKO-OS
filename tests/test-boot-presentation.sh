@@ -56,6 +56,31 @@ do
   [[ "$signature" == 89504e470d0a1a0a ]]
 done
 
+python3 - "$ROOT" <<'PY'
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+root = Path(sys.argv[1])
+for relative in (
+    "image/live-build/config/bootloaders/grub-pc/splash.png",
+    "image/live-build/config/bootloaders/isolinux/splash.png",
+):
+    image = Image.open(root / relative).convert("RGB")
+    if image.getextrema() != ((0, 0), (0, 0), (0, 0)):
+        raise SystemExit(f"Bootloader splash is not completely black: {relative}")
+
+image = Image.open(root / "assets/boot/moko-boot.png").convert("RGB")
+lower = image.crop((0, 575, image.width, image.height))
+if max(channel[1] for channel in lower.getextrema()) > 8:
+    raise SystemExit("Plymouth still contains the inactive lower loading bar")
+center = image.crop((image.width // 3, image.height // 4,
+                     image.width * 2 // 3, image.height * 3 // 5))
+if max(channel[1] for channel in center.getextrema()) < 220:
+    raise SystemExit("Plymouth MOKO wordmark is missing")
+PY
+
 grep -Fq 'mode == "boot"' "$PLYMOUTH_SCRIPT"
 grep -Fq 'pulse_frames = 210' "$PLYMOUTH_SCRIPT"
 grep -Fq 'Plymouth.SetRefreshRate(30)' "$PLYMOUTH_SCRIPT"
@@ -73,8 +98,31 @@ fi
 
 grep -Fq 'ForwardToConsole=no' \
   "$ROOT/image/live-build/config/includes.chroot/etc/systemd/journald.conf.d/10-moko-quiet-console.conf"
+grep -Fq 'set timeout_style=hidden' \
+  "$ROOT/image/live-build/config/bootloaders/grub-pc/config.cfg"
+grep -Fq 'set timeout=2' \
+  "$ROOT/image/live-build/config/bootloaders/grub-pc/config.cfg"
+grep -Fq 'timeout 20' \
+  "$ROOT/image/live-build/config/bootloaders/isolinux/isolinux.cfg"
+if grep -Fq 'insmod play' "$ROOT/image/live-build/config/bootloaders/grub-pc/config.cfg"; then
+  echo "Normal boot still enables the GRUB audio cue." >&2
+  exit 1
+fi
+if grep -Fq '+ progress_bar' "$ROOT/image/live-build/config/bootloaders/grub-pc/live-theme/theme.txt"; then
+  echo "The bootloader theme still renders an inactive timeout bar." >&2
+  exit 1
+fi
+if grep -Fq 'console=ttyS0' "$AUTO_CONFIG"; then
+  echo "Normal boot still depends on a QEMU serial console." >&2
+  exit 1
+fi
 grep -Fq 'MOKO_SESSION_OUTPUT_ROUTED' "$ROOT/core/moko-session/moko-desktop-session"
 grep -Fq 'systemd-cat --identifier=moko-session' "$ROOT/core/moko-session/moko-desktop-session"
+grep -Fq 'MOKO_BOOT_TIMING stage=%s uptime_ms=%s uid=%s' \
+  "$ROOT/core/moko-session/moko-desktop-session"
+grep -Fq 'MOKO_BOOT_TIMING stage=shell-launch uptime_ms=%s uid=%s' \
+  "$ROOT/core/moko-session/moko-session"
+grep -Fq 'MOKO_BOOT_TIMING stage=%1 uptime_ms=%2 uid=%3' "$ROOT/shell/src/main.cpp"
 grep -Fq 'tail -s 0.05 -n +1 -F "$events"' \
   "$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-live-launch-monitor"
 grep -Fq 'Before=greetd.service' \

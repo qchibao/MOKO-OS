@@ -295,6 +295,14 @@ void SystemControl::refresh()
     refreshTime();
 }
 
+void SystemControl::startFullRefresh()
+{
+    m_targetedRefreshOnly = false;
+    if (!m_refreshTimer->isActive())
+        m_refreshTimer->start();
+    refresh();
+}
+
 void SystemControl::preloadNetwork()
 {
     m_networkRefreshEnabled = true;
