@@ -562,7 +562,58 @@ installer. Stable phase commits are:
 - H7 `a358326`: verified local `.deb` review/install flow with a fixed polkit
   helper, safe dependency handling and application-registry refresh.
 
-H8 must start from a clean committed tree, repeat every automated release gate,
-build the replacement ISO and stop for physical MacBook Pro 2015 validation.
-The package flow modifies only the ephemeral Live overlay; MOKO-012 remains
-disabled and internal disks remain outside the installation path.
+H8 started from a clean committed tree and completed the automated release gate
+on 2026-09-09. The package flow modifies only the ephemeral Live overlay;
+MOKO-012 remains disabled and internal disks remain outside the installation
+path.
+
+### H8 automated validation
+
+- static boot/shutdown presentation, serial-sink disk-safety and Live launch
+  telemetry regressions passed;
+- compositor CTest `4/4`, Shell CTest `8/8`, unchanged AI CTest `3/3`, native
+  apps/PTY/Diagnostics/Browser/package-installer CTest `15/15`, Browser network
+  and Qt compositor multi-window sessions passed;
+- BIOS desktop boots passed in the isolated AI/Terminal, multi-window and
+  Browser/package workflows; each reported `unexpected_block_mounts=0`,
+  `greetd_restarts=0` and completed a black-frame ACPI shutdown;
+- UEFI desktop passed three times using fresh OVMF state: two boots under
+  `out/moko-iso-smoke-20260908T235109Z-uefi-desktop-*` and one isolated boot
+  under `out/moko-iso-smoke-20260909T015005Z-uefi-desktop-*`;
+- Control Center and real PipeWire mute passed under
+  `out/moko-iso-smoke-20260909T014104Z-bios-desktop-*`;
+- QEMU input truth, safe scale, English/Vietnamese switching, Notification
+  Center and screenshot passed under
+  `out/moko-iso-smoke-20260909T014522Z-bios-desktop-*`;
+- AI Ready -> Processing -> Response and allowlisted Terminal launch passed
+  under `out/moko-iso-smoke-20260909T001937Z-bios-desktop-*`;
+- Files/Settings snap, maximize, fullscreen, minimize/Dock restore, resize,
+  move, Alt+Tab and close passed under
+  `out/moko-iso-smoke-20260909T012055Z-bios-desktop-*`;
+- Browser sandbox/HTTPS/JavaScript, real Debian download, Files handoff and the
+  confirmed temporary `.deb` install passed under
+  `out/moko-iso-smoke-20260909T012653Z-bios-desktop-*`;
+- Safe Graphics passed under
+  `out/moko-iso-smoke-20260909T013418Z-bios-safe-graphics-*`;
+- direct and Launcher Hardware Diagnostics produced truthful QEMU inventories,
+  reported `writable_disk_detected=0` and exported JSON/text as UID 1000 under
+  `out/moko-iso-smoke-20260909T013723Z-bios-hardware-diagnostics-*` and
+  `out/moko-iso-smoke-20260909T015428Z-bios-desktop-*`;
+- standard-VGA suspend/resume recovered compositor, Browser, AI,
+  NetworkManager, PipeWire and input state, then reloaded HTTPS/JavaScript under
+  `out/moko-iso-smoke-20260909T020622Z-bios-desktop-std-*`.
+
+Every normal desktop shutdown capture used the strict `bright_pixels=0`
+assertion. No QEMU run attached a writable disk. Final clean ISO generation and
+byte-for-byte reproducibility use this H8 record commit; the generated
+`out/SHA256SUMS` is the release checksum source.
+
+### H8 physical-only remainder
+
+QEMU cannot certify the MacBook internal panel and scaling, three-finger drag,
+horizontal trackpad history swipe, charging icon transitions, Wi-Fi and
+Bluetooth discovery/pairing, brightness keys, audio/microphone/webcam, or real
+suspend/resume and poweroff presentation. MOKO-011 therefore remains
+**IN PROGRESS**. Stop after generating the ISO and complete
+`docs/LIVE_USB_CHECKLIST.md` on the same Intel MacBook Pro 2015 before any
+MOKO-012 work.

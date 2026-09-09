@@ -194,6 +194,36 @@ This is the QEMU release candidate, not final hardware certification. Complete
 `docs/LIVE_USB_CHECKLIST.md` on the Intel MacBook Pro 2015 before marking
 MOKO-011 complete. Do not enable the installer during that validation.
 
+## Physical hotfix release gate
+
+The H1-H8 physical hotfix automated gate completed on 2026-09-09. Run long
+pointer-driven workflows in isolated boots; parallel TCG guests can starve each
+other before firmware starts and are not counted as product failures.
+
+The clean gate passed the boot/shutdown presentation checks, disk-safety
+serial-sink regression, compositor `4/4`, Shell `8/8`, unchanged AI `3/3`, apps
+`15/15`, Browser network and Qt multi-window tests. QEMU passed three BIOS and
+three UEFI desktop boots plus Control Center, input/usability, AI/Terminal,
+Files/Settings multi-window, Browser HTTPS/JavaScript/download/temporary `.deb`
+installation, Safe Graphics, direct and Launcher Diagnostics, and standard-VGA
+suspend/resume.
+
+For the resume gate use the existing restricted cleanup mode after every guest
+and framebuffer assertion succeeds:
+
+```bash
+MOKO_QEMU_VIDEO_DEVICE=std MOKO_QEMU_EXIT_ACTION=quit \
+  MOKO_RESUME_TEST=1 MOKO_LAUNCH_QUERY=browser \
+  MOKO_LAUNCH_APP_ID=org.moko.Browser MOKO_REQUIRE_APP_READY=1 \
+  ./scripts/test-iso-docker.sh
+```
+
+QEMU q35 standard VGA can fail its emulated S5 transition after S3. This mode
+does not replace the normal BIOS/UEFI ACPI poweroff gates and is rejected for
+every non-resume test. The final artifact is built twice from the clean H8
+record commit and verified with `scripts/compare-iso-builds.sh`; use
+`out/SHA256SUMS` as its checksum source.
+
 ## macOS Intel
 Do not run Debian `live-build` directly on macOS. Use the Docker wrapper, a
 Debian 13 VM, a dedicated Linux machine, or a suitable Linux CI runner; then
