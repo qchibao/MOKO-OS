@@ -453,16 +453,6 @@ NetworkSnapshot parseNetworkObjects(const MokoSystemControl::DbusManagedObjects 
     return snapshot;
 }
 
-QVariant dbusProperty(const QString &service,
-                      const QString &path,
-                      const QString &interface,
-                      const QString &name)
-{
-    QDBusInterface object(service, path, interface, QDBusConnection::systemBus());
-    object.setTimeout(1500);
-    return object.isValid() ? unwrapped(object.property(name.toUtf8().constData())) : QVariant{};
-}
-
 bool setDbusProperty(const QString &service,
                      const QString &path,
                      const QString &interface,
@@ -1791,9 +1781,17 @@ void SystemControl::refreshPower()
         break;
     }
 
-    m_powerModeAvailable = false;
-    m_powerMode.clear();
-    m_powerModes.clear();
+    // Sysfs is local and cheap to read, so refresh it even while an optional
+    // D-Bus probe is still in flight. This keeps battery/backlight changes
+    // visible immediately without allowing overlapping D-Bus requests.
+    emit powerChanged();
+    if (m_powerRefreshInFlight) {
+        m_powerRefreshPending = true;
+        return;
+    }
+    m_powerRefreshInFlight = true;
+    m_powerRefreshPending = false;
+
     const struct {
         const char *service;
         const char *path;
@@ -1803,38 +1801,95 @@ void SystemControl::refreshPower()
          "org.freedesktop.UPower.PowerProfiles"},
         {"net.hadess.PowerProfiles", "/net/hadess/PowerProfiles", "net.hadess.PowerProfiles"},
     };
-    for (const auto &profileService : profileServices) {
-        if (!serviceRegistered(QString::fromLatin1(profileService.service)))
-            continue;
-        const QVariant active = dbusProperty(QString::fromLatin1(profileService.service),
-                                             QString::fromLatin1(profileService.path),
-                                             QString::fromLatin1(profileService.interface),
-                                             QStringLiteral("ActiveProfile"));
-        const QVariant profilesValue = dbusProperty(QString::fromLatin1(profileService.service),
-                                                    QString::fromLatin1(profileService.path),
-                                                    QString::fromLatin1(profileService.interface),
-                                                    QStringLiteral("Profiles"));
-        const VariantMapList profiles = qdbus_cast<VariantMapList>(profilesValue);
-        for (const QVariantMap &profile : profiles) {
-            const QString name = profile.value(QStringLiteral("Profile")).toString();
-            if (!name.isEmpty() && !m_powerModes.contains(name))
-                m_powerModes.append(name);
+    struct PowerRefreshState {
+        int remaining = 3;
+        QVariantMap profileProperties[2];
+        bool profileValid[2] = {false, false};
+        QString suspendPolicy;
+    };
+    auto state = std::make_shared<PowerRefreshState>();
+    const auto complete = [this, state] {
+        if (--state->remaining != 0)
+            return;
+
+        m_powerModeAvailable = false;
+        m_powerMode.clear();
+        m_powerModes.clear();
+        for (int index = 0; index < 2; ++index) {
+            if (!state->profileValid[index])
+                continue;
+            const QVariantMap &properties = state->profileProperties[index];
+            const QString active = unwrapped(
+                properties.value(QStringLiteral("ActiveProfile"))).toString();
+            const VariantMapList profiles = qdbus_cast<VariantMapList>(unwrapped(
+                properties.value(QStringLiteral("Profiles"))));
+            QStringList modes;
+            for (const QVariantMap &profile : profiles) {
+                const QString name = unwrapped(
+                    profile.value(QStringLiteral("Profile"))).toString();
+                if (!name.isEmpty() && !modes.contains(name))
+                    modes.append(name);
+            }
+            if (active.isEmpty() || modes.isEmpty())
+                continue;
+            m_powerMode = active;
+            m_powerModes = modes;
+            m_powerModeAvailable = true;
+            break;
         }
-        m_powerMode = active.toString();
-        m_powerModeAvailable = !m_powerMode.isEmpty() && !m_powerModes.isEmpty();
-        break;
+
+        m_suspendAvailable = state->suspendPolicy == QStringLiteral("yes")
+            || state->suspendPolicy == QStringLiteral("challenge");
+        m_powerRefreshInFlight = false;
+        emit powerChanged();
+        if (m_powerRefreshPending) {
+            m_powerRefreshPending = false;
+            QTimer::singleShot(0, this, &SystemControl::refreshPower);
+        }
+    };
+
+    for (int index = 0; index < 2; ++index) {
+        const auto &profileService = profileServices[index];
+        auto *properties = new QDBusInterface(
+            QString::fromLatin1(profileService.service),
+            QString::fromLatin1(profileService.path),
+            QStringLiteral("org.freedesktop.DBus.Properties"),
+            QDBusConnection::systemBus(), this);
+        properties->setTimeout(kDbusCallTimeoutMs);
+        auto *watcher = new QDBusPendingCallWatcher(
+            properties->asyncCall(QStringLiteral("GetAll"),
+                                  QString::fromLatin1(profileService.interface)),
+            this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [state, complete, watcher, properties, index] {
+                    const QDBusPendingReply<QVariantMap> reply = *watcher;
+                    state->profileValid[index] = !reply.isError();
+                    if (!reply.isError())
+                        state->profileProperties[index] = reply.value();
+                    watcher->deleteLater();
+                    properties->deleteLater();
+                    complete();
+                });
     }
 
-    QDBusInterface loginManager(logindService,
-                                logindPath,
-                                logindInterface,
-                                QDBusConnection::systemBus());
-    loginManager.setTimeout(kDbusCallTimeoutMs);
-    const QDBusReply<QString> canSuspend = loginManager.call(QStringLiteral("CanSuspend"));
-    const QString suspendPolicy = canSuspend.isValid() ? canSuspend.value() : QString();
-    m_suspendAvailable = suspendPolicy == QStringLiteral("yes")
-        || suspendPolicy == QStringLiteral("challenge");
-    emit powerChanged();
+    auto *loginManager = new QDBusInterface(logindService,
+                                            logindPath,
+                                            logindInterface,
+                                            QDBusConnection::systemBus(),
+                                            this);
+    loginManager->setTimeout(kDbusCallTimeoutMs);
+    auto *suspendWatcher = new QDBusPendingCallWatcher(
+        loginManager->asyncCall(QStringLiteral("CanSuspend")), this);
+    connect(suspendWatcher, &QDBusPendingCallWatcher::finished, this,
+            [state, complete, suspendWatcher, loginManager] {
+                const QDBusPendingReply<QString> reply = *suspendWatcher;
+                if (!reply.isError())
+                    state->suspendPolicy = reply.value();
+                suspendWatcher->deleteLater();
+                loginManager->deleteLater();
+                complete();
+            });
+
 }
 
 void SystemControl::refreshTime()

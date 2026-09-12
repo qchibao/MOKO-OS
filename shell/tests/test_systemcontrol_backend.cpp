@@ -34,6 +34,7 @@ private slots:
     void defersInitialBackendProbe();
     void networkRefreshDoesNotBlockTheEventLoop();
     void audioRefreshDoesNotBlockTheEventLoop();
+    void powerRefreshDoesNotBlockTheEventLoop();
     void controlsFixtureBacklightBatteryAndAudio();
 };
 
@@ -161,6 +162,37 @@ void SystemControlBackendTest::audioRefreshDoesNotBlockTheEventLoop()
     QCOMPARE(control.outputVolume(), 50);
     QCOMPARE(control.inputVolume(), 50);
 
+    qunsetenv("MOKO_SYSFS_ROOT");
+    qunsetenv("MOKO_WPCTL");
+}
+
+void SystemControlBackendTest::powerRefreshDoesNotBlockTheEventLoop()
+{
+    QDBusInterface manager(QStringLiteral("org.freedesktop.login1"),
+                           QStringLiteral("/org/freedesktop/login1"),
+                           QStringLiteral("org.freedesktop.login1.Manager"),
+                           QDBusConnection::systemBus());
+    QVERIFY2(manager.isValid(), qPrintable(manager.lastError().message()));
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetCanSuspendDelay"), 1000))
+                .isValid());
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    qputenv("MOKO_SYSFS_ROOT", directory.path().toUtf8());
+    qputenv("MOKO_WPCTL", directory.filePath(QStringLiteral("missing-wpctl")).toUtf8());
+    SystemControl control(nullptr, true);
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    control.startFullRefresh();
+    QVERIFY2(elapsed.elapsed() < 100, "Power refresh blocked the GUI thread");
+
+    bool timerFired = false;
+    QTimer::singleShot(25, [&timerFired] { timerFired = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(timerFired, 150);
+    QTRY_VERIFY_WITH_TIMEOUT(control.suspendAvailable(), 2000);
+
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetCanSuspendDelay"), 0)).isValid());
     qunsetenv("MOKO_SYSFS_ROOT");
     qunsetenv("MOKO_WPCTL");
 }

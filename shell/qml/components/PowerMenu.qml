@@ -13,10 +13,10 @@ FocusScope {
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    signal presentationFrameRequested()
     signal presentationReady()
 
     focus: visible
-    opacity: visible ? 1 : 0
 
     function focusDefaultAction() {
         if (!root.visible || !shutdownButton.enabled)
@@ -26,31 +26,23 @@ FocusScope {
         // while Qt still needs a concrete control to receive Return/Enter.
         root.forceActiveFocus()
         shutdownButton.forceActiveFocus()
-        return root.activeFocus && shutdownButton.activeFocus
     }
 
-    function reportPresentationReady() {
-        if (!root.visible || root.opacity < 0.999 || root.presentationReported)
+    function requestPresentationFrame() {
+        if (!root.visible || root.presentationReported)
             return
-        if (!focusDefaultAction()) {
-            focusRetry.restart()
-            return
-        }
-        // Let the compositor/QPA focus transition settle before advertising
-        // readiness. The second claim closes the race where Enter arrives
-        // between the overlay mapping and the final Qt focus assignment.
-        Qt.callLater(function() {
-            if (!root.visible || root.opacity < 0.999 || root.presentationReported)
-                return
-            shutdownButton.forceActiveFocus()
-            if (!root.activeFocus || !shutdownButton.activeFocus) {
-                focusRetry.restart()
-                return
-            }
-            focusRetry.stop()
-            root.presentationReported = true
-            root.presentationReady()
-        })
+        root.focusDefaultAction()
+        root.presentationFrameRequested()
+    }
+
+    function confirmPresentedFrame() {
+        if (!root.visible || root.presentationReported)
+            return false
+        root.focusDefaultAction()
+        presentationRetry.stop()
+        root.presentationReported = true
+        root.presentationReady()
+        return true
     }
 
     function activateFocusedAction() {
@@ -215,14 +207,13 @@ FocusScope {
 
     onVisibleChanged: {
         presentationReported = false
-        focusRetry.stop()
+        presentationRetry.stop()
         if (visible) {
             focusDefaultAction()
-            Qt.callLater(reportPresentationReady)
+            presentationRetry.start()
+            Qt.callLater(requestPresentationFrame)
         }
     }
-
-    onOpacityChanged: Qt.callLater(reportPresentationReady)
 
     onBusyChanged: {
         if (visible && !busy)
@@ -230,13 +221,9 @@ FocusScope {
     }
 
     Timer {
-        id: focusRetry
-        interval: 16
+        id: presentationRetry
+        interval: 50
         repeat: true
-        onTriggered: reportPresentationReady()
-    }
-
-    Behavior on opacity {
-        NumberAnimation { duration: 140 }
+        onTriggered: root.requestPresentationFrame()
     }
 }

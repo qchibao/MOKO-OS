@@ -250,6 +250,8 @@ private:
     QVariantList m_inputDevices;
     bool m_audioRefreshInFlight = false;
     bool m_audioRefreshPending = false;
+    bool m_powerRefreshInFlight = false;
+    bool m_powerRefreshPending = false;
 
     bool m_brightnessAvailable = false;
     int m_brightness = 0;

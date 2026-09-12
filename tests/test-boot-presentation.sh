@@ -156,16 +156,30 @@ grep -Fq 'monitor system_powerdown' <<<"$fallback_shutdown"
 power_menu="$ROOT/shell/qml/components/PowerMenu.qml"
 compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 shell_main_qml="$ROOT/shell/qml/Main.qml"
-grep -Fq 'Qt.callLater(function()' "$power_menu"
 grep -Fq 'root.forceActiveFocus()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
-grep -Fq 'return root.activeFocus && shutdownButton.activeFocus' "$power_menu"
-grep -Fq 'if (!root.activeFocus || !shutdownButton.activeFocus)' "$power_menu"
-grep -Fq 'focusRetry.restart()' "$power_menu"
-grep -Fq 'focusRetry.stop()' "$power_menu"
+grep -Fq 'signal presentationFrameRequested()' "$power_menu"
+grep -Fq 'function confirmPresentedFrame()' "$power_menu"
+grep -Fq 'presentationRetry.start()' "$power_menu"
+grep -Fq 'presentationRetry.stop()' "$power_menu"
+if grep -Fq 'Behavior on opacity' "$power_menu"; then
+  echo "Power menu presentation must not depend on a multi-frame opacity animation." >&2
+  exit 1
+fi
 grep -Fq 'sequence: "Return"' "$power_menu"
 grep -Fq 'sequence: "Enter"' "$power_menu"
 grep -Fq 'onActivated: root.activateFocusedAction()' "$power_menu"
+grep -Fq 'powerMenu.confirmPresentedFrame()' "$shell_main_qml"
+grep -Fq 'onPresentationFrameRequested: window.requestUpdate()' "$shell_main_qml"
+dispatch_wayland=$(sed -n '/void WindowManager::dispatchWayland()/,/^}/p' \
+  "$ROOT/shell/src/windowmanager.cpp")
+if grep -Fq 'wl_display_dispatch(m_native->display)' <<<"$dispatch_wayland"; then
+  echo "Qt Wayland event dispatch must not block the GUI thread." >&2
+  exit 1
+fi
+grep -Fq 'wl_display_prepare_read(m_native->display)' <<<"$dispatch_wayland"
+grep -Fq 'wl_display_read_events(m_native->display)' <<<"$dispatch_wayland"
+grep -Fq 'wl_display_cancel_read(m_native->display)' <<<"$dispatch_wayland"
 grep -Fq 'mokoSessionLifecycle.beginShutdown()' "$shell_main_qml"
 grep -Fq 'function onShutdownBlackoutReady()' "$shell_main_qml"
 grep -Fq 'mokoSessionLifecycle.notifyPowerActionRequested()' "$shell_main_qml"
@@ -185,9 +199,12 @@ grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
   "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
 power_request=$(sed -n '/^static void request_power_menu/,/^}/p' "$compositor_source")
-grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"
 grep -Fq 'moko_window_manager_v1_send_power_menu' <<<"$power_request"
 grep -Fq 'wl_display_flush_clients(server->display);' <<<"$power_request"
+if grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"; then
+  echo "Compositor raises the Shell before its Power menu scene is selected." >&2
+  exit 1
+fi
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"

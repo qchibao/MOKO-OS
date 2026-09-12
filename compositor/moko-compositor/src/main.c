@@ -266,10 +266,9 @@ static void request_power_menu(struct moko_server *server)
 {
     const bool delivered = server->power_key_handler_resource != NULL;
     if (delivered) {
-        /* Raise and focus the Shell before its separate control connection
-         * receives the menu request. Flush both connections in this cycle so
-         * a timer-originated request cannot wait for unrelated compositor IO. */
-        set_shell_overlay(server, true);
+        /* Let the Shell select the lightweight menu scene before it asks to be
+         * raised. Focusing its Qt surface first can make an expensive repaint
+         * starve this separate control connection on slow renderers. */
         moko_window_manager_v1_send_power_menu(server->power_key_handler_resource);
         wl_display_flush_clients(server->display);
     }

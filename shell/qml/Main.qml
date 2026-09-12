@@ -42,6 +42,8 @@ ApplicationWindow {
     }
 
     onFrameSwapped: {
+        if (window.powerMenuVisible)
+            powerMenu.confirmPresentedFrame()
         if (shutdownBlackout.opacity >= 0.999
                 && mokoSessionLifecycle.shuttingDown) {
             acknowledgeShutdownBlackoutFrame()
@@ -134,7 +136,10 @@ ApplicationWindow {
         controlCenterVisible = false
         notificationCenterVisible = false
         powerMenuVisible = true
+        // The content state is already changed when the compositor raises the
+        // Shell, so the first visible frame contains the menu itself.
         mokoWindowManager.setShellOverlay(true)
+        window.requestUpdate()
     }
 
     function dismissPowerMenu() {
@@ -239,6 +244,7 @@ ApplicationWindow {
         z: 40
         control: mokoSystemControl
         lifecycle: mokoSessionLifecycle
+        onPresentationFrameRequested: window.requestUpdate()
         onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()
         onSleepRequested: window.runPowerAction("sleep")

@@ -878,3 +878,34 @@ pending at this checkpoint.
 Rollback: revert this scoped transaction-ordering commit. That restores the
 logind-first flow without changing the power-key inhibitor, compositor black
 renderer, Live disk policy, installer state, privilege boundary or MOKO AI.
+
+### Power-menu presentation responsiveness follow-up (2026-09-13)
+
+Manual reproduction on the previous ISO showed that the compositor recognized
+the five-second hold immediately, while the Shell could take seconds to consume
+the protocol event and substantially longer to render the menu under QEMU/TCG.
+Three independent GUI-thread costs compounded: the compositor raised the full
+Shell before delivering the event, the Shell used blocking
+`wl_display_dispatch()` on its control connection, and periodic power refreshes
+performed synchronous logind and Power Profiles D-Bus round trips. A full-screen
+menu opacity animation further delayed the frame-ready handshake on slow
+software rendering.
+
+The compositor now delivers and flushes the request before the Shell raises its
+surface. The Shell selects the lightweight menu scene first, dispatches its
+Wayland control connection with a non-blocking prepare/read sequence, publishes
+menu readiness only after `onFrameSwapped`, and probes optional power services
+asynchronously while continuing to publish truthful local sysfs battery and
+backlight changes immediately. Overlapping D-Bus probes are coalesced. No power
+action, mount policy, privilege boundary, installer state or AI capability is
+changed.
+
+Debian validation passes: static boot/shutdown and disk-safety checks;
+compositor CTest `5/5`; Shell CTest `10/10`, including a delayed fake-logind
+event-loop regression; frozen AI CTest `3/3`; native apps CTest `15/15`; and the
+Qt compositor multi-window integration. Clean ISO rebuild and BIOS/UEFI power
+menu blackout gates remain required.
+
+Rollback: revert this scoped responsiveness commit. The prior power-action
+blackout transaction and logind inhibitor remain independently reversible; Live
+disk safety and the Safe Graphics fallback are unaffected.

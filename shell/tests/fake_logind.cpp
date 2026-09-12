@@ -3,6 +3,7 @@
 #include <QDBusContext>
 #include <QDBusError>
 #include <QDBusUnixFileDescriptor>
+#include <QThread>
 
 #include <fcntl.h>
 
@@ -12,7 +13,12 @@ class FakeLoginManager final : public QObject, protected QDBusContext
     Q_CLASSINFO("D-Bus Interface", "org.freedesktop.login1.Manager")
 
 public slots:
-    QString CanSuspend() const { return QStringLiteral("yes"); }
+    QString CanSuspend() const
+    {
+        if (m_canSuspendDelayMs > 0)
+            QThread::msleep(static_cast<unsigned long>(m_canSuspendDelayMs));
+        return QStringLiteral("yes");
+    }
     QString CanReboot() const { return QStringLiteral("yes"); }
     QString CanPowerOff() const { return QStringLiteral("yes"); }
 
@@ -62,6 +68,7 @@ public slots:
 
     void SetInhibitFailure(bool fail) { m_failInhibit = fail; }
     void SetPowerActionFailure(bool fail) { m_failPowerAction = fail; }
+    void SetCanSuspendDelay(int milliseconds) { m_canSuspendDelayMs = qMax(0, milliseconds); }
 
     QString LastAction() const { return m_lastAction; }
     QString LastInhibitWhat() const { return m_lastInhibitWhat; }
@@ -77,6 +84,7 @@ private:
     QString m_lastInhibitMode;
     bool m_failInhibit = false;
     bool m_failPowerAction = false;
+    int m_canSuspendDelayMs = 0;
 };
 
 int main(int argc, char **argv)

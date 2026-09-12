@@ -637,8 +637,43 @@ void WindowManager::dispatchWayland()
 {
     if (m_native->display == nullptr)
         return;
-    if (wl_display_dispatch(m_native->display) < 0)
+
+    // QSocketNotifier already told us that the fd is readable. Do not use
+    // wl_display_dispatch() here: it may consume the one queued event and then
+    // block waiting for a second event, freezing the Qt GUI thread. Follow the
+    // non-blocking prepare/read/dispatch sequence instead.
+    if (wl_display_dispatch_pending(m_native->display) < 0) {
         disconnectWayland();
+        return;
+    }
+    if (wl_display_prepare_read(m_native->display) != 0) {
+        if (wl_display_dispatch_pending(m_native->display) < 0)
+            disconnectWayland();
+        return;
+    }
+
+    pollfd descriptor = {
+        .fd = wl_display_get_fd(m_native->display),
+        .events = POLLIN,
+        .revents = 0,
+    };
+    const int ready = ::poll(&descriptor, 1, 0);
+    if (ready < 0) {
+        wl_display_cancel_read(m_native->display);
+        if (errno != EINTR)
+            disconnectWayland();
+        return;
+    }
+    if (ready == 0 || (descriptor.revents & POLLIN) == 0) {
+        wl_display_cancel_read(m_native->display);
+        if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+            disconnectWayland();
+        return;
+    }
+    if (wl_display_read_events(m_native->display) < 0
+        || wl_display_dispatch_pending(m_native->display) < 0) {
+        disconnectWayland();
+    }
 }
 
 void WindowManager::disconnectWayland()
