@@ -259,14 +259,23 @@ int main(int argc, char *argv[])
 
     auto *bootTimingGuard = new QObject(&app);
     bootTimingGuard->setProperty("reported", false);
-    QObject::connect(window, &QQuickWindow::frameSwapped, bootTimingGuard,
-                     [bootTimingGuard, &systemControl] {
-                         if (bootTimingGuard->property("reported").toBool())
-                             return;
-                         bootTimingGuard->setProperty("reported", true);
-                         writeBootTimingEvent(QStringLiteral("shell-ready"));
-                         QTimer::singleShot(250, &systemControl, &SystemControl::startFullRefresh);
-                     });
+    const auto reportShellReady = [bootTimingGuard, &systemControl] {
+        if (bootTimingGuard->property("reported").toBool())
+            return;
+        bootTimingGuard->setProperty("reported", true);
+        writeBootTimingEvent(QStringLiteral("shell-ready"));
+        QTimer::singleShot(250, &systemControl, &SystemControl::startFullRefresh);
+    };
+    QObject::connect(window, &QQuickWindow::frameSwapped, bootTimingGuard, reportShellReady);
+    QObject::connect(window, &QQuickWindow::afterRendering, bootTimingGuard, reportShellReady);
+    QObject::connect(window, &QQuickWindow::afterFrameEnd, bootTimingGuard, reportShellReady);
+    // Some lightweight Wayland backends do not emit frameSwapped/afterFrameEnd
+    // even though the surface is visible. Keep telemetry and deferred probing
+    // from blocking forever on that compositor-specific behavior.
+    QTimer::singleShot(3000, bootTimingGuard, [window, reportShellReady] {
+        if (window->isVisible() || window->visibility() != QWindow::Hidden)
+            reportShellReady();
+    });
     // Loading QML can present the first frame before this listener is attached.
     // Request one observed frame so boot timing and deferred probes cannot stall.
     QTimer::singleShot(0, window, &QQuickWindow::requestUpdate);

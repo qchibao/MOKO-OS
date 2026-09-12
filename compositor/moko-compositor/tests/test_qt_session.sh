@@ -61,8 +61,17 @@ done
 
 "$shell" >"$runtime/shell.log" 2>&1 &
 shell_pid=$!
-sleep 2
-kill -0 "$shell_pid"
+
+attempt=0
+until grep -q '^MOKO_BOOT_TIMING stage=shell-ready ' "$events" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 100 ] || ! kill -0 "$shell_pid" 2>/dev/null; then
+    cat "$runtime/shell.log" >&2
+    printf 'MOKO Shell did not report readiness under moko-compositor.\n' >&2
+    exit 1
+  fi
+  sleep 0.05
+done
 
 "$files" --smoke-test >"$runtime/files.log" 2>&1 &
 files_pid=$!
