@@ -577,12 +577,34 @@ docker run --rm --platform linux/amd64 \
       libgl1-mesa-dri libinput-tools v4l-utils qt6-wayland polkitd pkexec \
       qml6-module-qtwebengine libqt6webenginecore6 libqt6webenginequick6 \
       firmware-linux firmware-misc-nonfree firmware-iwlwifi \
-      firmware-amd-graphics firmware-brcm80211
+      firmware-amd-graphics firmware-brcm80211 \
+      firmware-atheros firmware-realtek firmware-sof-signed \
+      firmware-intel-sound firmware-cirrus firmware-libertas \
+      firmware-intel-graphics firmware-nvidia-graphics firmware-mediatek \
+      amd64-microcode intel-microcode
     do
       grep -Fxq "$package" /tmp/package-names || {
           echo "Required Live USB package missing: $package" >&2
           exit 1
         }
+    done
+
+    # auto-config.sh sets --firmware-chroot false so live-build stops pulling in
+    # every lib/firmware owner named in the mirror Contents-*.gz files. What
+    # that path used to drag in was mostly datacentre and legacy-capture
+    # firmware; if any of these reappears the flag has regressed and the image
+    # has grown by roughly 282 MiB.
+    for package in \
+      firmware-netronome firmware-nvidia-tesla-535-gsp firmware-marvell-prestera \
+      firmware-cavium firmware-qlogic firmware-myricom firmware-bnx2x \
+      firmware-netxen firmware-ipw2x00 firmware-ivtv firmware-bnx2 \
+      firmware-siano firmware-zd1211 firmware-ast firmware-b43-installer \
+      firmware-b43legacy-installer
+    do
+      if grep -Fxq "$package" /tmp/package-names; then
+        echo "Unwanted firmware package present (--firmware-chroot false regressed): $package" >&2
+        exit 1
+      fi
     done
 
     grep -q "timeout 20" /tmp/isolinux.cfg

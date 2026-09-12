@@ -45,3 +45,51 @@ firmware-misc-nonfree
 firmware-iwlwifi
 firmware-amd-graphics
 firmware-brcm80211
+
+# --- FIRMWARE: explicit keep-list -------------------------------------------
+# auto-config.sh now passes `--firmware-chroot false`. Without it, live-build's
+# chroot_firmware step runs Firmware_List_From_Contents(), which downloads the
+# mirror's Contents-*.gz and installs EVERY package owning a file under
+# lib/firmware/ -- see /usr/share/live/build/functions/firmwarelists.sh:53.
+# That path ignores the dependency graph entirely, which is why the v0.1.1 image
+# shipped 37 firmware/microcode packages when this list only ever asked for 5,
+# and why 9 of them (firmware-ast, -b43-installer, -b43legacy-installer,
+# -cirrus, -ivtv, -libertas, -siano, -zd1211, -nvidia-tesla-535-gsp) have no
+# reverse dependency anywhere in Debian.
+# LB_FIRMWARE_CHROOT defaults to true:
+#   /usr/share/live/build/functions/configuration.sh:488
+#
+# Turning the firehose off leaves the 15 packages reachable from the five
+# entries above (Depends+Recommends closure, verified against trixie's Packages
+# index). Six of the 22 it drops are things a real laptop needs, so they are
+# listed explicitly here instead of being left to chance. Everything else in the
+# drop set is datacentre or legacy-capture hardware: netronome 140.6 MiB,
+# nvidia-tesla-535-gsp 59.4, marvell-prestera 59.0, cavium 5.2, qlogic 4.6,
+# myricom 3.9, bnx2x 2.3, netxen 2.1, ipw2x00 1.5, ivtv 1.2, bnx2 0.6, siano
+# 1.3, zd1211 0.1, ast 0.04, b43-installer, b43legacy-installer.
+# Net installed saving: 281.8 MiB.
+#
+# WHY THOSE ARE NOT LISTED EXPLICITLY: 0200-build-moko-shell.hook.chroot ends
+# with `apt-get autoremove -y`, and these ten arrive as auto-installed. That
+# looked like a trap -- firmware-intel-graphics is only a *Recommends* of
+# firmware-misc-nonfree, so it is not protected by a Depends edge. Measured in a
+# trixie container rather than assumed: autoremove removed 0 packages and all ten
+# survived, because APT::AutoRemove::RecommendsImportant defaults to true and a
+# Recommends edge from a manually-installed package therefore does protect.
+# live-build adds no --no-install-recommends (APT_OPTIONS is literally
+# "--yes -o Acquire::Retries=5"), so the Recommends really are installed.
+# The presence assertions in scripts/test-iso-docker.sh are what guard this: if
+# a future Debian release drops one of those Recommends, the test fails loudly
+# instead of the image silently losing i915 firmware.
+#
+# Kept implicitly by the closure above, listed here for reference only (do not
+# remove the comment, do not duplicate the entries):
+#   firmware-linux-free, firmware-linux-nonfree, firmware-intel-graphics (i915),
+#   firmware-intel-misc, firmware-mediatek, firmware-nvidia-graphics,
+#   firmware-ath9k-htc, firmware-carl9170, amd64-microcode, intel-microcode
+firmware-atheros
+firmware-realtek
+firmware-sof-signed
+firmware-intel-sound
+firmware-cirrus
+firmware-libertas
