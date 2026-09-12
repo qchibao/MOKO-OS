@@ -199,6 +199,84 @@ Primary artifacts: `out/moko-iso-smoke-20260905T165932Z-bios-desktop-*`,
 `out/moko-iso-smoke-20260905T175155Z-bios-desktop-*` and
 `out/moko-iso-smoke-20260905T175614Z-bios-desktop-*`.
 
+### Phase 3 addendum - three-finger drag pointer follow (2026-09-12)
+
+Reported on the physical Intel MacBook Pro 2015: a three-finger drag moved the
+window but left the pointer where the gesture started, so the cursor separated
+from the surface it was dragging and the next click landed somewhere else.
+
+Root cause: `cursor_swipe_update()` in `compositor/moko-compositor/src/main.c`
+applied the gesture delta to the toplevel geometry and never moved the
+`wlr_cursor`. The window and the pointer were driven by different code and only
+one of them was updated.
+
+The handler now moves the pointer by the window's **measured** displacement
+(`after.x - before.x`, `after.y - before.y`) rather than by the raw
+`event->dx` / `event->dy`:
+
+- `moko_translate_rect()` truncates to whole pixels (`rect.x += (int)dx`), so a
+  slow gesture whose updates each carry a sub-pixel delta moves the window not
+  at all while a cursor fed the raw deltas keeps drifting away from it;
+- `apply_geometry()` drops an invalid rect outright, so the window can also
+  decline to move for reasons the delta does not express.
+
+Measuring makes the pointer follow the window exactly in both cases, and keeps
+the hit test resolving to the same surface at the same surface-local offset, so
+the `process_cursor_motion()` call that follows is a coordinate update rather
+than a pointer-focus change.
+
+Two guards were added alongside the fix:
+
+- `cursor_swipe_begin()` now requires `cursor_mode == MOKO_CURSOR_PASSTHROUGH`.
+  The interactive move/resize paths drive the window from `grab_x` / `grab_y`,
+  which the gesture handler never initialises, so a gesture starting mid-drag
+  would have repositioned the window from stale offsets. A declined gesture
+  falls through to the existing forward-to-client branch.
+- `cursor_swipe_end()` warps the pointer back to the position captured at
+  gesture start when `event->cancelled` is set, so a cancelled gesture undoes
+  the pointer as well as the window. `wlr_cursor_warp()` no-ops if the target
+  is outside the layout, which is the safe failure here.
+
+Re-entrancy was checked against the wlroots 0.18.2 source rather than assumed:
+`wlr_cursor_move()` reaches `cursor_warp_unchecked()`, which sets the cursor
+position and calls `output_cursor_move()` on every output but emits no
+`wlr_cursor` signal. All 23 `wl_signal_emit_mutable(&device->cursor->events.*)`
+calls in `types/wlr_cursor.c` sit inside device-event listeners registered by
+`cursor_device_create()`. Calling `wlr_cursor_move()` from a gesture handler
+therefore cannot re-enter `cursor_motion()`.
+
+**Test note.** Regression coverage was added to
+`compositor/moko-compositor/tests/test_window_geometry.c`: it models both the
+measured and the raw-delta pointer loops over a slow drag (60 sub-pixel
+updates), a fast whole-pixel drag and a mixed drag, and asserts that only the
+measured loop stays glued to the window (45 px of drift on the slow case, 3 px
+on the mixed case). All deltas are dyadic rationals so every accumulated total
+is exactly representable and the `==` assertions are not float-approximation
+claims. Verified live with two negative controls: forcing the measured branch to
+consume raw deltas fails `slow_measured.cursor_x == 400.0`, and making
+`moko_translate_rect()` round instead of truncate fails
+`translated.x == centered.x + 42`. Both fired, so the test is not vacuous.
+
+`main.c` compiles with zero warnings under `-Wall -Wextra -Wpedantic` in both
+configurations - `BUILD_TESTING=OFF` (exactly what hook
+`0200-build-moko-shell.hook.chroot` passes, so the CTest suite never runs during
+an ISO build) and `BUILD_TESTING=ON`, where CTest reports `4/4` passed including
+`moko-compositor-headless-integration`.
+
+**Not yet validated in a running session.** `tests/test_headless_compositor.sh`
+sets `WLR_LIBINPUT_NO_DEVICES=1`, so no synthetic swipe can be injected without
+adding a virtual-pointer path to the harness - a change large enough to put the
+validated boot at risk, and out of scope for a pointer-follow fix. This fix is
+therefore compile-verified and unit-verified only; the three-finger drag itself
+still requires the physical Intel MacBook Pro 2015 re-test listed under "H8
+physical-only remainder".
+
+**Rollback.** The change is confined to three gesture handlers plus two struct
+fields in one file; revert the commit to restore the previous behavior, or boot
+Safe Graphics / set `MOKO_COMPOSITOR=cage` to bypass the MOKO compositor input
+path entirely. No device node, privilege, mount policy, disk-safety behavior,
+protocol version or Shell-side contract changed.
+
 ## Phase 4 architecture - usable MOKO AI requests
 
 The existing unprivileged `moko-ai-daemon` remains the only request dispatcher.

@@ -233,6 +233,8 @@ struct moko_server {
     uint32_t resize_edges;
     bool gesture_move_active;
     bool gesture_forward_active;
+    double gesture_start_cursor_x;
+    double gesture_start_cursor_y;
 
     struct wlr_output_layout *output_layout;
     struct wl_list outputs;
@@ -1386,7 +1388,15 @@ static void cursor_swipe_begin(struct wl_listener *listener, void *data)
     struct moko_server *server = wl_container_of(listener, server, cursor_swipe_begin);
     struct wlr_pointer_swipe_begin_event *event = data;
     server->gesture_move_active = false;
+    /*
+     * Only take over the drag when the cursor is not already grabbed by an
+     * interactive move or resize. Those paths drive the window from grab_x /
+     * grab_y, which this handler never initialises, so a gesture starting
+     * mid-drag would reposition the window from stale offsets. Declining here
+     * falls through to the forward-to-client branch below instead.
+     */
     if (event->fingers == 3 && server->three_finger_drag_enabled
+        && server->cursor_mode == MOKO_CURSOR_PASSTHROUGH
         && server->active_toplevel != NULL && !server->active_toplevel->is_shell
         && !server->active_toplevel->minimized) {
         struct moko_toplevel *toplevel = server->active_toplevel;
@@ -1394,6 +1404,8 @@ static void cursor_swipe_begin(struct wl_listener *listener, void *data)
         server->grabbed_toplevel = toplevel;
         server->grab_start_geometry = current_geometry(toplevel);
         server->grab_last_geometry = server->grab_start_geometry;
+        server->gesture_start_cursor_x = server->cursor->x;
+        server->gesture_start_cursor_y = server->cursor->y;
         server->gesture_move_active = true;
         report_event("MOKO_GESTURE state=begin type=three-finger-drag id=%u",
                      toplevel->window_id);
@@ -1412,10 +1424,36 @@ static void cursor_swipe_update(struct wl_listener *listener, void *data)
     struct wlr_pointer_swipe_update_event *event = data;
     if (server->gesture_move_active && server->grabbed_toplevel != NULL) {
         struct moko_toplevel *toplevel = server->grabbed_toplevel;
-        const struct moko_rect translated = moko_translate_rect(
-            current_geometry(toplevel), event->dx, event->dy);
-        apply_geometry(toplevel, translated);
-        server->grab_last_geometry = current_geometry(toplevel);
+        const struct moko_rect before = current_geometry(toplevel);
+        apply_geometry(toplevel, moko_translate_rect(before, event->dx, event->dy));
+        const struct moko_rect after = current_geometry(toplevel);
+        server->grab_last_geometry = after;
+
+        /*
+         * Carry the pointer along with the window so a three-finger drag moves
+         * both instead of leaving the cursor behind.
+         *
+         * The displacement is measured rather than read off event->dx/dy:
+         * moko_translate_rect() truncates to whole pixels, and apply_geometry()
+         * drops an invalid rect outright, so the window can move less than the
+         * gesture reports. Feeding the raw deltas to wlr_cursor_move() would
+         * let the pointer drift ahead of the window on slow drags, where each
+         * update carries a sub-pixel delta that truncates to zero.
+         *
+         * This cannot re-enter cursor_motion(): in wlroots 0.18.2
+         * wlr_cursor_move() runs cursor_warp_unchecked(), which sets the cursor
+         * position and repositions the sprite on each output but emits no
+         * wlr_cursor signal. Every cursor->events.* emission lives in a device
+         * listener instead.
+         *
+         * Because the pointer moves by exactly the window displacement, the hit
+         * test still resolves to the same surface at the same surface-local
+         * offset, so process_cursor_motion() keeps the seat coordinates in step
+         * without churning pointer focus.
+         */
+        wlr_cursor_move(server->cursor, &event->pointer->base,
+                        after.x - before.x, after.y - before.y);
+        process_cursor_motion(server, event->time_msec);
     }
     if (server->gesture_forward_active) {
         wlr_pointer_gestures_v1_send_swipe_update(
@@ -1429,10 +1467,15 @@ static void cursor_swipe_end(struct wl_listener *listener, void *data)
     struct wlr_pointer_swipe_end_event *event = data;
     if (server->gesture_move_active && server->grabbed_toplevel != NULL) {
         struct moko_toplevel *toplevel = server->grabbed_toplevel;
-        if (event->cancelled)
+        if (event->cancelled) {
             apply_geometry(toplevel, server->grab_start_geometry);
-        else
+            /* The window snapped back, so snap the pointer back with it. */
+            wlr_cursor_warp(server->cursor, NULL, server->gesture_start_cursor_x,
+                            server->gesture_start_cursor_y);
+            process_cursor_motion(server, event->time_msec);
+        } else {
             capture_restore_geometry(toplevel);
+        }
         report_event("MOKO_GESTURE state=end type=three-finger-drag id=%u cancelled=%d",
                      toplevel->window_id, event->cancelled ? 1 : 0);
         server->grabbed_toplevel = NULL;
