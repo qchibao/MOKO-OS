@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+# BOOTSTRAP: build the locale archive at image-build time so live-config's
+# 0050-locales component becomes a no-op at boot instead of recompiling
+# en_US.UTF-8 from source on every single boot.
+#
+# Why this works: live-config runs its components serially in lexical order and
+# 0050-locales ends with an unconditional `locale-gen --keep-existing`. That
+# flag skips a locale only when perl's setlocale() can already resolve it, i.e.
+# only when /usr/lib/locale/locale-archive is present in the squashfs. It is
+# not, so every boot pays a full `localedef` compile:
+#   if [ "$KEEP" -eq 1 ] && PERL_BADLANG=0 perl -MPOSIX -e \
+#        'exit 1 unless setlocale(LC_ALL, $ARGV[0])' "$locale"; then continue; fi
+#
+# Measured, QEMU/TCG on the v0.1.1 release ISO (run moko-boot-diag7, a clean
+# baseline with no blacklist and no masks, plus live-config.debug to turn on
+# upstream's own per-component timestamps in /var/log/live/config.log):
+#   live-config.service                58.035s  <- on the critical path to greetd
+#     0050-locales                        36s   <- 63% of the whole unit
+#     0070-tzdata                          7s   <- 12%
+#     the other 33 components          0-3s each
+#   /usr/lib/locale/locale-archive   3063024 B, mtime inside the boot window
+#
+# The same operation timed in an emulated debian:13-slim container:
+#   locale-gen --keep-existing, archive absent    2.03s
+#   locale-gen --keep-existing, archive present   0.03s     (68x)
+#   archive produced                            3063024 B -- byte-identical to
+#                                                   the one diag7 saw written
+#
+# Independent confirmation from a later run of the same ISO (moko-boot-diag8):
+# the archive `locale-gen` writes AT BOOT is byte-for-byte the one this hook
+# bakes in at build time --
+#   boot-generated   sha256 4c3b8c3ae5e03113701a5e760ca2135573679e212e048a578d04c1651cee43c0
+#   build-generated  sha256 4c3b8c3ae5e03113701a5e760ca2135573679e212e048a578d04c1651cee43c0
+#   size 3063024 B in both.
+# diag8 also reproduced the cost a third time (0050-locales 38s, live-config
+# 58.964s; diag7 was 36s / 58.035s) and confirmed the matching --bootappend-live
+# edit lands: etc_timezone=Asia/Ho_Chi_Minh, LANG=en_US.UTF-8.
+#
+# WHAT IS *NOT* YET PROVEN BY A BOOT: that a pre-existing archive makes
+# 0050-locales fast in the live image. diag8 was supposed to A/B exactly that by
+# injecting the archive through an initramfs init-bottom hook, but the injected
+# payload never unpacked (`MOKO_DIAG8 PAYLOAD_MISSING`), so that boot took the
+# unchanged path. The archive-present case therefore rests on the perl guard
+# quoted above plus the container timings below -- which is solid reasoning, but
+# it is reasoning, not a measurement on this image. Re-validate after the next
+# `lb build` with the Test block.
+# CAVEAT, deliberately not overstated: the 68x ratio is environment-independent
+# (it is the binary question "did localedef run or not"), but the absolute
+# seconds are TCG-inflated by roughly the 2.03s-vs-36s factor, i.e. ~18x. On
+# real x86 hardware 0050-locales is probably ~1-2s, so this hook saves ~1-2s
+# there and not 36s. The boot wins that DO transfer to hardware are the
+# I/O-bound ones: initrd unpack (135312K), the squashfs/loop0 read,
+# ldconfig.service, and the ~198 MiB of firmware inside the initrd.
+#
+# Test:
+#   lb build, boot the ISO, then in the live session:
+#     ls -l /usr/lib/locale/locale-archive   # mtime = BUILD date, not boot
+#     locale -a | grep -i en_US              # still lists en_US.utf8
+#     echo "$LANG"                           # en_US.UTF-8
+#     grep -A2 0050-locales /var/log/live/config.log
+#     systemctl show live-config.service \
+#       -p ExecMainStartTimestampMonotonic -p ExecMainExitTimestampMonotonic
+#       # delta should fall well below the 58.035s baseline
+# Rollback: delete this hook and rebuild. live-config then regenerates the
+#   archive at boot exactly as it does today -- this is purely an optimisation
+#   of an upstream code path, not a divergence from it. A `locales=<x>` kernel
+#   parameter still overrides LANG and still compiles that locale on demand.
+#   Nothing else in MOKO reads /usr/lib/locale or /etc/default/locale directly.
+
+if [ -x /usr/sbin/locale-gen ]; then
+  # Mirror upstream's own substitution rather than appending a line, so
+  # /etc/locale.gen stays canonical and a later `locales=` override still
+  # finds the entry it expects to uncomment.
+  if [ -e /etc/locale.gen ]; then
+    sed -i -e 's|^# en_US.UTF-8 UTF-8$|en_US.UTF-8 UTF-8|' /etc/locale.gen
+  fi
+  /usr/sbin/locale-gen
+  printf 'LANG=en_US.UTF-8\n' > /etc/default/locale
+  chmod 0644 /etc/default/locale
+else
+  echo "0160-moko-locale-tz: /usr/sbin/locale-gen absent, skipping pre-generation" >&2
+fi
+
+# Pre-seed the wall clock. This is a CORRECTNESS fix, not a boot-time one:
+# 0070-tzdata rewrites /etc/timezone and deletes /etc/localtime on every boot
+# unless it is given a `timezone=` kernel parameter, so the seeding below only
+# takes effect together with the matching entry in
+# image/live-build/auto-config.sh --bootappend-live. dpkg-reconfigure tzdata
+# measured 0.18s in the same container, so skipping it is not worth shipping a
+# /var/lib/live/config/tzdata marker that would silently break the `timezone=`
+# override for anyone booting with a different one.
+ZONE=Asia/Ho_Chi_Minh
+if [ -f "/usr/share/zoneinfo/${ZONE}" ]; then
+  printf '%s\n' "$ZONE" > /etc/timezone
+  chmod 0644 /etc/timezone
+  ln -fs "/usr/share/zoneinfo/${ZONE}" /etc/localtime
+else
+  echo "0160-moko-locale-tz: /usr/share/zoneinfo/${ZONE} absent, leaving UTC" >&2
+fi
