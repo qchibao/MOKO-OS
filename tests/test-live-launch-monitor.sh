@@ -18,7 +18,10 @@ cat > "$TMP/runtime/events" <<'EOF'
 MOKO_PACKAGE_UI state=ready uid=1000
 MOKO_PACKAGE state=installing detail=Waiting_for_authorization... uid=1000
 MOKO_PACKAGE state=installed detail=Package_installed. uid=1000
+MOKO_POWER_KEY state=menu-requested delivered=1
+MOKO_POWER_MENU state=requested uid=1000
 MOKO_PACKAGEHACK state=installed uid=0
+MOKO_POWERHACK state=requested uid=0
 untrusted output
 EOF
 
@@ -31,6 +34,8 @@ expected=$(cat <<'EOF'
 MOKO_PACKAGE_UI state=ready uid=1000
 MOKO_PACKAGE state=installing detail=Waiting_for_authorization... uid=1000
 MOKO_PACKAGE state=installed detail=Package_installed. uid=1000
+MOKO_POWER_KEY state=menu-requested delivered=1
+MOKO_POWER_MENU state=requested uid=1000
 EOF
 )
 

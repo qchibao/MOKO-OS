@@ -237,6 +237,11 @@ qmp() {
   qmp_request "$1" >/dev/null
 }
 
+qmp_power_key() {
+  local down=$1
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":$down,\"key\":{\"type\":\"qcode\",\"data\":\"power\"}}}]}}"
+}
+
 wait_for_qemu_status() {
   local expected=$1
   local timeout=$2
@@ -387,6 +392,32 @@ wait_for_serial_since() {
   done
   awk -v start="$start_line" -v pattern="$pattern" \
     'NR > start && $0 ~ pattern { line = $0 } END { print line }' "$SERIAL_PATH"
+}
+
+request_desktop_shutdown() {
+  local marker=$1
+
+  qmp_power_key true
+  sleep 6
+  qmp_power_key false
+  wait_for_serial_since "$marker" \
+    "MOKO_POWER_KEY state=menu-requested delivered=1" 15 \
+    "The compositor did not open the MOKO Power menu after a five-second Power hold."
+  wait_for_serial_since "$marker" \
+    "MOKO_POWER_MENU state=requested uid=1000" 15 \
+    "MOKO Shell did not present the requested Power menu."
+
+  # Shut Down receives focus when the menu opens, so Enter follows the same
+  # bounded, unprivileged UI action a keyboard user invokes.
+  sleep 0.5
+  monitor "sendkey ret"
+  wait_for_serial_since "$marker" \
+    "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 15 \
+    "The focused MOKO Power action did not request poweroff through logind."
+}
+
+request_fallback_shutdown() {
+  monitor system_powerdown
 }
 
 wait_for_monitor() {
@@ -760,6 +791,7 @@ docker run --rm --platform linux/amd64 \
     grep -Fq "MOKO_SLEEP" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_RESUME_*" /tmp/moko-live-launch-monitor
     grep -Fq "MOKO_SHUTDOWN_*" /tmp/moko-live-launch-monitor
+    grep -Fq "MOKO_POWER_*" /tmp/moko-live-launch-monitor
     unsquashfs -cat /tmp/filesystem.squashfs \
       usr/share/plymouth/themes/moko/moko.script > /tmp/moko-plymouth.script
     unsquashfs -cat /tmp/filesystem.squashfs \
@@ -1746,10 +1778,16 @@ for run in $(seq 1 "$RUNS"); do
       wait_for_serial_since 0 \
         "MOKO_SHUTDOWN_INHIBITOR state=ready uid=1000" 15 \
         "MOKO Shell did not acquire its shutdown delay inhibitor."
+      wait_for_serial_since 0 \
+        "MOKO_POWER_KEY_INHIBITOR state=ready uid=1000" 15 \
+        "MOKO Shell did not acquire its physical Power-key inhibitor."
+      wait_for_serial_since 0 \
+        "MOKO_POWER_KEY_HANDLING state=enabled" 15 \
+        "The compositor did not enable MOKO Power-key handling."
     fi
     shutdown_marker=$(serial_line_count)
-    monitor system_powerdown
     if [[ "$BOOT_MODE" == desktop ]]; then
+      request_desktop_shutdown "$shutdown_marker"
       wait_for_serial_since "$shutdown_marker" \
         "MOKO_SHUTDOWN_VISUAL state=blackout uid=1000" "$SHUTDOWN_VISUAL_TIMEOUT_SECONDS" \
         "MOKO Shell did not begin the required shutdown blackout."
@@ -1766,6 +1804,8 @@ for run in $(seq 1 "$RUNS"); do
           "$SHUTDOWN_HOLD_SCREENSHOT_NAME"
         assert_black_frame "/artifacts/$SHUTDOWN_HOLD_SCREENSHOT_NAME"
       fi
+    else
+      request_fallback_shutdown
     fi
   else
     # QEMU standard VGA/q35 can fail its emulated S5 transition after S3.

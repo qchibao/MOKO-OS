@@ -125,6 +125,8 @@ grep -Fq 'MOKO_BOOT_TIMING stage=shell-launch uptime_ms=%s uid=%s' \
 grep -Fq 'MOKO_BOOT_TIMING stage=%1 uptime_ms=%2 uid=%3' "$ROOT/shell/src/main.cpp"
 grep -Fq 'tail -s 0.05 -n +1 -F "$events"' \
   "$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-live-launch-monitor"
+grep -Fq 'MOKO_POWER_*' \
+  "$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-live-launch-monitor"
 grep -Fq 'Before=greetd.service' \
   "$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-live-launch-monitor.service"
 if grep -Fq 'After=greetd.service' \
@@ -132,6 +134,20 @@ if grep -Fq 'After=greetd.service' \
   echo "Launch telemetry monitor would stop before the graphical session." >&2
   exit 1
 fi
+
+iso_test="$ROOT/scripts/test-iso-docker.sh"
+desktop_shutdown=$(sed -n '/^request_desktop_shutdown()/,/^}/p' "$iso_test")
+fallback_shutdown=$(sed -n '/^request_fallback_shutdown()/,/^}/p' "$iso_test")
+grep -Fq 'qmp_power_key true' <<<"$desktop_shutdown"
+grep -Fq 'qmp_power_key false' <<<"$desktop_shutdown"
+grep -Fq 'MOKO_POWER_MENU state=requested uid=1000' <<<"$desktop_shutdown"
+grep -Fq 'MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000' \
+  <<<"$desktop_shutdown"
+if grep -Fq 'system_powerdown' <<<"$desktop_shutdown"; then
+  echo "Desktop shutdown bypasses the inhibited MOKO Power menu." >&2
+  exit 1
+fi
+grep -Fq 'monitor system_powerdown' <<<"$fallback_shutdown"
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"
