@@ -4,8 +4,10 @@ import QtQuick.Controls
 FocusScope {
     id: root
     property var control
+    property var lifecycle
     readonly property bool busy: control
-                                 && (control.powerActionPending || control.suspendPending)
+                                 && (control.powerActionPending || control.suspendPending
+                                     || (lifecycle && lifecycle.shuttingDown))
     property bool presentationReported: false
     signal dismissRequested()
     signal sleepRequested()

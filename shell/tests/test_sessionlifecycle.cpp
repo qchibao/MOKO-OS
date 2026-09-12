@@ -14,6 +14,9 @@ private slots:
     void reportsMissingRequiredState();
     void acceptsHardwareThatWasAlreadyAbsent();
     void fadesBeforeReleasingShutdown();
+    void preparesLocallyBeforeLogindShutdown();
+    void cancelsRejectedLocalShutdown();
+    void keepsBlackFrameAfterLocalPowerAction();
 };
 
 void SessionLifecycleTest::restoresCapabilitiesAndBrowserMapping()
@@ -187,6 +190,77 @@ void SessionLifecycleTest::fadesBeforeReleasingShutdown()
     QVERIFY(!lifecycle.shuttingDown());
     QCOMPARE(changed.size(), 2);
     qunsetenv("MOKO_LIVE_LAUNCH_EVENTS");
+}
+
+void SessionLifecycleTest::preparesLocallyBeforeLogindShutdown()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString events = directory.filePath(QStringLiteral("events"));
+    qputenv("MOKO_LIVE_LAUNCH_EVENTS", events.toUtf8());
+
+    SessionLifecycle lifecycle({}, SessionLifecycle::Options{
+                                       .observeLogind = false,
+                                       .shutdownReleaseGraceMs = 1,
+                                   });
+    QSignalSpy changed(&lifecycle, &SessionLifecycle::shuttingDownChanged);
+    QSignalSpy visualReady(&lifecycle, &SessionLifecycle::shutdownBlackoutReady);
+    QSignalSpy complete(&lifecycle, &SessionLifecycle::shutdownFadeCompleted);
+
+    QVERIFY(lifecycle.beginShutdown());
+    QVERIFY(!lifecycle.beginShutdown());
+    lifecycle.notifyShutdownBlackoutPrepared();
+    lifecycle.notifyShutdownBlackoutPresented();
+    QCOMPARE(visualReady.size(), 1);
+    QCOMPARE(complete.size(), 0);
+    QVERIFY(lifecycle.shuttingDown());
+
+    // The real logind transaction joins the prepared black frame instead of
+    // invalidating its compositor acknowledgement and restarting the fade.
+    lifecycle.handlePrepareForShutdown(true);
+    QCOMPARE(changed.size(), 1);
+    QCOMPARE(complete.size(), 1);
+
+    QFile file(events);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray contents = file.readAll();
+    QCOMPARE(contents.count("MOKO_SHUTDOWN_VISUAL state=fading"), 1);
+    QCOMPARE(contents.count("MOKO_SHUTDOWN_VISUAL state=blackout"), 1);
+    QCOMPARE(contents.count("MOKO_SHUTDOWN_VISUAL state=ready"), 1);
+
+    lifecycle.handlePrepareForShutdown(false);
+    QVERIFY(!lifecycle.shuttingDown());
+    qunsetenv("MOKO_LIVE_LAUNCH_EVENTS");
+}
+
+void SessionLifecycleTest::cancelsRejectedLocalShutdown()
+{
+    SessionLifecycle lifecycle({}, SessionLifecycle::Options{.observeLogind = false});
+    QSignalSpy changed(&lifecycle, &SessionLifecycle::shuttingDownChanged);
+
+    QVERIFY(lifecycle.beginShutdown());
+    QVERIFY(lifecycle.cancelShutdown());
+    QVERIFY(!lifecycle.shuttingDown());
+    QCOMPARE(changed.size(), 2);
+    QVERIFY(!lifecycle.cancelShutdown());
+}
+
+void SessionLifecycleTest::keepsBlackFrameAfterLocalPowerAction()
+{
+    SessionLifecycle lifecycle({}, SessionLifecycle::Options{
+                                       .observeLogind = false,
+                                       .shutdownReleaseGraceMs = 1,
+                                   });
+    QVERIFY(lifecycle.beginShutdown());
+    QSignalSpy complete(&lifecycle, &SessionLifecycle::shutdownFadeCompleted);
+    lifecycle.notifyShutdownBlackoutPrepared();
+    lifecycle.notifyShutdownBlackoutPresented();
+    QVERIFY(lifecycle.notifyPowerActionRequested());
+    QVERIFY(!lifecycle.notifyPowerActionRequested());
+    QCOMPARE(complete.size(), 1);
+    QVERIFY(lifecycle.shuttingDown());
+    QTest::qWait(10);
+    QVERIFY(lifecycle.shuttingDown());
 }
 
 QTEST_GUILESS_MAIN(SessionLifecycleTest)

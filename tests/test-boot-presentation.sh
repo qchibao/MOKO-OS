@@ -155,6 +155,7 @@ grep -Fq 'monitor system_powerdown' <<<"$fallback_shutdown"
 
 power_menu="$ROOT/shell/qml/components/PowerMenu.qml"
 compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
+shell_main_qml="$ROOT/shell/qml/Main.qml"
 grep -Fq 'Qt.callLater(function()' "$power_menu"
 grep -Fq 'root.forceActiveFocus()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
@@ -165,6 +166,21 @@ grep -Fq 'focusRetry.stop()' "$power_menu"
 grep -Fq 'sequence: "Return"' "$power_menu"
 grep -Fq 'sequence: "Enter"' "$power_menu"
 grep -Fq 'onActivated: root.activateFocusedAction()' "$power_menu"
+grep -Fq 'mokoSessionLifecycle.beginShutdown()' "$shell_main_qml"
+grep -Fq 'function onShutdownBlackoutReady()' "$shell_main_qml"
+grep -Fq 'mokoSessionLifecycle.notifyPowerActionRequested()' "$shell_main_qml"
+grep -Fq 'mokoSystemControl.powerOff()' "$shell_main_qml"
+grep -Fq 'mokoSystemControl.reboot()' "$shell_main_qml"
+if sed -n '/function runPowerAction/,/function updateClock/p' "$shell_main_qml" \
+    | grep -Fq 'mokoSystemControl.powerOff()'; then
+  echo "PowerOff must wait for the local shutdown blackout acknowledgement." >&2
+  exit 1
+fi
+if sed -n '/function runPowerAction/,/function updateClock/p' "$shell_main_qml" \
+    | grep -Fq 'mokoSystemControl.reboot()'; then
+  echo "Reboot must wait for the local shutdown blackout acknowledgement." >&2
+  exit 1
+fi
 grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
   "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"

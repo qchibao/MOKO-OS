@@ -61,6 +61,9 @@ public:
     bool shuttingDown() const;
 
 public slots:
+    bool beginShutdown();
+    bool cancelShutdown();
+    bool notifyPowerActionRequested();
     void handlePrepareForSleep(bool preparing);
     void handlePrepareForShutdown(bool preparing);
     void notifyShutdownBlackoutPrepared();
@@ -70,6 +73,7 @@ signals:
     void preparingForSleepChanged();
     void shuttingDownChanged();
     void shutdownBlackoutPrepared();
+    void shutdownBlackoutReady();
     void shutdownFadeCompleted();
     void resumed();
     void resumeHealthReported(bool passed);
@@ -82,7 +86,10 @@ private:
     void writeResumedEvent() const;
     void writeHealthEvent(bool passed, const State &current) const;
     void writeShutdownEvent(const QString &state) const;
+    void tryCompleteShutdownFade();
     void completeShutdownFade(quint64 generation);
+    void scheduleShutdownInhibitorRelease();
+    void resetShutdownState();
     void acquireShutdownInhibitor();
     void scheduleShutdownInhibitorRetry();
     void releaseShutdownInhibitor();
@@ -92,6 +99,12 @@ private:
     State m_beforeSleep;
     bool m_preparingForSleep = false;
     bool m_shuttingDown = false;
+    bool m_shutdownVisualReady = false;
+    bool m_logindShutdownPreparing = false;
+    bool m_shutdownCompletionScheduled = false;
+    bool m_shutdownCompleted = false;
+    bool m_shutdownActionRequested = false;
+    bool m_shutdownReleaseScheduled = false;
     quint64 m_resumeGeneration = 0;
     quint64 m_shutdownGeneration = 0;
     quint64 m_shutdownPreparedGeneration = 0;

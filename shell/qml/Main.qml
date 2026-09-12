@@ -29,6 +29,7 @@ ApplicationWindow {
     property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
     property string dateText: ""
+    property string pendingPowerAction: ""
     readonly property real shutdownBlackoutOpacity: shutdownBlackout.opacity
     property bool shutdownBlackoutAwaitingFrame: false
 
@@ -56,8 +57,25 @@ ApplicationWindow {
                 shutdownBlackoutFrameFallback.restart()
                 return
             }
+            pendingPowerAction = ""
             shutdownBlackoutAwaitingFrame = false
             shutdownBlackoutFrameFallback.stop()
+        }
+
+        function onShutdownBlackoutReady() {
+            var action = pendingPowerAction
+            if (action.length === 0)
+                return
+            pendingPowerAction = ""
+            // Leave the Wayland acknowledgement callback before entering
+            // system D-Bus, while the compositor keeps its black frame active.
+            Qt.callLater(function() {
+                var accepted = action === "restart"
+                             ? mokoSystemControl.reboot()
+                             : mokoSystemControl.powerOff()
+                if (!accepted || !mokoSessionLifecycle.notifyPowerActionRequested())
+                    mokoSessionLifecycle.cancelShutdown()
+            })
         }
     }
 
@@ -126,15 +144,19 @@ ApplicationWindow {
 
     function runPowerAction(action) {
         var accepted = false
-        if (action === "sleep")
+        if (action === "sleep") {
             accepted = mokoSystemControl.suspend()
-        else if (action === "restart")
-            accepted = mokoSystemControl.reboot()
-        else if (action === "shutdown")
-            accepted = mokoSystemControl.powerOff()
+        } else if (action === "restart" || action === "shutdown") {
+            if (mokoSessionLifecycle.shuttingDown)
+                return
+            pendingPowerAction = action
+            accepted = mokoSessionLifecycle.beginShutdown()
+            if (!accepted)
+                pendingPowerAction = ""
+        }
         if (accepted && action === "sleep")
             dismissPowerMenu()
-        else if (mokoSystemControl.operationMessage.length > 0)
+        else if (!accepted && mokoSystemControl.operationMessage.length > 0)
             toast.show(mokoSystemControl.operationMessage)
     }
 
@@ -216,6 +238,7 @@ ApplicationWindow {
         visible: window.powerMenuVisible
         z: 40
         control: mokoSystemControl
+        lifecycle: mokoSessionLifecycle
         onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()
         onSleepRequested: window.runPowerAction("sleep")
@@ -342,7 +365,8 @@ ApplicationWindow {
     Connections {
         target: mokoSystemControl
         function onPowerActionFailed(message) {
-            window.showPowerMenu()
+            if (mokoSessionLifecycle.cancelShutdown())
+                window.showPowerMenu()
             toast.show(message)
         }
     }

@@ -98,6 +98,45 @@ bool SessionLifecycle::shuttingDown() const
     return m_shuttingDown;
 }
 
+bool SessionLifecycle::beginShutdown()
+{
+    if (m_shuttingDown)
+        return false;
+
+    ++m_shutdownGeneration;
+    m_shutdownPreparedGeneration = 0;
+    m_shutdownPresentedGeneration = 0;
+    m_shutdownVisualReady = false;
+    m_shutdownCompletionScheduled = false;
+    m_shutdownCompleted = false;
+    m_shutdownActionRequested = false;
+    m_shutdownReleaseScheduled = false;
+    m_shuttingDown = true;
+    writeShutdownEvent(QStringLiteral("fading"));
+    emit shuttingDownChanged();
+    return true;
+}
+
+bool SessionLifecycle::cancelShutdown()
+{
+    if (!m_shuttingDown || m_logindShutdownPreparing)
+        return false;
+
+    writeShutdownEvent(QStringLiteral("cancelled"));
+    resetShutdownState();
+    return true;
+}
+
+bool SessionLifecycle::notifyPowerActionRequested()
+{
+    if (!m_shuttingDown || !m_shutdownVisualReady || m_shutdownActionRequested)
+        return false;
+
+    m_shutdownActionRequested = true;
+    tryCompleteShutdownFade();
+    return true;
+}
+
 void SessionLifecycle::handlePrepareForSleep(bool preparing)
 {
     if (preparing) {
@@ -126,22 +165,18 @@ void SessionLifecycle::handlePrepareForSleep(bool preparing)
 
 void SessionLifecycle::handlePrepareForShutdown(bool preparing)
 {
-    ++m_shutdownGeneration;
-
     if (!preparing) {
-        if (m_shuttingDown) {
-            m_shuttingDown = false;
-            emit shuttingDownChanged();
-        }
+        m_logindShutdownPreparing = false;
+        if (m_shuttingDown)
+            resetShutdownState();
         acquireShutdownInhibitor();
         return;
     }
 
-    if (!m_shuttingDown) {
-        m_shuttingDown = true;
-        writeShutdownEvent(QStringLiteral("fading"));
-        emit shuttingDownChanged();
-    }
+    m_logindShutdownPreparing = true;
+    if (!m_shuttingDown)
+        beginShutdown();
+    tryCompleteShutdownFade();
 }
 
 void SessionLifecycle::notifyShutdownBlackoutPrepared()
@@ -163,11 +198,21 @@ void SessionLifecycle::notifyShutdownBlackoutPresented()
 
     m_shutdownPresentedGeneration = m_shutdownGeneration;
     writeShutdownEvent(QStringLiteral("blackout"));
-    const quint64 generation = m_shutdownGeneration;
+    m_shutdownVisualReady = true;
+    emit shutdownBlackoutReady();
+    tryCompleteShutdownFade();
+}
 
-    // Complete synchronously when no extra fade delay is requested. This
-    // callback can run inside logind's PrepareForShutdown D-Bus delivery;
-    // relying on a zero-delay timer there can let poweroff race the ACK.
+void SessionLifecycle::tryCompleteShutdownFade()
+{
+    if (!m_shuttingDown || !m_shutdownVisualReady
+        || (!m_logindShutdownPreparing && !m_shutdownActionRequested)
+        || m_shutdownCompletionScheduled || m_shutdownCompleted) {
+        return;
+    }
+
+    m_shutdownCompletionScheduled = true;
+    const quint64 generation = m_shutdownGeneration;
     if (m_options.shutdownFadeDelayMs == 0) {
         completeShutdownFade(generation);
     } else {
@@ -178,17 +223,50 @@ void SessionLifecycle::notifyShutdownBlackoutPresented()
 
 void SessionLifecycle::completeShutdownFade(quint64 generation)
 {
-    if (generation != m_shutdownGeneration || !m_shuttingDown)
+    if (generation != m_shutdownGeneration || !m_shuttingDown
+        || !m_shutdownVisualReady || m_shutdownCompleted) {
         return;
+    }
 
+    m_shutdownCompleted = true;
     writeShutdownEvent(QStringLiteral("ready"));
     emit shutdownFadeCompleted();
-    // Let the live validation monitor publish the final readiness event
-    // before logind tears down user services. The compositor stays black.
+    scheduleShutdownInhibitorRelease();
+}
+
+void SessionLifecycle::scheduleShutdownInhibitorRelease()
+{
+    if (!m_shuttingDown || !m_shutdownCompleted || m_shutdownReleaseScheduled
+        || (!m_logindShutdownPreparing && !m_shutdownActionRequested)) {
+        return;
+    }
+
+    m_shutdownReleaseScheduled = true;
+    const quint64 generation = m_shutdownGeneration;
+    // Keep the acknowledged black frame on scanout while logind consumes the
+    // action request. This also covers a backend that drops PrepareForShutdown.
     QTimer::singleShot(m_options.shutdownReleaseGraceMs, this, [this, generation] {
-        if (generation == m_shutdownGeneration && m_shuttingDown)
+        if (generation == m_shutdownGeneration && m_shuttingDown
+            && (m_logindShutdownPreparing || m_shutdownActionRequested)) {
             releaseShutdownInhibitor();
+        }
     });
+}
+
+void SessionLifecycle::resetShutdownState()
+{
+    ++m_shutdownGeneration;
+    m_shutdownPreparedGeneration = 0;
+    m_shutdownPresentedGeneration = 0;
+    m_shutdownVisualReady = false;
+    m_shutdownCompletionScheduled = false;
+    m_shutdownCompleted = false;
+    m_shutdownActionRequested = false;
+    m_shutdownReleaseScheduled = false;
+    if (m_shuttingDown) {
+        m_shuttingDown = false;
+        emit shuttingDownChanged();
+    }
 }
 
 void SessionLifecycle::refreshAfterResume()

@@ -848,3 +848,33 @@ and BIOS blackout validation remain pending at this checkpoint.
 Rollback: revert the scoped shutdown telemetry commit. The system-owned
 blackout guard and Shell delay inhibitor remain unchanged, so reverting does
 not weaken or otherwise change the actual shutdown and storage-safety gates.
+
+### Shutdown transaction ordering follow-up (2026-09-13)
+
+The clean ISO at `99e3184` disproved the telemetry-only diagnosis above. Its
+BIOS gate consistently reached the real `PowerOff(false)` request and then
+produced no `PrepareForShutdown` or blackout events. Keeping the monitor alive
+was still correct, but it could not report a visual transaction that the Shell
+had never started.
+
+The user-confirmed power path no longer depends on logind's asynchronous signal
+to begin presentation. The Shell now fades its own opaque overlay, asks the
+compositor to commit and present black on every output, and only after that
+acknowledgement sends the fixed `PowerOff(false)` or `Reboot(false)` D-Bus call.
+The existing delay inhibitor remains held for a five-second panel-latch grace
+period measured from the actual power request. A later `PrepareForShutdown`
+joins the already-black transaction without restarting it. If the D-Bus request
+is rejected before logind begins shutdown, the transaction is cancelled and
+the styled Power menu is restored with the existing consumer-facing error.
+
+Regression coverage locks the local-blackout-before-power ordering, duplicate
+request rejection, delayed logind joining and cancellation path. Static boot
+presentation checks reject QML that calls PowerOff/Reboot directly from the
+menu handler. Debian component validation passes: compositor `5/5`, Shell
+`10/10`, frozen AI `3/3`, native apps `15/15`, Browser network and the Qt
+multi-window session. Clean ISO rebuild and BIOS/UEFI shutdown gates remain
+pending at this checkpoint.
+
+Rollback: revert this scoped transaction-ordering commit. That restores the
+logind-first flow without changing the power-key inhibitor, compositor black
+renderer, Live disk policy, installer state, privilege boundary or MOKO AI.
