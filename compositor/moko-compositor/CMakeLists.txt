@@ -53,6 +53,12 @@ add_library(moko-window-geometry STATIC
 )
 target_include_directories(moko-window-geometry PUBLIC src)
 
+add_library(moko-power-key STATIC
+    src/power_key.c
+    src/power_key.h
+)
+target_include_directories(moko-power-key PUBLIC src)
+
 add_executable(moko-compositor
     src/main.c
     ${PROTOCOL_CODE}
@@ -64,6 +70,7 @@ target_compile_options(moko-compositor PRIVATE -Wall -Wextra -Wpedantic)
 target_include_directories(moko-compositor PRIVATE ${GENERATED_DIR})
 target_link_libraries(moko-compositor PRIVATE
     moko-window-geometry
+    moko-power-key
     PkgConfig::WLROOTS
     PkgConfig::LIBINPUT
     PkgConfig::WAYLAND_SERVER
@@ -84,6 +91,10 @@ if(BUILD_TESTING)
     add_executable(moko-window-geometry-tests tests/test_window_geometry.c)
     target_link_libraries(moko-window-geometry-tests PRIVATE moko-window-geometry)
     add_test(NAME moko-window-geometry-tests COMMAND moko-window-geometry-tests)
+
+    add_executable(moko-power-key-tests tests/test_power_key.c)
+    target_link_libraries(moko-power-key-tests PRIVATE moko-power-key)
+    add_test(NAME moko-power-key-tests COMMAND moko-power-key-tests)
 
     add_executable(moko-compositor-integration-client
         tests/integration_client.c

@@ -43,7 +43,7 @@ pessimistic:
 | 2 | Wi-Fi connects, then drops; no working network | async discovery/connectivity validation added; physical retest pending |
 | 3 | Three-finger move works but the pointer does not follow | code fix committed `786a93c`; compile- and unit-verified, **not** verified in a running session, **not** in any ISO yet |
 | 4 | MOKO loading screen takes ~2 min and appears twice; target <10 s boot | partially addressed - see "Boot-time work" below |
-| 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | not started |
+| 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | compositor/logind implementation and component tests pass; ISO and physical retest pending |
 
 On #3: the fix is confined to three gesture handlers in
 `compositor/moko-compositor/src/main.c`, with regression coverage and a
@@ -60,6 +60,36 @@ DRM, a wlroots compositor and a Qt6 Shell; the realistic optimised floor is
 frozen by the hotfix constraints. The work that has landed is a **size** win
 (-142 MiB ISO, ~341 MiB off installed size), which shortens USB read time, not
 a measured boot-time win. See the non-attributability note below.
+
+### Power-key follow-up (2026-09-12)
+
+The MOKO compositor protocol now has a bounded power-menu event and a Shell
+ownership request. The unprivileged Shell first acquires logind's
+`handle-power-key` inhibitor; only then does the compositor consume the
+physical power key. A short press does nothing, while one uninterrupted
+five-second hold opens the MOKO Sleep / Restart / Shut Down menu. Key repeats,
+device removal and handler replacement reset safely. If logind or the
+inhibitor is unavailable, MOKO does not consume the key and logind keeps its
+normal fallback behavior.
+
+Restart and shutdown use fixed `Reboot(false)` and `PowerOff(false)` D-Bus
+calls, never UI-provided shell text. The modal cannot be dismissed while an
+accepted power action is pending, allowing the existing delayed shutdown
+inhibitor and compositor blackout acknowledgement to keep the display black
+until poweroff. Failures leave the menu open and show a consumer-facing error.
+
+Debian 13 validation passes: compositor CTest `5/5`, Shell CTest `9/9`, AI
+CTest `3/3`, native apps CTest `15/15`, static boot/disk-safety tests, Browser
+network, Qt multi-window session, QML renders and the all-black shutdown pixel
+gate. The fake-logind test verifies the exact inhibitor scope/mode, bounded
+reboot/poweroff methods and the failure path. A new ISO and physical MacBook
+power-key test are still pending.
+
+Rollback: revert the scoped power-key commit or boot Safe Graphics/Cage. Older
+Shell/compositor protocol versions remain compatible, and failure to acquire
+the inhibitor automatically preserves logind handling. No boot ordering,
+mount policy, disk-safety rule, privilege boundary, installer state or MOKO AI
+contract changes.
 
 ## Physical hotfix automated gate
 

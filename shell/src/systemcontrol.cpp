@@ -673,6 +673,7 @@ QString SystemControl::powerMode() const { return m_powerMode; }
 QStringList SystemControl::powerModes() const { return m_powerModes; }
 bool SystemControl::suspendAvailable() const { return m_suspendAvailable; }
 bool SystemControl::suspendPending() const { return m_suspendPending; }
+bool SystemControl::powerActionPending() const { return m_powerActionPending; }
 QString SystemControl::clockText() const { return m_clockText; }
 QString SystemControl::dateText() const { return m_dateText; }
 QString SystemControl::timeZoneName() const { return m_timeZoneName; }
@@ -1898,6 +1899,75 @@ bool SystemControl::suspend()
                     setOperationMessage(QStringLiteral("System resumed"));
                     writeLiveEvent(QStringLiteral(
                                        "MOKO_CONTROL_ACTION action=suspend state=accepted uid=%1")
+                                       .arg(static_cast<qulonglong>(geteuid())));
+                }
+                finished->deleteLater();
+            });
+    return true;
+}
+
+bool SystemControl::reboot()
+{
+    return requestPowerAction(QStringLiteral("Reboot"),
+                              QStringLiteral("reboot"),
+                              QStringLiteral("Preparing to restart"));
+}
+
+bool SystemControl::powerOff()
+{
+    return requestPowerAction(QStringLiteral("PowerOff"),
+                              QStringLiteral("poweroff"),
+                              QStringLiteral("Preparing to shut down"));
+}
+
+bool SystemControl::requestPowerAction(const QString &method,
+                                       const QString &eventName,
+                                       const QString &progressMessage)
+{
+    if (m_powerActionPending || m_suspendPending)
+        return false;
+
+    QDBusInterface loginManager(logindService,
+                                logindPath,
+                                logindInterface,
+                                QDBusConnection::systemBus());
+    loginManager.setTimeout(kDbusCallTimeoutMs);
+    if (!loginManager.isValid()) {
+        const QString message = QStringLiteral("Power controls are unavailable.");
+        setOperationMessage(message);
+        emit powerActionFailed(message);
+        return false;
+    }
+
+    m_powerActionPending = true;
+    emit powerChanged();
+    setOperationMessage(progressMessage);
+    writeLiveEvent(QStringLiteral("MOKO_CONTROL_ACTION action=%1 state=requested uid=%2")
+                       .arg(eventName)
+                       .arg(static_cast<qulonglong>(geteuid())));
+    auto *watcher = new QDBusPendingCallWatcher(
+        loginManager.asyncCall(method, false), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, eventName](QDBusPendingCallWatcher *finished) {
+                const QDBusPendingReply<> reply = *finished;
+                m_powerActionPending = false;
+                emit powerChanged();
+                if (reply.isError()) {
+                    const QString message = QStringLiteral("Could not %1: %2")
+                                                .arg(eventName == QStringLiteral("reboot")
+                                                         ? QStringLiteral("restart")
+                                                         : QStringLiteral("shut down"),
+                                                     reply.error().message());
+                    setOperationMessage(message);
+                    emit powerActionFailed(message);
+                    writeLiveEvent(QStringLiteral(
+                                       "MOKO_CONTROL_ACTION action=%1 state=failed uid=%2")
+                                       .arg(eventName)
+                                       .arg(static_cast<qulonglong>(geteuid())));
+                } else {
+                    writeLiveEvent(QStringLiteral(
+                                       "MOKO_CONTROL_ACTION action=%1 state=accepted uid=%2")
+                                       .arg(eventName)
                                        .arg(static_cast<qulonglong>(geteuid())));
                 }
                 finished->deleteLater();

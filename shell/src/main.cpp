@@ -91,6 +91,7 @@ int main(int argc, char *argv[])
     parser.addOption({"control-center-page", "Open a Control Center page (0-4).", "page", "0"});
     parser.addOption({"notification-center", "Open Notification Center for validation."});
     parser.addOption({"shutdown-preview", "Render the shutdown blackout for validation."});
+    parser.addOption({"power-menu", "Open the power menu for validation."});
     parser.addOption({"screenshot", "Save a preview screenshot and exit.", "path"});
     parser.addOption({"size", "Set the preview size, for example 1280x720.", "widthxheight"});
     parser.addOption({"application-dir", "Read applications from this directory (repeatable).", "path"});
@@ -291,6 +292,14 @@ int main(int argc, char *argv[])
         window->setProperty("aiVisible", false);
         window->setProperty("controlCenterVisible", false);
         window->setProperty("notificationCenterVisible", true);
+    }
+    if (parser.isSet("power-menu")) {
+        window->setProperty("activeSystemPanel", QString());
+        window->setProperty("launcherVisible", false);
+        window->setProperty("aiVisible", false);
+        window->setProperty("controlCenterVisible", false);
+        window->setProperty("notificationCenterVisible", false);
+        window->setProperty("powerMenuVisible", true);
     }
     const bool shutdownPreview = parser.isSet("shutdown-preview");
     if (shutdownPreview) {

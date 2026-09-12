@@ -59,6 +59,8 @@ struct test_state {
     uint32_t output_scale_capabilities;
     uint32_t keyboard_layout;
     bool shutdown_blackout_presented;
+    uint32_t window_manager_version;
+    bool power_menu_received;
 };
 
 static int create_anonymous_file(size_t size)
@@ -272,6 +274,24 @@ static void manager_shutdown_blackout_presented(void *data,
     state->shutdown_blackout_presented = true;
 }
 
+static void manager_gesture_config(void *data,
+                                   struct moko_window_manager_v1 *manager,
+                                   uint32_t capabilities,
+                                   uint32_t state_flags)
+{
+    (void)data;
+    (void)manager;
+    (void)capabilities;
+    (void)state_flags;
+}
+
+static void manager_power_menu(void *data, struct moko_window_manager_v1 *manager)
+{
+    (void)manager;
+    struct test_state *state = data;
+    state->power_menu_received = true;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
@@ -281,6 +301,8 @@ static const struct moko_window_manager_v1_listener manager_listener = {
     .desktop_config = manager_desktop_config,
     .global_action = manager_global_action,
     .shutdown_blackout_presented = manager_shutdown_blackout_presented,
+    .gesture_config = manager_gesture_config,
+    .power_menu = manager_power_menu,
 };
 
 static void registry_global(void *data,
@@ -300,9 +322,10 @@ static void registry_global(void *data,
                                           version < 6 ? version : 6);
         xdg_wm_base_add_listener(state->wm_base, &wm_base_listener, state);
     } else if (strcmp(interface, moko_window_manager_v1_interface.name) == 0) {
+        state->window_manager_version = version;
         state->window_manager = wl_registry_bind(registry, name,
                                                  &moko_window_manager_v1_interface,
-                                                 version < 4 ? version : 4);
+                                                 version < 6 ? version : 6);
         moko_window_manager_v1_add_listener(state->window_manager, &manager_listener, state);
     }
 }
@@ -438,6 +461,13 @@ int main(void)
         fputs("Headless compositor reported unexpected touchpad hardware.\n", stderr);
         goto cleanup;
     }
+    if (state.window_manager_version < 6) {
+        fputs("MOKO compositor did not advertise the power-key protocol version.\n", stderr);
+        goto cleanup;
+    }
+    moko_window_manager_v1_set_power_key_handling(state.window_manager, 1);
+    if (!dispatch_roundtrips(&state, 1))
+        goto cleanup;
     if (!state.desktop_config_received || state.output_scale != 100
         || state.keyboard_layout != MOKO_WINDOW_MANAGER_V1_KEYBOARD_LAYOUT_ENGLISH
         || (state.output_scale_capabilities

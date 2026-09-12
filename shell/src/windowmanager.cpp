@@ -1,6 +1,7 @@
 #include "windowmanager.h"
 
 #include "moko-window-control-v1-client-protocol.h"
+#include "powerkeyinhibitor.h"
 
 #include <QDir>
 #include <QFile>
@@ -30,6 +31,12 @@ struct WindowManager::NativeState
     moko_window_manager_v1 *manager = nullptr;
 };
 
+namespace {
+
+void writeLiveEvent(const QString &message);
+
+} // namespace
+
 struct WindowManagerCallbacks
 {
     static void registryGlobal(void *data,
@@ -41,7 +48,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 5U);
+        native->owner->m_protocolVersion = qMin(version, 6U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -146,6 +153,14 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         native->owner->handleShutdownBlackoutPresented();
     }
+
+    static void managerPowerMenu(void *data, moko_window_manager_v1 *)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        writeLiveEvent(QStringLiteral("MOKO_POWER_MENU state=requested uid=%1")
+                           .arg(static_cast<qulonglong>(geteuid())));
+        emit native->owner->powerMenuRequested();
+    }
 };
 
 namespace {
@@ -165,6 +180,7 @@ const moko_window_manager_v1_listener managerListener = {
     .global_action = WindowManagerCallbacks::managerGlobalAction,
     .shutdown_blackout_presented = WindowManagerCallbacks::managerShutdownBlackoutPresented,
     .gesture_config = WindowManagerCallbacks::managerGestureConfig,
+    .power_menu = WindowManagerCallbacks::managerPowerMenu,
 };
 
 constexpr int shutdownEventPumpIntervalMs = 20;
@@ -188,8 +204,11 @@ void writeLiveEvent(const QString &message)
 WindowManager::WindowManager(QObject *parent)
     : QObject(parent)
     , m_native(std::make_unique<NativeState>())
+    , m_powerKeyInhibitor(std::make_unique<PowerKeyInhibitor>())
 {
     m_native->owner = this;
+    connect(m_powerKeyInhibitor.get(), &PowerKeyInhibitor::activeChanged,
+            this, &WindowManager::updatePowerKeyHandling);
     connectWayland();
 }
 
@@ -232,6 +251,8 @@ bool WindowManager::connectWayland()
                                      this);
     connect(m_notifier, &QSocketNotifier::activated, this, &WindowManager::dispatchWayland);
     emit connectedChanged();
+    m_powerKeyInhibitor->setEnabled(powerKeyProtocolAvailable());
+    updatePowerKeyHandling();
     applySavedDesktopSettings();
     return true;
 }
@@ -338,6 +359,7 @@ bool WindowManager::browserHistorySwipeEnabled() const
 }
 
 bool WindowManager::desktopProtocolAvailable() const { return m_protocolVersion >= 3; }
+bool WindowManager::powerKeyProtocolAvailable() const { return m_protocolVersion >= 6; }
 int WindowManager::outputScale() const { return m_outputScale; }
 bool WindowManager::outputScale200Available() const
 {
@@ -622,6 +644,8 @@ void WindowManager::disconnectWayland()
     }
     if (m_native == nullptr)
         return;
+    if (m_powerKeyInhibitor != nullptr)
+        m_powerKeyInhibitor->setEnabled(false);
     if (m_native->manager != nullptr) {
         moko_window_manager_v1_destroy(m_native->manager);
         m_native->manager = nullptr;
@@ -665,6 +689,17 @@ void WindowManager::disconnectWayland()
         if (hadDesktopState)
             emit desktopChanged();
     }
+}
+
+void WindowManager::updatePowerKeyHandling()
+{
+    if (!powerKeyProtocolAvailable() || m_native == nullptr
+        || m_native->manager == nullptr) {
+        return;
+    }
+    moko_window_manager_v1_set_power_key_handling(
+        m_native->manager, m_powerKeyInhibitor->active() ? 1U : 0U);
+    flushRequest();
 }
 
 void WindowManager::applySavedDesktopSettings()

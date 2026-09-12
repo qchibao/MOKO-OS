@@ -24,6 +24,7 @@ ApplicationWindow {
     property bool aiVisible: true
     property bool controlCenterVisible: false
     property bool notificationCenterVisible: false
+    property bool powerMenuVisible: false
     property string activeSystemPanel: ""
     property alias controlCenterPage: controlCenter.currentPage
     property string clockText: ""
@@ -62,6 +63,7 @@ ApplicationWindow {
 
     function openApplication(appId) {
         activeSystemPanel = ""
+        powerMenuVisible = false
         launcherVisible = false
         aiVisible = false
         controlCenterVisible = false
@@ -72,6 +74,7 @@ ApplicationWindow {
     }
 
     function toggleSystemPanel(panel) {
+        powerMenuVisible = false
         if (activeSystemPanel === panel) {
             activeSystemPanel = ""
             launcherVisible = false
@@ -102,7 +105,37 @@ ApplicationWindow {
         aiVisible = false
         controlCenterVisible = false
         notificationCenterVisible = false
+        powerMenuVisible = false
         mokoWindowManager.setShellOverlay(false)
+    }
+
+    function showPowerMenu() {
+        activeSystemPanel = ""
+        launcherVisible = false
+        aiVisible = false
+        controlCenterVisible = false
+        notificationCenterVisible = false
+        powerMenuVisible = true
+        mokoWindowManager.setShellOverlay(true)
+    }
+
+    function dismissPowerMenu() {
+        powerMenuVisible = false
+        mokoWindowManager.setShellOverlay(false)
+    }
+
+    function runPowerAction(action) {
+        var accepted = false
+        if (action === "sleep")
+            accepted = mokoSystemControl.suspend()
+        else if (action === "restart")
+            accepted = mokoSystemControl.reboot()
+        else if (action === "shutdown")
+            accepted = mokoSystemControl.powerOff()
+        if (accepted && action === "sleep")
+            dismissPowerMenu()
+        else if (mokoSystemControl.operationMessage.length > 0)
+            toast.show(mokoSystemControl.operationMessage)
     }
 
     function updateClock() {
@@ -177,6 +210,18 @@ ApplicationWindow {
         z: 16
     }
 
+    PowerMenu {
+        id: powerMenu
+        anchors.fill: parent
+        visible: window.powerMenuVisible
+        z: 40
+        control: mokoSystemControl
+        onDismissRequested: window.dismissPowerMenu()
+        onSleepRequested: window.runPowerAction("sleep")
+        onRestartRequested: window.runPowerAction("restart")
+        onShutdownRequested: window.runPowerAction("shutdown")
+    }
+
     LauncherPanel {
         id: launcher
         anchors.left: parent.left
@@ -208,6 +253,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         anchors.verticalCenterOffset: 10
         spacing: -4
+        visible: !window.powerMenuVisible
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "MOKO"
@@ -257,6 +303,9 @@ ApplicationWindow {
                 window.toggleSystemPanel("ai")
             }
         }
+        function onPowerMenuRequested() {
+            window.showPowerMenu()
+        }
     }
 
     Connections {
@@ -286,6 +335,14 @@ ApplicationWindow {
         }
         function onApplicationFailed(appId, displayName, message) {
             toast.show("Could not launch " + displayName + ": " + message)
+        }
+    }
+
+    Connections {
+        target: mokoSystemControl
+        function onPowerActionFailed(message) {
+            window.showPowerMenu()
+            toast.show(message)
         }
     }
 

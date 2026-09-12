@@ -1,4 +1,5 @@
 #include "systemcontrol.h"
+#include "powerkeyinhibitor.h"
 
 #include <QDir>
 #include <QDBusInterface>
@@ -29,6 +30,7 @@ class SystemControlBackendTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void usesBoundedLogindPowerActions();
     void defersInitialBackendProbe();
     void networkRefreshDoesNotBlockTheEventLoop();
     void controlsFixtureBacklightBatteryAndAudio();
@@ -227,6 +229,55 @@ void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
     qunsetenv("MOKO_SYSFS_ROOT");
     qunsetenv("MOKO_WPCTL");
     qunsetenv("MOKO_BRIGHTNESSCTL");
+}
+
+void SystemControlBackendTest::usesBoundedLogindPowerActions()
+{
+    QDBusInterface manager(QStringLiteral("org.freedesktop.login1"),
+                           QStringLiteral("/org/freedesktop/login1"),
+                           QStringLiteral("org.freedesktop.login1.Manager"),
+                           QDBusConnection::systemBus());
+    QVERIFY2(manager.isValid(), qPrintable(manager.lastError().message()));
+
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetInhibitFailure"), true))
+                .isValid());
+    PowerKeyInhibitor inhibitor;
+    inhibitor.setEnabled(true);
+    QTest::qWait(100);
+    QVERIFY(!inhibitor.active());
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetInhibitFailure"), false))
+                .isValid());
+    QTRY_VERIFY_WITH_TIMEOUT(inhibitor.active(), 1000);
+    QCOMPARE(QDBusReply<QString>(manager.call(QStringLiteral("LastInhibitWhat"))).value(),
+             QStringLiteral("handle-power-key"));
+    QCOMPARE(QDBusReply<QString>(manager.call(QStringLiteral("LastInhibitMode"))).value(),
+             QStringLiteral("block"));
+    QCOMPARE(QDBusReply<QString>(manager.call(QStringLiteral("LastInhibitWho"))).value(),
+             QStringLiteral("MOKO Shell"));
+    inhibitor.setEnabled(false);
+    QVERIFY(!inhibitor.active());
+
+    SystemControl control(nullptr, true);
+    QSignalSpy failures(&control, &SystemControl::powerActionFailed);
+    QVERIFY(control.reboot());
+    QVERIFY(control.powerActionPending());
+    QTRY_VERIFY_WITH_TIMEOUT(!control.powerActionPending(), 1000);
+    QCOMPARE(QDBusReply<QString>(manager.call(QStringLiteral("LastAction"))).value(),
+             QStringLiteral("reboot"));
+    QCOMPARE(failures.size(), 0);
+
+    QVERIFY(control.powerOff());
+    QTRY_VERIFY_WITH_TIMEOUT(!control.powerActionPending(), 1000);
+    QCOMPARE(QDBusReply<QString>(manager.call(QStringLiteral("LastAction"))).value(),
+             QStringLiteral("poweroff"));
+    QCOMPARE(failures.size(), 0);
+
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetPowerActionFailure"), true))
+                .isValid());
+    QVERIFY(control.reboot());
+    QTRY_COMPARE_WITH_TIMEOUT(failures.size(), 1, 1000);
+    QVERIFY(!control.powerActionPending());
+    QVERIFY(control.operationMessage().contains(QStringLiteral("Could not restart")));
 }
 
 QTEST_GUILESS_MAIN(SystemControlBackendTest)

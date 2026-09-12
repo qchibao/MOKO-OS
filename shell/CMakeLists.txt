@@ -45,6 +45,8 @@ qt_add_executable(moko-shell
     src/main.cpp
     src/notificationmodel.cpp
     src/notificationmodel.h
+    src/powerkeyinhibitor.cpp
+    src/powerkeyinhibitor.h
     src/screenshotcontroller.cpp
     src/screenshotcontroller.h
     src/sessionlifecycle.cpp
@@ -87,6 +89,7 @@ qt_add_qml_module(moko-shell
         qml/components/TopBar.qml
         qml/components/ControlCenterPanel.qml
         qml/components/NotificationCenterPanel.qml
+        qml/components/PowerMenu.qml
         qml/components/LauncherPanel.qml
         qml/components/AiPanel.qml
         qml/components/Dock.qml
@@ -112,6 +115,13 @@ if(BUILD_TESTING)
 
     add_test(NAME moko-shell-smoke COMMAND moko-shell --smoke-test --windowed)
     set_tests_properties(moko-shell-smoke PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        TIMEOUT 10
+    )
+
+    add_test(NAME moko-shell-power-menu-smoke
+        COMMAND moko-shell --smoke-test --windowed --power-menu)
+    set_tests_properties(moko-shell-power-menu-smoke PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
         TIMEOUT 10
     )
@@ -146,16 +156,21 @@ if(BUILD_TESTING)
         src/systemcontrol.h
         src/systemcontrolutils.cpp
         src/systemcontrolutils.h
+        src/powerkeyinhibitor.cpp
+        src/powerkeyinhibitor.h
     )
     target_include_directories(moko-system-control-backend-tests PRIVATE src)
     target_link_libraries(moko-system-control-backend-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
     qt_add_executable(moko-fake-networkmanager tests/fake_networkmanager.cpp)
     target_include_directories(moko-fake-networkmanager PRIVATE src)
     target_link_libraries(moko-fake-networkmanager PRIVATE Qt6::Core Qt6::DBus)
+    qt_add_executable(moko-fake-logind tests/fake_logind.cpp)
+    target_link_libraries(moko-fake-logind PRIVATE Qt6::Core Qt6::DBus)
     add_test(NAME moko-system-control-backend-tests
         COMMAND dbus-run-session --
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_systemcontrol_backend_tests.sh
                 $<TARGET_FILE:moko-fake-networkmanager>
+                $<TARGET_FILE:moko-fake-logind>
                 $<TARGET_FILE:moko-system-control-backend-tests>)
     set_tests_properties(moko-system-control-backend-tests PROPERTIES TIMEOUT 15)
 

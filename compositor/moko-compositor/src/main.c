@@ -24,6 +24,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include "power_key.h"
 #include "window_geometry.h"
 #include "moko-window-control-v1-server-protocol.h"
 
@@ -223,6 +224,11 @@ struct moko_server {
     struct wl_listener request_cursor;
     struct wl_listener request_set_selection;
     struct wl_list keyboards;
+    struct wl_event_source *power_key_timer;
+    struct moko_power_key_state power_key_state;
+    struct moko_keyboard *power_key_keyboard;
+    struct wl_resource *power_key_handler_resource;
+    bool power_key_handling_enabled;
     enum moko_cursor_mode cursor_mode;
     struct moko_toplevel *grabbed_toplevel;
     double grab_x;
@@ -255,6 +261,33 @@ static bool apply_output_scale(struct moko_server *server, uint32_t scale_percen
 static void update_shutdown_overlay_geometry(struct moko_server *server);
 static void announce_shutdown_blackout(struct moko_server *server);
 static void report_event(const char *format, ...);
+
+static void request_power_menu(struct moko_server *server)
+{
+    const bool delivered = server->power_key_handler_resource != NULL;
+    if (delivered)
+        moko_window_manager_v1_send_power_menu(server->power_key_handler_resource);
+    if (delivered)
+        set_shell_overlay(server, true);
+    report_event("MOKO_POWER_KEY state=menu-requested delivered=%d", delivered ? 1 : 0);
+}
+
+static void reset_power_key(struct moko_server *server)
+{
+    wl_event_source_timer_update(server->power_key_timer, 0);
+    server->power_key_keyboard = NULL;
+    server->power_key_state = (struct moko_power_key_state){0};
+}
+
+static int power_key_timeout(void *data)
+{
+    struct moko_server *server = data;
+    if (moko_power_key_timer(&server->power_key_state)
+        == MOKO_POWER_KEY_ACTION_SHOW_MENU) {
+        request_power_menu(server);
+    }
+    return 0;
+}
 
 static bool all_outputs_presented_black_frame(const struct moko_server *server)
 {
@@ -1669,6 +1702,62 @@ static bool handle_keybinding(struct moko_server *server,
     }
 }
 
+static bool is_power_key(const struct wlr_keyboard_key_event *event,
+                         const xkb_keysym_t *symbols,
+                         int symbol_count)
+{
+    if (event->keycode == KEY_POWER)
+        return true;
+    for (int index = 0; index < symbol_count; ++index) {
+        if (symbols[index] == XKB_KEY_XF86PowerOff)
+            return true;
+    }
+    return false;
+}
+
+static bool handle_power_key(struct moko_keyboard *keyboard,
+                             const struct wlr_keyboard_key_event *event,
+                             const xkb_keysym_t *symbols,
+                             int symbol_count)
+{
+    struct moko_server *server = keyboard->server;
+    if (!is_power_key(event, symbols, symbol_count))
+        return false;
+    /* Cage/Safe Graphics and older Shell clients retain logind's default key policy. */
+    if (!server->power_key_handling_enabled) {
+        if (event->state == WL_KEYBOARD_KEY_STATE_RELEASED
+            && server->power_key_keyboard == keyboard) {
+            reset_power_key(server);
+        }
+        return false;
+    }
+
+    if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        const enum moko_power_key_action action =
+            moko_power_key_press(&server->power_key_state);
+        if (action == MOKO_POWER_KEY_ACTION_START_TIMER) {
+            server->power_key_keyboard = keyboard;
+            wl_event_source_timer_update(server->power_key_timer,
+                                         MOKO_POWER_KEY_HOLD_MS);
+            report_event("MOKO_POWER_KEY state=pressed hold_ms=%d",
+                         MOKO_POWER_KEY_HOLD_MS);
+        }
+        return true;
+    }
+
+    if (server->power_key_keyboard != keyboard)
+        return true;
+    const bool menu_sent = server->power_key_state.menu_sent;
+    const enum moko_power_key_action action =
+        moko_power_key_release(&server->power_key_state);
+    server->power_key_keyboard = NULL;
+    if (action == MOKO_POWER_KEY_ACTION_CANCEL_TIMER)
+        wl_event_source_timer_update(server->power_key_timer, 0);
+    report_event("MOKO_POWER_KEY state=released menu_sent=%d",
+                 menu_sent ? 1 : 0);
+    return true;
+}
+
 static void keyboard_modifiers(struct wl_listener *listener, void *data)
 {
     (void)data;
@@ -1693,8 +1782,8 @@ static void keyboard_key(struct wl_listener *listener, void *data)
     const int symbol_count = xkb_state_key_get_syms(
         keyboard->wlr_keyboard->xkb_state, keycode, &symbols);
     const uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->wlr_keyboard);
-    bool handled = false;
-    if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+    bool handled = handle_power_key(keyboard, event, symbols, symbol_count);
+    if (!handled && event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
         for (int index = 0; index < symbol_count; ++index)
             handled = handle_keybinding(keyboard->server, symbols[index], modifiers) || handled;
     }
@@ -1711,6 +1800,11 @@ static void keyboard_destroy(struct wl_listener *listener, void *data)
 {
     (void)data;
     struct moko_keyboard *keyboard = wl_container_of(listener, keyboard, destroy);
+    if (keyboard->server->power_key_keyboard == keyboard) {
+        wl_event_source_timer_update(keyboard->server->power_key_timer, 0);
+        keyboard->server->power_key_keyboard = NULL;
+        keyboard->server->power_key_state = (struct moko_power_key_state){0};
+    }
     wl_list_remove(&keyboard->modifiers.link);
     wl_list_remove(&keyboard->key.link);
     wl_list_remove(&keyboard->destroy.link);
@@ -2557,6 +2651,26 @@ static void manager_prepare_shutdown(struct wl_client *client,
     start_shutdown_fade(server);
 }
 
+static void manager_set_power_key_handling(struct wl_client *client,
+                                           struct wl_resource *resource,
+                                           uint32_t enabled)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    if (enabled != 0) {
+        if (server->power_key_handler_resource != resource)
+            reset_power_key(server);
+        server->power_key_handler_resource = resource;
+        server->power_key_handling_enabled = true;
+    } else if (server->power_key_handler_resource == resource) {
+        server->power_key_handler_resource = NULL;
+        server->power_key_handling_enabled = false;
+        reset_power_key(server);
+    }
+    report_event("MOKO_POWER_KEY_HANDLING state=%s",
+                 server->power_key_handling_enabled ? "enabled" : "disabled");
+}
+
 static const struct moko_window_manager_v1_interface window_manager_implementation = {
     .destroy = manager_destroy,
     .activate = manager_activate,
@@ -2572,10 +2686,17 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .set_keyboard_layout = manager_set_keyboard_layout,
     .set_shell_overlay = manager_set_shell_overlay,
     .prepare_shutdown = manager_prepare_shutdown,
+    .set_power_key_handling = manager_set_power_key_handling,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
 {
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    if (server->power_key_handler_resource == resource) {
+        server->power_key_handler_resource = NULL;
+        server->power_key_handling_enabled = false;
+        reset_power_key(server);
+    }
     wl_list_remove(wl_resource_get_link(resource));
 }
 
@@ -2738,7 +2859,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    4,
+                                                    6,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {
@@ -2783,6 +2904,13 @@ int main(int argc, char **argv)
     wl_signal_add(&server.cursor->events.hold_end, &server.cursor_hold_end);
 
     server.seat = wlr_seat_create(server.display, "seat0");
+    server.power_key_timer = wl_event_loop_add_timer(event_loop,
+                                                     power_key_timeout,
+                                                     &server);
+    if (server.power_key_timer == NULL) {
+        wlr_log(WLR_ERROR, "Failed to create power-key hold timer");
+        return 1;
+    }
     server.new_input.notify = new_input;
     wl_signal_add(&server.backend->events.new_input, &server.new_input);
     server.request_cursor.notify = request_cursor;

@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="5">
+  <interface name="moko_window_manager_v1" version="6">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -179,6 +179,23 @@
       <arg name="capabilities" type="uint" enum="gesture_capability"/>
       <arg name="state" type="uint" enum="gesture_state"/>
     </event>
+
+    <event name="power_menu" since="6">
+      <description summary="show the bounded MOKO power menu">
+        Sent after a compositor-owned long press of the physical power key.
+        The event carries no command or path; the trusted MOKO Shell decides
+        whether to present Sleep, Restart or Shut Down actions.
+      </description>
+    </event>
+
+    <request name="set_power_key_handling" since="6">
+      <description summary="confirm the Shell owns the logind power-key inhibitor">
+        Enables compositor handling only after the trusted Shell has acquired
+        a low-level handle-power-key inhibitor. Disabling restores logind's
+        normal fallback policy. The request carries only a boolean.
+      </description>
+      <arg name="enabled" type="uint"/>
+    </request>
 
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>

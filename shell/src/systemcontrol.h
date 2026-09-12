@@ -61,6 +61,7 @@ class SystemControl final : public QObject
     Q_PROPERTY(QStringList powerModes READ powerModes NOTIFY powerChanged)
     Q_PROPERTY(bool suspendAvailable READ suspendAvailable NOTIFY powerChanged)
     Q_PROPERTY(bool suspendPending READ suspendPending NOTIFY powerChanged)
+    Q_PROPERTY(bool powerActionPending READ powerActionPending NOTIFY powerChanged)
 
     Q_PROPERTY(QString clockText READ clockText NOTIFY timeChanged)
     Q_PROPERTY(QString dateText READ dateText NOTIFY timeChanged)
@@ -122,6 +123,7 @@ public:
     QStringList powerModes() const;
     bool suspendAvailable() const;
     bool suspendPending() const;
+    bool powerActionPending() const;
     QString clockText() const;
     QString dateText() const;
     QString timeZoneName() const;
@@ -156,6 +158,8 @@ public:
     Q_INVOKABLE bool adjustBrightness(int delta);
     Q_INVOKABLE bool setPowerMode(const QString &mode);
     Q_INVOKABLE bool suspend();
+    Q_INVOKABLE bool reboot();
+    Q_INVOKABLE bool powerOff();
     Q_INVOKABLE void reportControlCenterOpened(int page);
 
 signals:
@@ -166,6 +170,7 @@ signals:
     void powerChanged();
     void timeChanged();
     void operationMessageChanged();
+    void powerActionFailed(const QString &message);
 
 private:
     void refreshNetwork();
@@ -186,6 +191,9 @@ private:
     bool validAudioDevice(int id, const QVariantList &devices) const;
     void setOperationMessage(const QString &message);
     void verifyWifiConnection();
+    bool requestPowerAction(const QString &method,
+                            const QString &eventName,
+                            const QString &progressMessage);
 
     QTimer *m_refreshTimer = nullptr;
     bool m_targetedRefreshOnly = false;
@@ -255,6 +263,7 @@ private:
     QStringList m_powerModes;
     bool m_suspendAvailable = false;
     bool m_suspendPending = false;
+    bool m_powerActionPending = false;
     QString m_clockText;
     QString m_dateText;
     QString m_timeZoneName;

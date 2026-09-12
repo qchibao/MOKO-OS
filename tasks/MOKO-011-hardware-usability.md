@@ -718,6 +718,43 @@ ISO validation remains pending; the component, QML smoke and static safety
 tests pass. Wi-Fi stability on the Intel MacBook Pro 2015 still requires a
 physical retest.
 
+### Physical power-key follow-up (2026-09-12)
+
+The physical power key is now handled as a compositor input event instead of a
+QML shortcut. Protocol v6 adds only two bounded messages: the compositor can
+request the MOKO power menu, and the Shell can confirm whether it owns a valid
+logind power-key inhibitor. The compositor consumes `KEY_POWER` /
+`XF86PowerOff` only while that confirmation is active. Releasing before five
+seconds cancels the timer; reaching five seconds emits the menu once despite
+kernel key repeat. Keyboard removal, protocol disconnect and handler changes
+cancel any partial hold.
+
+The Shell acquires `Inhibit("handle-power-key", "MOKO Shell", ..., "block")`
+as the unprivileged live user. Failure is retried, but never enables compositor
+handling, so logind retains its default path. The menu supports mouse, Escape,
+Tab and directional keyboard navigation. Sleep uses the existing suspend API;
+Restart and Shut Down call only logind `Reboot(false)` / `PowerOff(false)`.
+No arbitrary command capability is introduced. While a restart or shutdown
+request is pending, the menu stays modal until logind starts the already
+validated fade-to-black shutdown sequence or reports failure.
+
+Validation after the final review patch:
+
+- static boot/shutdown, disk-safety logging and Live launch telemetry passed;
+- compositor built with `-Wall -Wextra -Wpedantic`, CTest `5/5` passed;
+- Shell built and CTest `9/9` passed, including power-menu QML smoke and a
+  private-bus fake-logind test for inhibitor ownership, success and failure;
+- unchanged AI CTest `3/3` and native apps CTest `15/15` passed;
+- Browser network, Qt compositor multi-window integration, Shell/Settings/
+  Files/Terminal/Diagnostics render checks and the black-pixel shutdown gate
+  passed.
+
+Rollback is the scoped power-key commit or the existing Safe Graphics/Cage
+path. A missing inhibitor, old protocol peer or disconnected Shell falls back
+to logind automatically. The change does not touch disk discovery, mounts,
+installer policy, privileged helpers or the frozen MOKO AI contract. ISO/QEMU
+and physical MacBook Pro 2015 power-key validation remain required.
+
 ### H8 physical-only remainder
 
 QEMU cannot certify the MacBook internal panel and scaling, three-finger drag,

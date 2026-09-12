@@ -8,6 +8,7 @@
 #include <memory>
 
 class QSocketNotifier;
+class PowerKeyInhibitor;
 
 class WindowManager final : public QObject
 {
@@ -39,6 +40,7 @@ class WindowManager final : public QObject
     Q_PROPERTY(bool browserHistorySwipeAvailable READ browserHistorySwipeAvailable NOTIFY inputChanged)
     Q_PROPERTY(bool browserHistorySwipeEnabled READ browserHistorySwipeEnabled NOTIFY inputChanged)
     Q_PROPERTY(bool desktopProtocolAvailable READ desktopProtocolAvailable NOTIFY desktopChanged)
+    Q_PROPERTY(bool powerKeyProtocolAvailable READ powerKeyProtocolAvailable NOTIFY connectedChanged)
     Q_PROPERTY(int outputScale READ outputScale NOTIFY desktopChanged)
     Q_PROPERTY(bool outputScale200Available READ outputScale200Available NOTIFY desktopChanged)
     Q_PROPERTY(int keyboardLayout READ keyboardLayout NOTIFY desktopChanged)
@@ -75,6 +77,7 @@ public:
     bool browserHistorySwipeAvailable() const;
     bool browserHistorySwipeEnabled() const;
     bool desktopProtocolAvailable() const;
+    bool powerKeyProtocolAvailable() const;
     int outputScale() const;
     bool outputScale200Available() const;
     int keyboardLayout() const;
@@ -110,6 +113,7 @@ signals:
     void inputChanged();
     void desktopChanged();
     void globalActionRequested(const QString &action);
+    void powerMenuRequested();
     void shutdownBlackoutPresented();
 
 private:
@@ -134,12 +138,14 @@ private:
                              quint32 scaleCapabilities,
                              quint32 keyboardLayout);
     void handleShutdownBlackoutPresented();
+    void updatePowerKeyHandling();
     void pumpShutdownEvents(quint64 generation);
     bool flushRequest();
     const WindowInfo *windowForApplication(const QString &appId) const;
     bool sendRequest(const QString &appId, const std::function<void(quint32)> &request);
 
     std::unique_ptr<NativeState> m_native;
+    std::unique_ptr<PowerKeyInhibitor> m_powerKeyInhibitor;
     QList<WindowInfo> m_windows;
     QSocketNotifier *m_notifier = nullptr;
     int m_revision = 0;
