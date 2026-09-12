@@ -149,10 +149,19 @@ if grep -Fq 'system_powerdown' <<<"$desktop_shutdown"; then
 fi
 grep -Fq 'monitor system_powerdown' <<<"$fallback_shutdown"
 
+power_menu="$ROOT/shell/qml/components/PowerMenu.qml"
+compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
+grep -Fq 'Qt.callLater(function()' "$power_menu"
+grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
+grep -Fq 'event.key === Qt.Key_Return || event.key === Qt.Key_Enter' "$power_menu"
+power_request=$(sed -n '/^static void request_power_menu/,/^}/p' "$compositor_source")
+grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"
+grep -Fq 'moko_window_manager_v1_send_power_menu' <<<"$power_request"
+grep -Fq 'wl_display_flush_clients(server->display);' <<<"$power_request"
+
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"
 logind_shutdown_config="$ROOT/image/live-build/config/includes.chroot/etc/systemd/logind.conf.d/10-moko-shutdown-visual.conf"
-compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 grep -Fq 'all_outputs_presented_black_frame' "$compositor_source"
 grep -Fq 'if (!output->shutdown_black_frame_presented)' "$compositor_source"
 if sed -n '/static void output_frame/,/static void output_present/p' "$compositor_source" \

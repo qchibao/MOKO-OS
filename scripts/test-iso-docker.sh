@@ -403,17 +403,27 @@ request_desktop_shutdown() {
   wait_for_serial_since "$marker" \
     "MOKO_POWER_KEY state=menu-requested delivered=1" 15 \
     "The compositor did not open the MOKO Power menu after a five-second Power hold."
-  wait_for_serial_since "$marker" \
-    "MOKO_POWER_MENU state=requested uid=1000" 15 \
-    "MOKO Shell did not present the requested Power menu."
+  if ! wait_for_serial_since "$marker" \
+      "MOKO_POWER_MENU state=requested uid=1000" 15 \
+      "MOKO Shell did not present the requested Power menu."; then
+    POWER_MENU_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu-failure.png"
+    capture_frame "/artifacts/$POWER_MENU_FAILURE_SCREENSHOT_NAME" \
+      "$POWER_MENU_FAILURE_SCREENSHOT_NAME"
+    return 1
+  fi
 
   # Shut Down receives focus when the menu opens, so Enter follows the same
   # bounded, unprivileged UI action a keyboard user invokes.
   sleep 0.5
   monitor "sendkey ret"
-  wait_for_serial_since "$marker" \
-    "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 15 \
-    "The focused MOKO Power action did not request poweroff through logind."
+  if ! wait_for_serial_since "$marker" \
+      "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 15 \
+      "The focused MOKO Power action did not request poweroff through logind."; then
+    POWER_ACTION_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-action-failure.png"
+    capture_frame "/artifacts/$POWER_ACTION_FAILURE_SCREENSHOT_NAME" \
+      "$POWER_ACTION_FAILURE_SCREENSHOT_NAME"
+    return 1
+  fi
 }
 
 request_fallback_shutdown() {

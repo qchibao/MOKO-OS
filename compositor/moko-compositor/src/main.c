@@ -265,10 +265,14 @@ static void report_event(const char *format, ...);
 static void request_power_menu(struct moko_server *server)
 {
     const bool delivered = server->power_key_handler_resource != NULL;
-    if (delivered)
-        moko_window_manager_v1_send_power_menu(server->power_key_handler_resource);
-    if (delivered)
+    if (delivered) {
+        /* Raise and focus the Shell before its separate control connection
+         * receives the menu request. Flush both connections in this cycle so
+         * a timer-originated request cannot wait for unrelated compositor IO. */
         set_shell_overlay(server, true);
+        moko_window_manager_v1_send_power_menu(server->power_key_handler_resource);
+        wl_display_flush_clients(server->display);
+    }
     report_event("MOKO_POWER_KEY state=menu-requested delivered=%d", delivered ? 1 : 0);
 }
 

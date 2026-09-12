@@ -791,3 +791,32 @@ blackout validation remain pending at this checkpoint.
 Rollback: revert this follow-up commit. It does not change disk discovery,
 mount policy, boot ordering, compositor protocol, privileges, installer state
 or the frozen MOKO AI boundary.
+
+### Power-menu delivery race follow-up (2026-09-13)
+
+The first ISO gate that exercised shutdown through the physical-key path found
+two timing failures that the earlier component tests did not cover. In
+`out/moko-iso-smoke-20260912T183328Z-bios-desktop-*`, the compositor completed
+the five-second hold and reported `delivered=1`, but the Shell control
+connection did not dispatch the menu event before the gate timed out. In
+`out/moko-iso-smoke-20260912T184539Z-bios-desktop-*`, the event arrived, but
+the panel's focus binding could reclaim focus from the default Shut Down button
+before QEMU sent Enter.
+
+The compositor now raises and focuses the Shell before posting the bounded
+power-menu event, then flushes Wayland clients in the same timer cycle. The
+QML menu no longer gives its decorative panel keyboard focus, schedules the
+default button focus for the next Qt event-loop turn, and explicitly accepts
+Return/Enter on every power action. Failure paths in the ISO harness capture
+the actual menu framebuffer so a future protocol and keyboard-focus failure
+cannot be confused.
+
+Validation before rebuilding the ISO: static boot/shutdown and disk-safety
+tests passed; compositor CTest `5/5`, Shell CTest `10/10`, frozen AI CTest
+`3/3` and native apps CTest `15/15` passed; Browser network and the Qt
+multi-window session passed. The new ISO/QEMU shutdown gate remains pending at
+this checkpoint.
+
+Rollback: revert this scoped follow-up. Safe Graphics continues to use Cage
+and logind's fallback power handling. No disk, mount, installer, privilege or
+MOKO AI behavior changes.

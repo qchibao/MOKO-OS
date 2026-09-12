@@ -14,6 +14,13 @@ FocusScope {
     focus: visible
     opacity: visible ? 1 : 0
 
+    function focusDefaultAction() {
+        Qt.callLater(function() {
+            if (root.visible && shutdownButton.enabled)
+                shutdownButton.forceActiveFocus()
+        })
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0.02, 0.05, 0.10, 0.58)
@@ -33,7 +40,6 @@ FocusScope {
         width: Math.min(460, root.width - 40)
         height: 252
         glassOpacity: 0.96
-        focus: root.visible
 
         MouseArea {
             anchors.fill: parent
@@ -74,6 +80,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: restartButton
                     KeyNavigation.backtab: cancelButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.sleepRequested()
+                        }
+                    }
                     onClicked: root.sleepRequested()
                 }
 
@@ -87,6 +99,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: shutdownButton
                     KeyNavigation.backtab: sleepButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.restartRequested()
+                        }
+                    }
                     onClicked: root.restartRequested()
                 }
 
@@ -100,6 +118,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: cancelButton
                     KeyNavigation.backtab: restartButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.shutdownRequested()
+                        }
+                    }
                     onClicked: root.shutdownRequested()
                 }
             }
@@ -112,6 +136,12 @@ FocusScope {
                 KeyNavigation.up: shutdownButton
                 KeyNavigation.tab: sleepButton
                 KeyNavigation.backtab: shutdownButton
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        event.accepted = true
+                        root.dismissRequested()
+                    }
+                }
                 onClicked: root.dismissRequested()
             }
         }
@@ -125,12 +155,12 @@ FocusScope {
 
     onVisibleChanged: {
         if (visible)
-            shutdownButton.forceActiveFocus()
+            focusDefaultAction()
     }
 
     onBusyChanged: {
         if (visible && !busy)
-            shutdownButton.forceActiveFocus()
+            focusDefaultAction()
     }
 
     Behavior on opacity {
