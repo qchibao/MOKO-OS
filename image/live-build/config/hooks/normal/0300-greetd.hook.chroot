@@ -12,6 +12,50 @@ CFG
 systemctl disable getty@tty1.service || true
 systemctl mask getty@tty1.service || true
 systemctl mask udisks2.service || true
+# Nothing in MOKO orders itself after a fully settled udev database: the live
+# session is started by greetd on VT1 and probes DRM/libinput itself, so the
+# settle wait is dead time. Measured, QEMU/TCG on the v0.1.1 release ISO
+# (run moko-boot-diag3 vs moko-boot-diag2): the gap between "Queued start job
+# for graphical.target" and the first unit after it went 44.05s -> 38.24s and
+# total startup 2:26.814 -> 2:22.646, i.e. ~4-6s.
+# Rollback: unmask with `systemctl unmask systemd-udev-settle.service` in the
+# chroot, or drop this line; nothing in the MOKO unit set Requires= it.
+systemctl mask systemd-udev-settle.service || true
+# Same reasoning for the network: the Shell reports connectivity from
+# NetworkManager state changes, it never blocks the session on DHCP.
+systemctl mask NetworkManager-wait-online.service || true
+#
+# NOTE ON ATTRIBUTION -- an earlier revision of this comment claimed
+# systemd-udev-trigger.service accounted for ~62s of the boot. That was wrong
+# and is corrected here so nobody optimises the wrong unit again. Measured
+# twice on the v0.1.1 release ISO under QEMU/TCG:
+#   systemd-udev-trigger.service   3.626s (moko-boot-diag6)
+#   systemd-udev-trigger.service   3.551s (moko-boot-diag7, clean baseline)
+# Do NOT mask it either: moko-boot-diag5 did, and the session crash-looped
+# because udev never applied the uaccess/seat tags to /dev/dri/*, so logind
+# installed no ACLs and uid 1000 got EACCES from Mesa:
+#   libEGL warning: failed to open /dev/dri/renderD128: Permission denied
+#   [EGL] eglInitialize error EGL_NOT_INITIALIZED "DRI2: failed to load driver"
+#   render/wlr_renderer.c:272 Could not initialize renderer
+#
+# What actually dominates is live-config.service, which sits on the critical
+# chain to greetd (diag7 `systemd-analyze critical-chain`, verbatim):
+#   graphical.target @1min 46.699s
+#   +-moko-live-health.service @1min 20.137s +26.538s
+#     +-greetd.service @1min 20.110s
+#       +-plymouth-quit-wait.service @1min 19.483s +532ms
+#         +-systemd-user-sessions.service @1min 19.095s +320ms
+#           +-network.target @1min 19.050s
+#             +-NetworkManager.service @1min 14.264s +4.766s
+#               +-dbus.service @1min 12.978s +916ms
+#                 +-basic.target @1min 12.808s
+#                   +-live-config.service @14.735s +58.035s   <<<
+# Per-component split of those 58.035s (live-config.debug timestamps):
+#   0050-locales 36s, 0070-tzdata 7s, all 33 others 0-3s each.
+# The locales half is fixed at build time by 0160-moko-locale-tz.hook.chroot.
+# moko-live-health.service's 26.538s is a 1s-interval poll waiting for the
+# shell surface -- it MEASURES session bring-up, it does not cause it, and
+# greetd has already started the session by then.
 systemctl enable greetd.service || true
 systemctl enable moko-live-disk-safety.service || true
 systemctl enable moko-live-health.service || true
