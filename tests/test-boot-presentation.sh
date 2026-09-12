@@ -153,7 +153,12 @@ power_menu="$ROOT/shell/qml/components/PowerMenu.qml"
 compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 grep -Fq 'Qt.callLater(function()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
-grep -Fq 'event.key === Qt.Key_Return || event.key === Qt.Key_Enter' "$power_menu"
+grep -Fq 'sequence: "Return"' "$power_menu"
+grep -Fq 'sequence: "Enter"' "$power_menu"
+grep -Fq 'onActivated: root.activateFocusedAction()' "$power_menu"
+grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
+  "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
 power_request=$(sed -n '/^static void request_power_menu/,/^}/p' "$compositor_source")
 grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"
 grep -Fq 'moko_window_manager_v1_send_power_menu' <<<"$power_request"

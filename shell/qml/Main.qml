@@ -216,6 +216,7 @@ ApplicationWindow {
         visible: window.powerMenuVisible
         z: 40
         control: mokoSystemControl
+        onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()
         onSleepRequested: window.runPowerAction("sleep")
         onRestartRequested: window.runPowerAction("restart")

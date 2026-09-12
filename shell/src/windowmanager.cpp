@@ -627,6 +627,12 @@ void WindowManager::reportInputPanelOpened() const
                             .arg(static_cast<qulonglong>(geteuid())));
 }
 
+void WindowManager::reportPowerMenuReady() const
+{
+    writeLiveEvent(QStringLiteral("MOKO_POWER_MENU state=ready uid=%1")
+                       .arg(static_cast<qulonglong>(geteuid())));
+}
+
 void WindowManager::dispatchWayland()
 {
     if (m_native->display == nullptr)

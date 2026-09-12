@@ -6,10 +6,12 @@ FocusScope {
     property var control
     readonly property bool busy: control
                                  && (control.powerActionPending || control.suspendPending)
+    property bool presentationReported: false
     signal dismissRequested()
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    signal presentationReady()
 
     focus: visible
     opacity: visible ? 1 : 0
@@ -19,6 +21,28 @@ FocusScope {
             if (root.visible && shutdownButton.enabled)
                 shutdownButton.forceActiveFocus()
         })
+    }
+
+    function reportPresentationReady() {
+        if (!root.visible || root.opacity < 0.999 || root.presentationReported)
+            return
+        root.presentationReported = true
+        root.focusDefaultAction()
+        root.presentationReady()
+    }
+
+    function activateFocusedAction() {
+        if (root.busy)
+            return
+        if (sleepButton.activeFocus && sleepButton.enabled) {
+            root.sleepRequested()
+        } else if (restartButton.activeFocus && restartButton.enabled) {
+            root.restartRequested()
+        } else if (cancelButton.activeFocus && cancelButton.enabled) {
+            root.dismissRequested()
+        } else if (shutdownButton.enabled) {
+            root.shutdownRequested()
+        }
     }
 
     Rectangle {
@@ -80,12 +104,6 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: restartButton
                     KeyNavigation.backtab: cancelButton
-                    Keys.onPressed: (event) => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            event.accepted = true
-                            root.sleepRequested()
-                        }
-                    }
                     onClicked: root.sleepRequested()
                 }
 
@@ -99,12 +117,6 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: shutdownButton
                     KeyNavigation.backtab: sleepButton
-                    Keys.onPressed: (event) => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            event.accepted = true
-                            root.restartRequested()
-                        }
-                    }
                     onClicked: root.restartRequested()
                 }
 
@@ -118,12 +130,6 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: cancelButton
                     KeyNavigation.backtab: restartButton
-                    Keys.onPressed: (event) => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            event.accepted = true
-                            root.shutdownRequested()
-                        }
-                    }
                     onClicked: root.shutdownRequested()
                 }
             }
@@ -136,15 +142,23 @@ FocusScope {
                 KeyNavigation.up: shutdownButton
                 KeyNavigation.tab: sleepButton
                 KeyNavigation.backtab: shutdownButton
-                Keys.onPressed: (event) => {
-                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                        event.accepted = true
-                        root.dismissRequested()
-                    }
-                }
                 onClicked: root.dismissRequested()
             }
         }
+    }
+
+    Shortcut {
+        sequence: "Return"
+        enabled: root.visible && !root.busy
+        context: Qt.WindowShortcut
+        onActivated: root.activateFocusedAction()
+    }
+
+    Shortcut {
+        sequence: "Enter"
+        enabled: root.visible && !root.busy
+        context: Qt.WindowShortcut
+        onActivated: root.activateFocusedAction()
     }
 
     Keys.onEscapePressed: (event) => {
@@ -154,9 +168,14 @@ FocusScope {
     }
 
     onVisibleChanged: {
-        if (visible)
+        presentationReported = false
+        if (visible) {
             focusDefaultAction()
+            Qt.callLater(reportPresentationReady)
+        }
     }
+
+    onOpacityChanged: Qt.callLater(reportPresentationReady)
 
     onBusyChanged: {
         if (visible && !busy)

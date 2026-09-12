@@ -105,6 +105,7 @@ public:
     bool prepareShutdown();
     Q_INVOKABLE bool refreshConnection();
     Q_INVOKABLE void reportInputPanelOpened() const;
+    Q_INVOKABLE void reportPowerMenuReady() const;
 
 signals:
     void connectedChanged();

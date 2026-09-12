@@ -411,10 +411,17 @@ request_desktop_shutdown() {
       "$POWER_MENU_FAILURE_SCREENSHOT_NAME"
     return 1
   fi
+  if ! wait_for_serial_since "$marker" \
+      "MOKO_POWER_MENU state=ready uid=1000" 30 \
+      "MOKO Power menu did not finish its visible presentation."; then
+    POWER_MENU_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu-failure.png"
+    capture_frame "/artifacts/$POWER_MENU_FAILURE_SCREENSHOT_NAME" \
+      "$POWER_MENU_FAILURE_SCREENSHOT_NAME"
+    return 1
+  fi
 
-  # Shut Down receives focus when the menu opens, so Enter follows the same
-  # bounded, unprivileged UI action a keyboard user invokes.
-  sleep 0.5
+  # The visible-presentation marker also arms the default Shut Down focus, so
+  # Enter follows the same bounded, unprivileged UI action as a keyboard user.
   monitor "sendkey ret"
   if ! wait_for_serial_since "$marker" \
       "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 15 \
