@@ -106,6 +106,8 @@ Rectangle {
             kind: "wifi"
             label: root.control && root.control.activeSsid
                    ? "Wi-Fi: " + root.control.activeSsid
+                     + (root.control.wifiState === "Connected"
+                        ? "" : " (" + root.control.wifiState + ")")
                    : root.control && root.control.wifiEnabled ? "Wi-Fi on" : "Wi-Fi off"
             active: root.control && root.control.wifiEnabled
             onClicked: root.controlCenterRequested(0)

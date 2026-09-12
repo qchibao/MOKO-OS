@@ -27,15 +27,13 @@
 #include <QTimeZone>
 
 #include <algorithm>
+#include <functional>
 #include <unistd.h>
 
-using DbusInterfaceMap = QMap<QString, QVariantMap>;
-using DbusManagedObjects = QMap<QDBusObjectPath, DbusInterfaceMap>;
-using NetworkSettings = QMap<QString, QVariantMap>;
 using VariantMapList = QList<QVariantMap>;
+using MokoSystemControl::DbusInterfaceMap;
+using MokoSystemControl::DbusManagedObjects;
 
-Q_DECLARE_METATYPE(DbusInterfaceMap)
-Q_DECLARE_METATYPE(DbusManagedObjects)
 Q_DECLARE_METATYPE(VariantMapList)
 
 namespace {
@@ -53,11 +51,404 @@ const QString logindService = QStringLiteral("org.freedesktop.login1");
 const QString logindPath = QStringLiteral("/org/freedesktop/login1");
 const QString logindInterface = QStringLiteral("org.freedesktop.login1.Manager");
 
+QString networkDeviceState(uint state);
+
+/*
+ * Every blocking D-Bus round-trip in this file runs on the GUI thread, so each
+ * one must carry an explicit timeout. QDBusInterface::call() otherwise waits
+ * QDBus::defaultTimeout() -- 25 seconds -- which is longer than the 5 s refresh
+ * interval that schedules it, so a single wedged service would leave the event
+ * loop permanently behind.
+ */
+constexpr int kDbusCallTimeoutMs = 1500;
+
 QVariant unwrapped(const QVariant &value)
 {
-    if (value.metaType() == QMetaType::fromType<QDBusVariant>())
-        return value.value<QDBusVariant>().variant();
-    return value;
+    QVariant result = value;
+    while (result.metaType() == QMetaType::fromType<QDBusVariant>())
+        result = result.value<QDBusVariant>().variant();
+    return result;
+}
+
+QVariant mapValue(const QVariantMap &map, const QString &name)
+{
+    return unwrapped(map.value(name));
+}
+
+QString objectPathValue(const QVariant &value)
+{
+    const QVariant normalized = unwrapped(value);
+    if (normalized.canConvert<QDBusObjectPath>())
+        return normalized.value<QDBusObjectPath>().path();
+    return normalized.toString();
+}
+
+QList<QDBusObjectPath> objectPathList(const QVariant &value)
+{
+    const QVariant normalized = unwrapped(value);
+    if (normalized.metaType() == QMetaType::fromType<QDBusArgument>())
+        return qdbus_cast<QList<QDBusObjectPath>>(normalized.value<QDBusArgument>());
+    return normalized.value<QList<QDBusObjectPath>>();
+}
+
+bool collectionHasEntries(const QVariant &value)
+{
+    const QVariant normalized = unwrapped(value);
+    if (!normalized.isValid())
+        return false;
+    if (normalized.metaType() == QMetaType::fromType<QDBusArgument>()) {
+        const QDBusArgument argument = normalized.value<QDBusArgument>();
+        if (!argument.currentSignature().startsWith(QLatin1Char('a')))
+            return false;
+        argument.beginArray();
+        const bool hasEntries = !argument.atEnd();
+        argument.endArray();
+        return hasEntries;
+    }
+    if (normalized.canConvert<QVariantList>())
+        return !normalized.toList().isEmpty();
+    if (normalized.canConvert<QStringList>())
+        return !normalized.toStringList().isEmpty();
+    if (normalized.canConvert<QByteArray>())
+        return !normalized.toByteArray().isEmpty();
+    return !normalized.toString().isEmpty();
+}
+
+class NetworkDiscovery final : public QObject
+{
+public:
+    using Completion = std::function<void(const MokoSystemControl::DbusManagedObjects &,
+                                          const QDBusError &)>;
+
+    explicit NetworkDiscovery(QObject *parent)
+        : QObject(parent)
+    {
+    }
+
+    void start(Completion completion)
+    {
+        m_completion = std::move(completion);
+        getAll(networkManagerPath, networkManagerInterface,
+               [this](const QVariantMap &properties, const QDBusError &error) {
+                   if (error.isValid()) {
+                       finish(error);
+                       return;
+                   }
+                   m_objects[QDBusObjectPath(networkManagerPath)].insert(
+                       networkManagerInterface, properties);
+                   getDevices();
+               });
+    }
+
+private:
+    using PropertiesCallback = std::function<void(const QVariantMap &, const QDBusError &)>;
+
+    void getAll(const QString &path, const QString &interface, PropertiesCallback callback)
+    {
+        auto *properties = new QDBusInterface(networkManagerService,
+                                              path,
+                                              QStringLiteral("org.freedesktop.DBus.Properties"),
+                                              QDBusConnection::systemBus(),
+                                              this);
+        properties->setTimeout(kDbusCallTimeoutMs);
+        auto *watcher = new QDBusPendingCallWatcher(
+            properties->asyncCall(QStringLiteral("GetAll"), interface), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [watcher, properties, callback = std::move(callback)] {
+                    const QDBusPendingReply<QVariantMap> reply = *watcher;
+                    callback(reply.isError() ? QVariantMap{} : reply.value(),
+                             reply.isError() ? reply.error() : QDBusError{});
+                    watcher->deleteLater();
+                    properties->deleteLater();
+                });
+    }
+
+    void getDevices()
+    {
+        auto *manager = new QDBusInterface(networkManagerService,
+                                           networkManagerPath,
+                                           networkManagerInterface,
+                                           QDBusConnection::systemBus(),
+                                           this);
+        manager->setTimeout(kDbusCallTimeoutMs);
+        auto *watcher = new QDBusPendingCallWatcher(
+            manager->asyncCall(QStringLiteral("GetDevices")), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [this, watcher, manager] {
+                    const QDBusPendingReply<QList<QDBusObjectPath>> reply = *watcher;
+                    watcher->deleteLater();
+                    manager->deleteLater();
+                    if (reply.isError()) {
+                        finish(reply.error());
+                        return;
+                    }
+                    const QList<QDBusObjectPath> devices = reply.value();
+                    if (devices.isEmpty()) {
+                        finish(QDBusError{});
+                        return;
+                    }
+                    m_pending = devices.size();
+                    for (const QDBusObjectPath &device : devices) {
+                        const QString path = device.path();
+                        getAll(path, networkDeviceInterface,
+                               [this, path](const QVariantMap &properties, const QDBusError &) {
+                                   if (!properties.isEmpty())
+                                       m_objects[QDBusObjectPath(path)].insert(
+                                           networkDeviceInterface, properties);
+                                   if (--m_pending == 0)
+                                       getWirelessDetails();
+                               });
+                    }
+                });
+    }
+
+    void getWirelessDetails()
+    {
+        uint bestState = 0;
+        for (auto iterator = m_objects.cbegin(); iterator != m_objects.cend(); ++iterator) {
+            const auto device = iterator.value().constFind(networkDeviceInterface);
+            if (device == iterator.value().constEnd()
+                || mapValue(device.value(), QStringLiteral("DeviceType")).toUInt() != 2)
+                continue;
+            const uint state = mapValue(device.value(), QStringLiteral("State")).toUInt();
+            if (m_wifiDevicePath.isEmpty() || (state == 100 && bestState != 100)) {
+                m_wifiDevicePath = iterator.key().path();
+                bestState = state;
+            }
+        }
+        if (m_wifiDevicePath.isEmpty()) {
+            finish(QDBusError{});
+            return;
+        }
+
+        getAll(m_wifiDevicePath, wirelessDeviceInterface,
+               [this](const QVariantMap &properties, const QDBusError &error) {
+                   if (error.isValid()) {
+                       finish(error);
+                       return;
+                   }
+                   m_objects[QDBusObjectPath(m_wifiDevicePath)].insert(
+                       wirelessDeviceInterface, properties);
+                   getConnectionDetails(properties);
+               });
+    }
+
+    void getConnectionDetails(const QVariantMap &wireless)
+    {
+        QStringList paths;
+        for (const QDBusObjectPath &accessPoint : objectPathList(
+                 mapValue(wireless, QStringLiteral("AccessPoints")))) {
+            if (!accessPoint.path().isEmpty() && accessPoint.path() != QStringLiteral("/"))
+                paths.append(accessPoint.path());
+        }
+
+        const QVariantMap device = m_objects.value(QDBusObjectPath(m_wifiDevicePath))
+                                       .value(networkDeviceInterface);
+        const QList<QPair<QString, QString>> relatedObjects = {
+            {objectPathValue(mapValue(device, QStringLiteral("Ip4Config"))),
+             QStringLiteral("org.freedesktop.NetworkManager.IP4Config")},
+            {objectPathValue(mapValue(device, QStringLiteral("Ip6Config"))),
+             QStringLiteral("org.freedesktop.NetworkManager.IP6Config")},
+            {objectPathValue(mapValue(device, QStringLiteral("ActiveConnection"))),
+             QStringLiteral("org.freedesktop.NetworkManager.Connection.Active")},
+        };
+        for (const auto &[path, interface] : relatedObjects) {
+            if (path.isEmpty() || path == QStringLiteral("/"))
+                continue;
+            ++m_pending;
+            getAll(path, interface,
+                   [this, path, interface](const QVariantMap &properties, const QDBusError &) {
+                       if (!properties.isEmpty())
+                           m_objects[QDBusObjectPath(path)].insert(interface, properties);
+                       detailFinished();
+                   });
+        }
+
+        for (const QString &path : std::as_const(paths)) {
+            ++m_pending;
+            getAll(path, accessPointInterface,
+                   [this, path](const QVariantMap &properties, const QDBusError &) {
+                       if (!properties.isEmpty())
+                           m_objects[QDBusObjectPath(path)].insert(
+                               accessPointInterface, properties);
+                       detailFinished();
+                   });
+        }
+        if (m_pending == 0)
+            finish(QDBusError{});
+    }
+
+    void detailFinished()
+    {
+        if (--m_pending == 0)
+            finish(QDBusError{});
+    }
+
+    void finish(const QDBusError &error)
+    {
+        if (m_finished)
+            return;
+        m_finished = true;
+        const Completion completion = std::move(m_completion);
+        completion(m_objects, error);
+        deleteLater();
+    }
+
+    Completion m_completion;
+    MokoSystemControl::DbusManagedObjects m_objects;
+    QString m_wifiDevicePath;
+    int m_pending = 0;
+    bool m_finished = false;
+};
+
+struct NetworkSnapshot
+{
+    bool managerSeen = false;
+    bool wifiEnabled = false;
+    bool wifiAvailable = false;
+    QString devicePath;
+    QString state = QStringLiteral("Disconnected");
+    QString activeSsid;
+    bool associated = false;
+    QVariantList networks;
+};
+
+NetworkSnapshot parseNetworkObjects(const MokoSystemControl::DbusManagedObjects &objects)
+{
+    NetworkSnapshot snapshot;
+    QString activeAccessPoint;
+    uint deviceState = 0;
+    QString ip4ConfigPath;
+    QString ip6ConfigPath;
+    QString activeConnectionPath;
+    uint connectivity = 0;
+
+    for (auto iterator = objects.cbegin(); iterator != objects.cend(); ++iterator) {
+        const MokoSystemControl::DbusInterfaceMap &interfaces = iterator.value();
+        const auto manager = interfaces.constFind(networkManagerInterface);
+        if (manager != interfaces.constEnd()) {
+            snapshot.managerSeen = true;
+            snapshot.wifiEnabled = mapValue(manager.value(), QStringLiteral("WirelessEnabled")).toBool();
+            connectivity = mapValue(manager.value(), QStringLiteral("Connectivity")).toUInt();
+        }
+
+        const auto device = interfaces.constFind(networkDeviceInterface);
+        if (device == interfaces.constEnd()
+            || mapValue(device.value(), QStringLiteral("DeviceType")).toUInt() != 2)
+            continue;
+
+        const uint candidateState = mapValue(device.value(), QStringLiteral("State")).toUInt();
+        const QString candidateActive = [&interfaces] {
+            const auto wireless = interfaces.constFind(wirelessDeviceInterface);
+            return wireless == interfaces.constEnd()
+                ? QString{}
+                : objectPathValue(mapValue(wireless.value(), QStringLiteral("ActiveAccessPoint")));
+        }();
+        // Prefer an active Wi-Fi device when a machine exposes more than one.
+        if (snapshot.devicePath.isEmpty() || (candidateState == 100 && deviceState != 100)) {
+            snapshot.devicePath = iterator.key().path();
+            deviceState = candidateState;
+            activeAccessPoint = candidateActive;
+            ip4ConfigPath = objectPathValue(mapValue(device.value(), QStringLiteral("Ip4Config")));
+            ip6ConfigPath = objectPathValue(mapValue(device.value(), QStringLiteral("Ip6Config")));
+            activeConnectionPath = objectPathValue(
+                mapValue(device.value(), QStringLiteral("ActiveConnection")));
+        }
+    }
+
+    snapshot.wifiAvailable = !snapshot.devicePath.isEmpty();
+    if (!snapshot.wifiAvailable)
+        return snapshot;
+
+    snapshot.associated = !activeAccessPoint.isEmpty()
+        && activeAccessPoint != QStringLiteral("/");
+    bool activeConnection = snapshot.associated;
+    bool hasAddress = false;
+    bool hasRoute = false;
+    bool hasDns = false;
+    for (auto iterator = objects.cbegin(); iterator != objects.cend(); ++iterator) {
+        const MokoSystemControl::DbusInterfaceMap &interfaces = iterator.value();
+        if (!ip4ConfigPath.isEmpty() && iterator.key().path() == ip4ConfigPath) {
+            const auto ip4 = interfaces.constFind(QStringLiteral("org.freedesktop.NetworkManager.IP4Config"));
+            if (ip4 != interfaces.constEnd()) {
+                hasAddress = collectionHasEntries(mapValue(ip4.value(), QStringLiteral("AddressData")))
+                    || collectionHasEntries(mapValue(ip4.value(), QStringLiteral("Addresses")));
+                hasRoute = collectionHasEntries(mapValue(ip4.value(), QStringLiteral("RouteData")))
+                    || !mapValue(ip4.value(), QStringLiteral("Gateway")).toString().isEmpty()
+                    || collectionHasEntries(mapValue(ip4.value(), QStringLiteral("Routes")));
+                hasDns = collectionHasEntries(mapValue(ip4.value(), QStringLiteral("NameserverData")))
+                    || collectionHasEntries(mapValue(ip4.value(), QStringLiteral("Nameservers")));
+            }
+        }
+        if (!ip6ConfigPath.isEmpty() && iterator.key().path() == ip6ConfigPath) {
+            const auto ip6 = interfaces.constFind(QStringLiteral("org.freedesktop.NetworkManager.IP6Config"));
+            if (ip6 != interfaces.constEnd()) {
+                hasAddress = hasAddress || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("AddressData")))
+                    || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("Addresses")));
+                hasRoute = hasRoute || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("RouteData")))
+                    || !mapValue(ip6.value(), QStringLiteral("Gateway")).toString().isEmpty()
+                    || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("Routes")));
+                hasDns = hasDns || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("NameserverData")))
+                    || collectionHasEntries(mapValue(ip6.value(), QStringLiteral("Nameservers")));
+            }
+        }
+        if (!activeConnectionPath.isEmpty() && iterator.key().path() == activeConnectionPath) {
+            const auto active = interfaces.constFind(
+                QStringLiteral("org.freedesktop.NetworkManager.VPN.Connection"));
+            const auto connection = interfaces.constFind(
+                QStringLiteral("org.freedesktop.NetworkManager.Connection.Active"));
+            const auto activeInterface = connection != interfaces.constEnd() ? connection : active;
+            if (activeInterface != interfaces.constEnd()) {
+                activeConnection = activeConnection
+                    && mapValue(activeInterface.value(), QStringLiteral("State")).toUInt() == 2;
+            }
+        }
+    }
+
+    // Connectivity=full is useful when IP config details are unavailable on
+    // older NetworkManager versions, but never substitutes for an active AP.
+    const bool ready = MokoSystemControl::networkConnectionReady(
+        deviceState,
+        activeConnection,
+        hasAddress,
+        hasRoute || connectivity == 4,
+        hasDns || connectivity == 4);
+    snapshot.state = deviceState == 100
+        ? ready ? QStringLiteral("Connected") : QStringLiteral("Connected locally")
+        : networkDeviceState(deviceState);
+
+    QVariantList rawNetworks;
+    for (auto iterator = objects.cbegin(); iterator != objects.cend(); ++iterator) {
+        const MokoSystemControl::DbusInterfaceMap &interfaces = iterator.value();
+        const auto accessPoint = interfaces.constFind(accessPointInterface);
+        if (accessPoint == interfaces.constEnd())
+            continue;
+        const QVariant ssidValue = mapValue(accessPoint.value(), QStringLiteral("Ssid"));
+        const QByteArray ssidBytes = ssidValue.toByteArray();
+        const QString ssid = MokoSystemControl::decodeSsid(
+            ssidBytes.isEmpty() ? ssidValue.toString().toUtf8() : ssidBytes);
+        if (ssid.isEmpty())
+            continue;
+        const int strength = mapValue(accessPoint.value(), QStringLiteral("Strength")).toInt();
+        const uint flags = mapValue(accessPoint.value(), QStringLiteral("Flags")).toUInt();
+        const uint wpaFlags = mapValue(accessPoint.value(), QStringLiteral("WpaFlags")).toUInt();
+        const uint rsnFlags = mapValue(accessPoint.value(), QStringLiteral("RsnFlags")).toUInt();
+        const QVariantMap entry{{QStringLiteral("ssid"), ssid},
+                                {QStringLiteral("id"), iterator.key().path()},
+                                {QStringLiteral("strength"), strength},
+                                {QStringLiteral("secure"), (flags & 1U) || wpaFlags || rsnFlags}};
+        rawNetworks.append(entry);
+    }
+    snapshot.networks = MokoSystemControl::normalizeWifiNetworks(
+        rawNetworks, activeAccessPoint, ready);
+    for (const QVariant &networkValue : std::as_const(snapshot.networks)) {
+        const QVariantMap network = networkValue.toMap();
+        if (network.value(QStringLiteral("active")).toBool()) {
+            snapshot.activeSsid = network.value(QStringLiteral("ssid")).toString();
+            break;
+        }
+    }
+    return snapshot;
 }
 
 QVariant dbusProperty(const QString &service,
@@ -231,8 +622,9 @@ SystemControl::~SystemControl()
         manager.call(QDBus::NoBlock,
                      QStringLiteral("UnregisterAgent"),
                      QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)));
-        QDBusConnection::systemBus().unregisterObject(m_bluetoothAgentPath);
     }
+    if (m_bluetoothAgentRegistered || m_bluetoothAgentRegistrationPending)
+        QDBusConnection::systemBus().unregisterObject(m_bluetoothAgentPath);
 }
 
 bool SystemControl::networkManagerAvailable() const { return m_networkManagerAvailable; }
@@ -306,211 +698,233 @@ void SystemControl::startFullRefresh()
 void SystemControl::preloadNetwork()
 {
     m_networkRefreshEnabled = true;
+    m_bluetoothRefreshEnabled = false;
+    m_bluetoothScanPending = false;
     if (!m_refreshTimer->isActive())
         m_refreshTimer->start();
     if (m_networkPreloadPending)
         return;
     m_networkPreloadPending = true;
+    m_networkScanPending = true;
     // Defer discovery until the event loop has rendered the page. This keeps
     // Settings responsive while NetworkManager performs its own scan.
     QTimer::singleShot(0, this, [this] {
         refreshNetwork();
         m_networkPreloadPending = false;
-        if (m_wifiAvailable && m_wifiEnabled && !m_wifiScanning)
-            requestWifiScan();
     });
 }
 
 void SystemControl::preloadBluetooth()
 {
+    m_networkRefreshEnabled = false;
+    m_networkScanPending = false;
     m_bluetoothRefreshEnabled = true;
     if (!m_refreshTimer->isActive())
         m_refreshTimer->start();
     if (m_bluetoothPreloadPending)
         return;
     m_bluetoothPreloadPending = true;
+    m_bluetoothScanPending = true;
     QTimer::singleShot(0, this, [this] {
         refreshBluetooth();
         m_bluetoothPreloadPending = false;
-        if (m_bluetoothAvailable && m_bluetoothPowered && !m_bluetoothScanning)
-            setBluetoothScanning(true);
     });
+}
+
+void SystemControl::setTargetedRefreshSection(const QString &sectionId)
+{
+    if (!m_targetedRefreshOnly)
+        return;
+    m_networkRefreshEnabled = sectionId == QStringLiteral("network");
+    m_bluetoothRefreshEnabled = sectionId == QStringLiteral("bluetooth");
+    if (m_networkRefreshEnabled || m_bluetoothRefreshEnabled) {
+        if (!m_refreshTimer->isActive())
+            m_refreshTimer->start();
+    } else {
+        m_refreshTimer->stop();
+    }
 }
 
 void SystemControl::refreshNetwork()
 {
-    m_networkManagerAvailable = serviceRegistered(networkManagerService);
-    m_wifiAvailable = false;
-    m_wifiEnabled = false;
-    m_wifiState = m_networkManagerAvailable ? QStringLiteral("Disconnected")
-                                             : QStringLiteral("Unavailable");
-    m_activeSsid.clear();
-    m_wifiDevicePath.clear();
-    m_wifiNetworks.clear();
-
-    if (!m_networkManagerAvailable) {
-        emit networkChanged();
+    if (m_networkRefreshInFlight) {
+        m_networkRefreshPending = true;
         return;
     }
+    m_networkRefreshInFlight = true;
+    m_networkRefreshPending = false;
 
-    m_wifiEnabled = dbusProperty(networkManagerService,
-                                 networkManagerPath,
-                                 networkManagerInterface,
-                                 QStringLiteral("WirelessEnabled"))
-                        .toBool();
-    QDBusInterface manager(networkManagerService,
-                           networkManagerPath,
-                           networkManagerInterface,
-                           QDBusConnection::systemBus());
-    const QDBusReply<QList<QDBusObjectPath>> devices = manager.call(QStringLiteral("GetDevices"));
-    if (!devices.isValid()) {
-        setOperationMessage(QStringLiteral("Could not read network devices: %1")
-                                .arg(devices.error().message()));
-        emit networkChanged();
-        return;
-    }
-
-    for (const QDBusObjectPath &device : devices.value()) {
-        const uint type = dbusProperty(networkManagerService,
-                                       device.path(),
-                                       networkDeviceInterface,
-                                       QStringLiteral("DeviceType"))
-                              .toUInt();
-        if (type == 2) {
-            m_wifiDevicePath = device.path();
-            break;
-        }
-    }
-    if (m_wifiDevicePath.isEmpty()) {
-        emit networkChanged();
-        return;
-    }
-
-    m_wifiAvailable = true;
-    m_wifiState = networkDeviceState(dbusProperty(networkManagerService,
-                                                  m_wifiDevicePath,
-                                                  networkDeviceInterface,
-                                                  QStringLiteral("State"))
-                                         .toUInt());
-    const QDBusObjectPath activePath = dbusProperty(networkManagerService,
-                                                    m_wifiDevicePath,
-                                                    wirelessDeviceInterface,
-                                                    QStringLiteral("ActiveAccessPoint"))
-                                           .value<QDBusObjectPath>();
-
-    QDBusInterface wireless(networkManagerService,
-                            m_wifiDevicePath,
-                            wirelessDeviceInterface,
-                            QDBusConnection::systemBus());
-    const QDBusReply<QList<QDBusObjectPath>> accessPoints =
-        wireless.call(QStringLiteral("GetAccessPoints"));
-    QMap<QString, QVariantMap> strongestBySsid;
-    if (accessPoints.isValid()) {
-        for (const QDBusObjectPath &accessPoint : accessPoints.value()) {
-            const QByteArray ssidBytes = dbusProperty(networkManagerService,
-                                                      accessPoint.path(),
-                                                      accessPointInterface,
-                                                      QStringLiteral("Ssid"))
-                                             .toByteArray();
-            const QString ssid = MokoSystemControl::decodeSsid(ssidBytes);
-            if (ssid.isEmpty())
-                continue;
-            const int strength = dbusProperty(networkManagerService,
-                                              accessPoint.path(),
-                                              accessPointInterface,
-                                              QStringLiteral("Strength"))
-                                     .toInt();
-            const uint flags = dbusProperty(networkManagerService,
-                                            accessPoint.path(),
-                                            accessPointInterface,
-                                            QStringLiteral("Flags"))
-                                   .toUInt();
-            const uint wpaFlags = dbusProperty(networkManagerService,
-                                               accessPoint.path(),
-                                               accessPointInterface,
-                                               QStringLiteral("WpaFlags"))
-                                      .toUInt();
-            const uint rsnFlags = dbusProperty(networkManagerService,
-                                               accessPoint.path(),
-                                               accessPointInterface,
-                                               QStringLiteral("RsnFlags"))
-                                      .toUInt();
-            const bool connected = !activePath.path().isEmpty()
-                && activePath.path() != QStringLiteral("/")
-                && activePath.path() == accessPoint.path();
-            QVariantMap entry{{QStringLiteral("ssid"), ssid},
-                              {QStringLiteral("id"), accessPoint.path()},
-                              {QStringLiteral("strength"), strength},
-                              {QStringLiteral("secure"), (flags & 1U) || wpaFlags || rsnFlags},
-                              {QStringLiteral("connected"), connected}};
-            if (connected)
-                m_activeSsid = ssid;
-            if (!strongestBySsid.contains(ssid)
-                || strongestBySsid.value(ssid).value(QStringLiteral("strength")).toInt() < strength
-                || connected) {
-                strongestBySsid.insert(ssid, entry);
+    auto complete = [this](const MokoSystemControl::DbusManagedObjects &objects,
+                           const QDBusError &error) {
+        m_networkRefreshInFlight = false;
+        if (!error.isValid()) {
+            applyNetworkObjects(objects);
+        } else {
+            const bool serviceMissing = error.type() == QDBusError::ServiceUnknown
+                || error.type() == QDBusError::NoServer;
+            if (serviceMissing || !m_networkManagerAvailable) {
+                m_networkManagerAvailable = false;
+                m_wifiAvailable = false;
+                m_wifiEnabled = false;
+                m_wifiState = QStringLiteral("Unavailable");
+                m_activeSsid.clear();
+                m_wifiDevicePath.clear();
+                m_wifiNetworks.clear();
+                emit networkChanged();
             }
+            setOperationMessage(QStringLiteral("Network status is temporarily unavailable: %1")
+                                    .arg(error.message()));
+        }
+        if (m_networkRefreshPending) {
+            m_networkRefreshPending = false;
+            QTimer::singleShot(0, this, &SystemControl::refreshNetwork);
+        }
+    };
+
+    // NetworkManager does not expose ObjectManager on its root object. Build a
+    // compatible snapshot with asynchronous GetAll calls so large AP lists do
+    // not block the Settings or Shell event loop.
+    auto *discovery = new NetworkDiscovery(this);
+    discovery->start(std::move(complete));
+}
+
+void SystemControl::applyNetworkObjects(
+    const MokoSystemControl::DbusManagedObjects &objects)
+{
+    const NetworkSnapshot snapshot = parseNetworkObjects(objects);
+    m_networkManagerAvailable = snapshot.managerSeen || !objects.isEmpty();
+    m_wifiAvailable = snapshot.wifiAvailable;
+    if (snapshot.managerSeen)
+        m_wifiEnabled = snapshot.wifiEnabled;
+    m_wifiState = snapshot.managerSeen ? snapshot.state : QStringLiteral("Unavailable");
+    m_activeSsid = snapshot.activeSsid;
+    m_wifiAssociated = snapshot.associated;
+    m_wifiDevicePath = snapshot.devicePath;
+    m_wifiNetworks = snapshot.networks;
+
+    if (!m_wifiConnectionTarget.isEmpty()) {
+        if (m_wifiState == QStringLiteral("Connected")
+            && m_activeSsid == m_wifiConnectionTarget) {
+            m_networkBusy = false;
+            setOperationMessage(QStringLiteral("Connected to %1").arg(m_wifiConnectionTarget));
+            m_wifiConnectionTarget.clear();
+            m_wifiVerificationAttempts = 0;
+        } else if (++m_wifiVerificationAttempts >= 20
+                   || m_wifiState == QStringLiteral("Connection failed")) {
+            const QString target = m_wifiConnectionTarget;
+            m_networkBusy = false;
+            m_wifiConnectionTarget.clear();
+            m_wifiVerificationAttempts = 0;
+            setOperationMessage(QStringLiteral("%1 did not obtain a usable network connection.")
+                                    .arg(target));
+        } else {
+            QTimer::singleShot(500, this, &SystemControl::verifyWifiConnection);
         }
     }
-    for (const QVariantMap &network : strongestBySsid.values())
-        m_wifiNetworks.append(network);
-    std::sort(m_wifiNetworks.begin(), m_wifiNetworks.end(), [](const QVariant &left,
-                                                                const QVariant &right) {
-        const QVariantMap a = left.toMap();
-        const QVariantMap b = right.toMap();
-        if (a.value(QStringLiteral("connected")).toBool()
-            != b.value(QStringLiteral("connected")).toBool()) {
-            return a.value(QStringLiteral("connected")).toBool();
-        }
-        return a.value(QStringLiteral("strength")).toInt()
-            > b.value(QStringLiteral("strength")).toInt();
-    });
+
     emit networkChanged();
+
+    if (m_networkScanPending && (m_networkRefreshEnabled || !m_targetedRefreshOnly)
+        && m_wifiAvailable && m_wifiEnabled
+        && !m_wifiScanRequestInFlight) {
+        m_networkScanPending = false;
+        requestWifiScan();
+    }
+}
+
+void SystemControl::verifyWifiConnection()
+{
+    if (!m_wifiConnectionTarget.isEmpty())
+        refreshNetwork();
 }
 
 bool SystemControl::setWifiEnabled(bool enabled)
 {
-    if (!m_networkManagerAvailable)
+    if (!m_networkManagerAvailable || m_networkBusy)
         return false;
-    QString error;
-    if (!setDbusProperty(networkManagerService,
-                         networkManagerPath,
-                         networkManagerInterface,
-                         QStringLiteral("WirelessEnabled"),
-                         enabled,
-                         &error)) {
-        setOperationMessage(QStringLiteral("Could not change Wi-Fi: %1").arg(error));
-        return false;
-    }
+    const bool previous = m_wifiEnabled;
+    auto *properties = new QDBusInterface(
+        networkManagerService,
+        networkManagerPath,
+        QStringLiteral("org.freedesktop.DBus.Properties"),
+        QDBusConnection::systemBus(),
+        this);
+    properties->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        properties->asyncCall(QStringLiteral("Set"),
+                              networkManagerInterface,
+                              QStringLiteral("WirelessEnabled"),
+                              QVariant::fromValue(QDBusVariant(enabled))),
+        this);
+    m_networkBusy = true;
     m_wifiEnabled = enabled;
-    setOperationMessage(enabled ? QStringLiteral("Wi-Fi turned on")
-                                : QStringLiteral("Wi-Fi turned off"));
+    setOperationMessage(enabled ? QStringLiteral("Turning Wi-Fi on")
+                                : QStringLiteral("Turning Wi-Fi off"));
     emit networkChanged();
-    QTimer::singleShot(400, this, &SystemControl::refreshNetwork);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, properties, enabled, previous] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                properties->deleteLater();
+                m_networkBusy = false;
+                if (reply.isError()) {
+                    m_wifiEnabled = previous;
+                    setOperationMessage(QStringLiteral("Could not change Wi-Fi: %1")
+                                            .arg(reply.error().message()));
+                    emit networkChanged();
+                    return;
+                }
+                if (!enabled) {
+                    m_activeSsid.clear();
+                    m_wifiAssociated = false;
+                    m_wifiState = QStringLiteral("Disconnected");
+                } else {
+                    m_networkScanPending = true;
+                }
+                setOperationMessage(enabled ? QStringLiteral("Wi-Fi turned on")
+                                            : QStringLiteral("Wi-Fi turned off"));
+                emit networkChanged();
+                QTimer::singleShot(200, this, &SystemControl::refreshNetwork);
+            });
     return true;
 }
 
 bool SystemControl::requestWifiScan()
 {
-    if (!m_wifiAvailable || !m_wifiEnabled || m_networkBusy)
+    if (!m_wifiAvailable || !m_wifiEnabled || m_networkBusy
+        || m_wifiScanRequestInFlight)
         return false;
-    QDBusInterface wireless(networkManagerService,
-                            m_wifiDevicePath,
-                            wirelessDeviceInterface,
-                            QDBusConnection::systemBus());
+    auto *wireless = new QDBusInterface(networkManagerService,
+                                        m_wifiDevicePath,
+                                        wirelessDeviceInterface,
+                                        QDBusConnection::systemBus(),
+                                        this);
+    wireless->setTimeout(kDbusCallTimeoutMs);
     const QVariantMap options;
-    const QDBusMessage reply = wireless.call(QStringLiteral("RequestScan"), options);
-    if (reply.type() != QDBusMessage::ReplyMessage) {
-        setOperationMessage(QStringLiteral("Wi-Fi scan failed: %1").arg(reply.errorMessage()));
-        return false;
-    }
+    auto *watcher = new QDBusPendingCallWatcher(
+        wireless->asyncCall(QStringLiteral("RequestScan"), options), this);
+    m_wifiScanRequestInFlight = true;
     m_wifiScanning = true;
     setOperationMessage(QStringLiteral("Scanning for Wi-Fi networks"));
     emit networkChanged();
-    QTimer::singleShot(3500, this, [this] {
-        m_wifiScanning = false;
-        refreshNetwork();
-    });
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, wireless] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                wireless->deleteLater();
+                m_wifiScanRequestInFlight = false;
+                if (reply.isError()) {
+                    m_wifiScanning = false;
+                    setOperationMessage(QStringLiteral("Wi-Fi scan failed: %1")
+                                            .arg(reply.error().message()));
+                    emit networkChanged();
+                    return;
+                }
+                QTimer::singleShot(3000, this, [this] {
+                    m_wifiScanning = false;
+                    refreshNetwork();
+                });
+            });
     return true;
 }
 
@@ -543,7 +957,7 @@ bool SystemControl::connectWifi(const QString &ssid, const QString &password)
         return false;
     }
 
-    NetworkSettings settings;
+    DbusInterfaceMap settings;
     settings.insert(QStringLiteral("connection"),
                     {{QStringLiteral("id"), cleanSsid},
                      {QStringLiteral("type"), QStringLiteral("802-11-wireless")},
@@ -563,6 +977,7 @@ bool SystemControl::connectWifi(const QString &ssid, const QString &password)
                            networkManagerPath,
                            networkManagerInterface,
                            QDBusConnection::systemBus());
+    manager.setTimeout(kDbusCallTimeoutMs);
     const QVariantList arguments{
         QVariant::fromValue(settings),
         QVariant::fromValue(QDBusObjectPath(m_wifiDevicePath)),
@@ -572,89 +987,141 @@ bool SystemControl::connectWifi(const QString &ssid, const QString &password)
         manager.asyncCallWithArgumentList(QStringLiteral("AddAndActivateConnection"), arguments),
         this);
     m_networkBusy = true;
+    m_wifiConnectionTarget = cleanSsid;
+    m_wifiVerificationAttempts = 0;
     m_wifiState = QStringLiteral("Connecting");
     setOperationMessage(QStringLiteral("Connecting to %1").arg(cleanSsid));
     emit networkChanged();
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
             [this, cleanSsid](QDBusPendingCallWatcher *finished) {
                 QDBusPendingReply<QDBusObjectPath, QDBusObjectPath> reply = *finished;
-                m_networkBusy = false;
-                if (reply.isError())
+                if (reply.isError()) {
+                    m_networkBusy = false;
+                    m_wifiConnectionTarget.clear();
                     setOperationMessage(QStringLiteral("Could not connect to %1: %2")
                                             .arg(cleanSsid, reply.error().message()));
-                else
-                    setOperationMessage(QStringLiteral("Connected to %1").arg(cleanSsid));
+                    emit networkChanged();
+                    QTimer::singleShot(200, this, &SystemControl::refreshNetwork);
+                } else {
+                    setOperationMessage(QStringLiteral("Finishing connection to %1").arg(cleanSsid));
+                    QTimer::singleShot(200, this, &SystemControl::verifyWifiConnection);
+                }
                 finished->deleteLater();
-                QTimer::singleShot(300, this, &SystemControl::refreshNetwork);
             });
     return true;
 }
 
 bool SystemControl::disconnectWifi()
 {
-    if (!m_wifiAvailable || m_activeSsid.isEmpty() || m_networkBusy)
+    if (!m_wifiAvailable || !m_wifiAssociated || m_networkBusy)
         return false;
-    QDBusInterface device(networkManagerService,
-                          m_wifiDevicePath,
-                          networkDeviceInterface,
-                          QDBusConnection::systemBus());
-    const QDBusMessage reply = device.call(QStringLiteral("Disconnect"));
-    if (reply.type() != QDBusMessage::ReplyMessage) {
-        setOperationMessage(QStringLiteral("Could not disconnect Wi-Fi: %1")
-                                .arg(reply.errorMessage()));
-        return false;
-    }
-    setOperationMessage(QStringLiteral("Wi-Fi disconnected"));
-    QTimer::singleShot(250, this, &SystemControl::refreshNetwork);
+    auto *device = new QDBusInterface(networkManagerService,
+                                      m_wifiDevicePath,
+                                      networkDeviceInterface,
+                                      QDBusConnection::systemBus(),
+                                      this);
+    device->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        device->asyncCall(QStringLiteral("Disconnect")), this);
+    m_networkBusy = true;
+    m_wifiState = QStringLiteral("Disconnecting");
+    setOperationMessage(QStringLiteral("Disconnecting Wi-Fi"));
+    emit networkChanged();
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, device] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                device->deleteLater();
+                m_networkBusy = false;
+                if (reply.isError()) {
+                    setOperationMessage(QStringLiteral("Could not disconnect Wi-Fi: %1")
+                                            .arg(reply.error().message()));
+                } else {
+                    m_activeSsid.clear();
+                    m_wifiAssociated = false;
+                    m_wifiState = QStringLiteral("Disconnected");
+                    setOperationMessage(QStringLiteral("Wi-Fi disconnected"));
+                }
+                emit networkChanged();
+                QTimer::singleShot(200, this, &SystemControl::refreshNetwork);
+            });
     return true;
 }
 
 void SystemControl::refreshBluetooth()
 {
-    m_bluetoothAvailable = false;
+    if (m_bluetoothRefreshInFlight) {
+        m_bluetoothRefreshPending = true;
+        return;
+    }
+    m_bluetoothRefreshInFlight = true;
+    m_bluetoothRefreshPending = false;
+    m_bluezServiceAvailable = true;
+
+    auto *objectManager = new QDBusInterface(
+        bluezService,
+        QStringLiteral("/"),
+        QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+        QDBusConnection::systemBus(),
+        this);
+    objectManager->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        objectManager->asyncCall(QStringLiteral("GetManagedObjects")), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, objectManager] {
+                const QDBusPendingReply<DbusManagedObjects> reply = *watcher;
+                watcher->deleteLater();
+                objectManager->deleteLater();
+                m_bluetoothRefreshInFlight = false;
+                if (reply.isError()) {
+                    m_bluezServiceAvailable = false;
+                    m_bluetoothAvailable = false;
+                    m_bluetoothPowered = false;
+                    m_bluetoothScanning = false;
+                    m_bluetoothAdapterPath.clear();
+                    m_bluetoothDevices.clear();
+                    setOperationMessage(QStringLiteral("Could not read Bluetooth devices: %1")
+                                            .arg(reply.error().message()));
+                    emit bluetoothChanged();
+                } else {
+                    applyBluetoothObjects(reply.value());
+                }
+                if (m_bluetoothRefreshPending) {
+                    m_bluetoothRefreshPending = false;
+                    QTimer::singleShot(0, this, &SystemControl::refreshBluetooth);
+                }
+            });
+}
+
+void SystemControl::applyBluetoothObjects(
+    const MokoSystemControl::DbusManagedObjects &objects)
+{
     m_bluetoothPowered = false;
     m_bluetoothScanning = false;
     m_bluetoothAdapterPath.clear();
     m_bluetoothDevices.clear();
-    m_bluezServiceAvailable = serviceRegistered(bluezService);
-    if (!m_bluezServiceAvailable) {
-        emit bluetoothChanged();
-        return;
-    }
-
-    QDBusInterface objectManager(bluezService,
-                                 QStringLiteral("/"),
-                                 QStringLiteral("org.freedesktop.DBus.ObjectManager"),
-                                 QDBusConnection::systemBus());
-    const QDBusReply<DbusManagedObjects> reply = objectManager.call(QStringLiteral("GetManagedObjects"));
-    if (!reply.isValid()) {
-        setOperationMessage(QStringLiteral("Could not read Bluetooth devices: %1")
-                                .arg(reply.error().message()));
-        emit bluetoothChanged();
-        return;
-    }
-
-    for (auto iterator = reply.value().cbegin(); iterator != reply.value().cend(); ++iterator) {
-        const DbusInterfaceMap interfaces = iterator.value();
+    for (auto iterator = objects.cbegin(); iterator != objects.cend(); ++iterator) {
+        const DbusInterfaceMap &interfaces = iterator.value();
         if (m_bluetoothAdapterPath.isEmpty() && interfaces.contains(bluezAdapterInterface)) {
             m_bluetoothAdapterPath = iterator.key().path();
             const QVariantMap adapter = interfaces.value(bluezAdapterInterface);
-            m_bluetoothPowered = adapter.value(QStringLiteral("Powered")).toBool();
-            m_bluetoothScanning = adapter.value(QStringLiteral("Discovering")).toBool();
+            m_bluetoothPowered = mapValue(adapter, QStringLiteral("Powered")).toBool();
+            m_bluetoothScanning = mapValue(adapter, QStringLiteral("Discovering")).toBool();
         }
         if (!interfaces.contains(bluezDeviceInterface))
             continue;
         const QVariantMap device = interfaces.value(bluezDeviceInterface);
-        const QString name = device.value(QStringLiteral("Alias")).toString().trimmed().isEmpty()
-            ? device.value(QStringLiteral("Name")).toString()
-            : device.value(QStringLiteral("Alias")).toString();
+        const QString alias = mapValue(device, QStringLiteral("Alias")).toString().trimmed();
+        const QString name = alias.isEmpty() ? mapValue(device, QStringLiteral("Name")).toString()
+                                             : alias;
+        const QVariant rssi = mapValue(device, QStringLiteral("RSSI"));
         m_bluetoothDevices.append(QVariantMap{
             {QStringLiteral("id"), iterator.key().path()},
             {QStringLiteral("name"), name.isEmpty() ? QStringLiteral("Bluetooth device") : name},
-            {QStringLiteral("paired"), device.value(QStringLiteral("Paired")).toBool()},
-            {QStringLiteral("connected"), device.value(QStringLiteral("Connected")).toBool()},
-            {QStringLiteral("trusted"), device.value(QStringLiteral("Trusted")).toBool()},
-            {QStringLiteral("strength"), device.value(QStringLiteral("RSSI"), -100).toInt()},
+            {QStringLiteral("paired"), mapValue(device, QStringLiteral("Paired")).toBool()},
+            {QStringLiteral("connected"), mapValue(device, QStringLiteral("Connected")).toBool()},
+            {QStringLiteral("trusted"), mapValue(device, QStringLiteral("Trusted")).toBool()},
+            {QStringLiteral("strength"), rssi.isValid() ? rssi.toInt() : -100},
         });
     }
     m_bluetoothAvailable = !m_bluetoothAdapterPath.isEmpty();
@@ -676,11 +1143,18 @@ void SystemControl::refreshBluetooth()
     if (m_bluetoothAvailable)
         ensureBluetoothAgent();
     emit bluetoothChanged();
+    if (m_bluetoothScanPending
+        && (m_bluetoothRefreshEnabled || !m_targetedRefreshOnly)
+        && m_bluetoothAvailable && m_bluetoothPowered && !m_bluetoothScanning
+        && !m_bluetoothBusy) {
+        m_bluetoothScanPending = false;
+        setBluetoothScanning(true);
+    }
 }
 
 void SystemControl::ensureBluetoothAgent()
 {
-    if (m_bluetoothAgentRegistered)
+    if (m_bluetoothAgentRegistered || m_bluetoothAgentRegistrationPending)
         return;
     QDBusConnection bus = QDBusConnection::systemBus();
     if (!bus.registerObject(m_bluetoothAgentPath,
@@ -688,43 +1162,96 @@ void SystemControl::ensureBluetoothAgent()
                             QDBusConnection::ExportAllSlots)) {
         return;
     }
-    QDBusInterface manager(bluezService,
-                           QStringLiteral("/org/bluez"),
-                           QStringLiteral("org.bluez.AgentManager1"),
-                           bus);
-    QDBusMessage reply = manager.call(QStringLiteral("RegisterAgent"),
-                                      QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)),
-                                      QStringLiteral("KeyboardDisplay"));
-    if (reply.type() != QDBusMessage::ReplyMessage
-        && reply.errorName() != QStringLiteral("org.bluez.Error.AlreadyExists")) {
-        bus.unregisterObject(m_bluetoothAgentPath);
-        return;
-    }
-    manager.call(QDBus::NoBlock,
-                 QStringLiteral("RequestDefaultAgent"),
-                 QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)));
-    m_bluetoothAgentRegistered = true;
+    auto *manager = new QDBusInterface(bluezService,
+                                       QStringLiteral("/org/bluez"),
+                                       QStringLiteral("org.bluez.AgentManager1"),
+                                       bus,
+                                       this);
+    manager->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        manager->asyncCall(QStringLiteral("RegisterAgent"),
+                           QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)),
+                           QStringLiteral("KeyboardDisplay")),
+        this);
+    m_bluetoothAgentRegistrationPending = true;
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, manager, bus]() mutable {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                m_bluetoothAgentRegistrationPending = false;
+                if (reply.isError()
+                    && reply.error().name() != QStringLiteral("org.bluez.Error.AlreadyExists")) {
+                    bus.unregisterObject(m_bluetoothAgentPath);
+                    const bool pairingQueued = !m_pendingBluetoothPairDeviceId.isEmpty();
+                    m_pendingBluetoothPairDeviceId.clear();
+                    m_bluetoothBusy = false;
+                    if (pairingQueued) {
+                        setOperationMessage(QStringLiteral("Bluetooth confirmation is unavailable: %1")
+                                                .arg(reply.error().message()));
+                        emit bluetoothChanged();
+                    }
+                    manager->deleteLater();
+                    return;
+                }
+                manager->call(QDBus::NoBlock,
+                              QStringLiteral("RequestDefaultAgent"),
+                              QVariant::fromValue(QDBusObjectPath(m_bluetoothAgentPath)));
+                manager->deleteLater();
+                m_bluetoothAgentRegistered = true;
+                const QString pendingDevice = m_pendingBluetoothPairDeviceId;
+                m_pendingBluetoothPairDeviceId.clear();
+                if (!pendingDevice.isEmpty()) {
+                    m_bluetoothBusy = false;
+                    emit bluetoothChanged();
+                    QTimer::singleShot(0, this, [this, pendingDevice] {
+                        pairBluetoothDevice(pendingDevice);
+                    });
+                }
+            });
 }
 
 bool SystemControl::setBluetoothPowered(bool powered)
 {
-    if (!m_bluetoothAvailable)
+    if (!m_bluetoothAvailable || m_bluetoothBusy)
         return false;
-    QString error;
-    if (!setDbusProperty(bluezService,
-                         m_bluetoothAdapterPath,
-                         bluezAdapterInterface,
-                         QStringLiteral("Powered"),
-                         powered,
-                         &error)) {
-        setOperationMessage(QStringLiteral("Could not change Bluetooth: %1").arg(error));
-        return false;
-    }
+    const bool previous = m_bluetoothPowered;
+    auto *properties = new QDBusInterface(
+        bluezService,
+        m_bluetoothAdapterPath,
+        QStringLiteral("org.freedesktop.DBus.Properties"),
+        QDBusConnection::systemBus(),
+        this);
+    properties->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        properties->asyncCall(QStringLiteral("Set"),
+                              bluezAdapterInterface,
+                              QStringLiteral("Powered"),
+                              QVariant::fromValue(QDBusVariant(powered))),
+        this);
+    m_bluetoothBusy = true;
     m_bluetoothPowered = powered;
-    setOperationMessage(powered ? QStringLiteral("Bluetooth turned on")
-                                : QStringLiteral("Bluetooth turned off"));
+    setOperationMessage(powered ? QStringLiteral("Turning Bluetooth on")
+                                : QStringLiteral("Turning Bluetooth off"));
     emit bluetoothChanged();
-    QTimer::singleShot(300, this, &SystemControl::refreshBluetooth);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, properties, powered, previous] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                properties->deleteLater();
+                m_bluetoothBusy = false;
+                if (reply.isError()) {
+                    m_bluetoothPowered = previous;
+                    setOperationMessage(QStringLiteral("Could not change Bluetooth: %1")
+                                            .arg(reply.error().message()));
+                } else {
+                    if (powered)
+                        m_bluetoothScanPending = true;
+                    setOperationMessage(powered ? QStringLiteral("Bluetooth turned on")
+                                                : QStringLiteral("Bluetooth turned off"));
+                }
+                emit bluetoothChanged();
+                QTimer::singleShot(200, this, &SystemControl::refreshBluetooth);
+            });
     return true;
 }
 
@@ -732,22 +1259,38 @@ bool SystemControl::setBluetoothScanning(bool scanning)
 {
     if (!m_bluetoothAvailable || !m_bluetoothPowered || m_bluetoothBusy)
         return false;
-    QDBusInterface adapter(bluezService,
-                           m_bluetoothAdapterPath,
-                           bluezAdapterInterface,
-                           QDBusConnection::systemBus());
-    const QDBusMessage reply = adapter.call(scanning ? QStringLiteral("StartDiscovery")
-                                                     : QStringLiteral("StopDiscovery"));
-    if (reply.type() != QDBusMessage::ReplyMessage
-        && reply.errorName() != QStringLiteral("org.bluez.Error.InProgress")
-        && reply.errorName() != QStringLiteral("org.bluez.Error.NotReady")) {
-        setOperationMessage(QStringLiteral("Bluetooth scan failed: %1").arg(reply.errorMessage()));
-        return false;
-    }
+    auto *adapter = new QDBusInterface(bluezService,
+                                       m_bluetoothAdapterPath,
+                                       bluezAdapterInterface,
+                                       QDBusConnection::systemBus(),
+                                       this);
+    adapter->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        adapter->asyncCall(scanning ? QStringLiteral("StartDiscovery")
+                                    : QStringLiteral("StopDiscovery")),
+        this);
+    m_bluetoothBusy = true;
     m_bluetoothScanning = scanning;
     setOperationMessage(scanning ? QStringLiteral("Scanning for Bluetooth devices")
                                  : QStringLiteral("Bluetooth scan stopped"));
     emit bluetoothChanged();
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, adapter, scanning] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                adapter->deleteLater();
+                m_bluetoothBusy = false;
+                if (reply.isError()
+                    && reply.error().name() != QStringLiteral("org.bluez.Error.InProgress")
+                    && reply.error().name() != QStringLiteral("org.bluez.Error.NotReady")) {
+                    m_bluetoothScanning = !scanning;
+                    setOperationMessage(QStringLiteral("Bluetooth scan failed: %1")
+                                            .arg(reply.error().message()));
+                    emit bluetoothChanged();
+                    return;
+                }
+                QTimer::singleShot(200, this, &SystemControl::refreshBluetooth);
+            });
     return true;
 }
 
@@ -776,6 +1319,17 @@ bool SystemControl::bluetoothCall(const QString &deviceId,
     const QString name = device.value(QStringLiteral("name")).toString();
     if (startsPairing) {
         ensureBluetoothAgent();
+        if (!m_bluetoothAgentRegistered) {
+            if (!m_bluetoothAgentRegistrationPending) {
+                setOperationMessage(QStringLiteral("Bluetooth confirmation is unavailable."));
+                return false;
+            }
+            m_pendingBluetoothPairDeviceId = deviceId;
+            m_bluetoothBusy = true;
+            setOperationMessage(QStringLiteral("Preparing Bluetooth confirmation for %1").arg(name));
+            emit bluetoothChanged();
+            return true;
+        }
         m_bluetoothAgent.beginPairing(deviceId, name);
     } else {
         m_bluetoothAgent.allowServiceAuthorization(deviceId, name);
@@ -784,6 +1338,7 @@ bool SystemControl::bluetoothCall(const QString &deviceId,
                           deviceId,
                           bluezDeviceInterface,
                           QDBusConnection::systemBus());
+    object.setTimeout(kDbusCallTimeoutMs);
     auto *watcher = new QDBusPendingCallWatcher(object.asyncCall(method), this);
     m_bluetoothBusy = true;
     setOperationMessage(QStringLiteral("%1 %2").arg(method, name));
@@ -797,13 +1352,16 @@ bool SystemControl::bluetoothCall(const QString &deviceId,
                                             .arg(name, reply.error().message()));
                 } else {
                     if (startsPairing) {
-                        QString ignored;
-                        setDbusProperty(bluezService,
-                                        deviceId,
+                        QDBusInterface properties(
+                            bluezService,
+                            deviceId,
+                            QStringLiteral("org.freedesktop.DBus.Properties"),
+                            QDBusConnection::systemBus());
+                        properties.call(QDBus::NoBlock,
+                                        QStringLiteral("Set"),
                                         bluezDeviceInterface,
                                         QStringLiteral("Trusted"),
-                                        true,
-                                        &ignored);
+                                        QVariant::fromValue(QDBusVariant(true)));
                     }
                     setOperationMessage(successMessage.arg(name));
                 }
@@ -839,19 +1397,34 @@ bool SystemControl::forgetBluetoothDevice(const QString &deviceId)
 {
     if (!m_bluetoothAvailable || m_bluetoothBusy || bluetoothDevice(deviceId).isEmpty())
         return false;
-    QDBusInterface adapter(bluezService,
-                           m_bluetoothAdapterPath,
-                           bluezAdapterInterface,
-                           QDBusConnection::systemBus());
-    const QDBusMessage reply = adapter.call(QStringLiteral("RemoveDevice"),
-                                            QVariant::fromValue(QDBusObjectPath(deviceId)));
-    if (reply.type() != QDBusMessage::ReplyMessage) {
-        setOperationMessage(QStringLiteral("Could not forget Bluetooth device: %1")
-                                .arg(reply.errorMessage()));
-        return false;
-    }
-    setOperationMessage(QStringLiteral("Bluetooth device forgotten"));
-    QTimer::singleShot(200, this, &SystemControl::refreshBluetooth);
+    auto *adapter = new QDBusInterface(bluezService,
+                                       m_bluetoothAdapterPath,
+                                       bluezAdapterInterface,
+                                       QDBusConnection::systemBus(),
+                                       this);
+    adapter->setTimeout(kDbusCallTimeoutMs);
+    auto *watcher = new QDBusPendingCallWatcher(
+        adapter->asyncCall(QStringLiteral("RemoveDevice"),
+                           QVariant::fromValue(QDBusObjectPath(deviceId))),
+        this);
+    m_bluetoothBusy = true;
+    setOperationMessage(QStringLiteral("Forgetting Bluetooth device"));
+    emit bluetoothChanged();
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, adapter] {
+                const QDBusPendingReply<> reply = *watcher;
+                watcher->deleteLater();
+                adapter->deleteLater();
+                m_bluetoothBusy = false;
+                if (reply.isError()) {
+                    setOperationMessage(QStringLiteral("Could not forget Bluetooth device: %1")
+                                            .arg(reply.error().message()));
+                } else {
+                    setOperationMessage(QStringLiteral("Bluetooth device forgotten"));
+                }
+                emit bluetoothChanged();
+                QTimer::singleShot(200, this, &SystemControl::refreshBluetooth);
+            });
     return true;
 }
 
@@ -1167,6 +1740,7 @@ void SystemControl::refreshPower()
                                 logindPath,
                                 logindInterface,
                                 QDBusConnection::systemBus());
+    loginManager.setTimeout(kDbusCallTimeoutMs);
     const QDBusReply<QString> canSuspend = loginManager.call(QStringLiteral("CanSuspend"));
     const QString suspendPolicy = canSuspend.isValid() ? canSuspend.value() : QString();
     m_suspendAvailable = suspendPolicy == QStringLiteral("yes")
@@ -1295,6 +1869,7 @@ bool SystemControl::suspend()
                                 logindPath,
                                 logindInterface,
                                 QDBusConnection::systemBus());
+    loginManager.setTimeout(kDbusCallTimeoutMs);
     if (!loginManager.isValid()) {
         setOperationMessage(QStringLiteral("Suspend is unavailable."));
         return false;

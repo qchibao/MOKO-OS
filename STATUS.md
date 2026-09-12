@@ -39,8 +39,8 @@ pessimistic:
 
 | # | Report | State |
 |---|---|---|
-| 1 | Settings -> System -> Display freezes | not started |
-| 2 | Wi-Fi connects, then drops; no working network | not started |
+| 1 | Settings -> System -> Display freezes | nonblocking page-scoped polling fix added; physical retest pending |
+| 2 | Wi-Fi connects, then drops; no working network | async discovery/connectivity validation added; physical retest pending |
 | 3 | Three-finger move works but the pointer does not follow | code fix committed `786a93c`; compile- and unit-verified, **not** verified in a running session, **not** in any ISO yet |
 | 4 | MOKO loading screen takes ~2 min and appears twice; target <10 s boot | partially addressed - see "Boot-time work" below |
 | 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | not started |

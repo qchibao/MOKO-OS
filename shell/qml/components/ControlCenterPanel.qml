@@ -266,7 +266,10 @@ GlassPanel {
                     SectionTitle {
                         title: "Wi-Fi"
                         detail: !root.control || !root.control.networkManagerAvailable ? "Unavailable"
-                                : root.control.activeSsid ? root.control.activeSsid
+                                : root.control.activeSsid
+                                  ? root.control.activeSsid
+                                    + (root.control.wifiState === "Connected"
+                                       ? "" : " - " + root.control.wifiState)
                                 : root.control.wifiState
                     }
                     RowLayout {
@@ -339,11 +342,11 @@ GlassPanel {
                                     }
                                 }
                                 MokoActionButton {
-                                    text: modelData.connected ? "Disconnect" : "Connect"
-                                    accent: !modelData.connected
+                                    text: modelData.active ? "Disconnect" : "Connect"
+                                    accent: !modelData.active
                                     enabled: !root.control.networkBusy
                                     onClicked: {
-                                        if (modelData.connected)
+                                        if (modelData.active)
                                             root.control.disconnectWifi()
                                         else if (modelData.secure)
                                             root.openWifiPassword(modelData.ssid)

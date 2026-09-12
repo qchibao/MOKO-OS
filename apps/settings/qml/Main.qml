@@ -50,6 +50,8 @@ ApplicationWindow {
     }
 
     function refreshSelectedSection() {
+        if (mokoSystemControl)
+            mokoSystemControl.setTargetedRefreshSection(selectedSection)
         mokoSettings.refreshSection(selectedSection)
         currentRows = mokoSettings.rows(selectedSection)
         if (selectedSection === "network" && mokoSystemControl)
@@ -502,7 +504,11 @@ ApplicationWindow {
                             Text {
                                 Layout.fillWidth: true
                                 text: mokoSystemControl && mokoSystemControl.wifiAvailable
-                                      ? (mokoSystemControl.activeSsid || mokoSystemControl.wifiState)
+                                      ? (mokoSystemControl.activeSsid
+                                         ? mokoSystemControl.activeSsid
+                                           + (mokoSystemControl.wifiState === "Connected"
+                                              ? "" : " - " + mokoSystemControl.wifiState)
+                                         : mokoSystemControl.wifiState)
                                       : "Wi-Fi not detected"
                                 color: "#16263B"
                                 font.pixelSize: 15
@@ -552,10 +558,10 @@ ApplicationWindow {
                                     }
                                     Text { text: modelData.secure ? "Secured" : "Open"; color: "#718294"; font.pixelSize: 9 }
                                     Button {
-                                        text: modelData.connected ? "Disconnect" : "Connect"
+                                        text: modelData.active ? "Disconnect" : "Connect"
                                         enabled: !mokoSystemControl.networkBusy
                                         onClicked: {
-                                            if (modelData.connected)
+                                            if (modelData.active)
                                                 mokoSystemControl.disconnectWifi()
                                             else if (modelData.secure) {
                                                 settingsWifiPassword.text = ""

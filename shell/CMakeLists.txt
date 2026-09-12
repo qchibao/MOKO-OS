@@ -53,6 +53,7 @@ qt_add_executable(moko-shell
     src/bluetoothagent.h
     src/systemcontrol.cpp
     src/systemcontrol.h
+    src/systemcontroltypes.h
     src/systemcontrolutils.cpp
     src/systemcontrolutils.h
     src/windowmanager.cpp
@@ -148,7 +149,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(moko-system-control-backend-tests PRIVATE src)
     target_link_libraries(moko-system-control-backend-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
-    add_test(NAME moko-system-control-backend-tests COMMAND moko-system-control-backend-tests)
+    qt_add_executable(moko-fake-networkmanager tests/fake_networkmanager.cpp)
+    target_include_directories(moko-fake-networkmanager PRIVATE src)
+    target_link_libraries(moko-fake-networkmanager PRIVATE Qt6::Core Qt6::DBus)
+    add_test(NAME moko-system-control-backend-tests
+        COMMAND dbus-run-session --
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_systemcontrol_backend_tests.sh
+                $<TARGET_FILE:moko-fake-networkmanager>
+                $<TARGET_FILE:moko-system-control-backend-tests>)
     set_tests_properties(moko-system-control-backend-tests PROPERTIES TIMEOUT 15)
 
     qt_add_executable(moko-notification-model-tests

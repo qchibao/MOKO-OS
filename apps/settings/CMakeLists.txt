@@ -6,6 +6,7 @@ qt_add_executable(moko-settings
     ../../shell/src/bluetoothagent.h
     ../../shell/src/systemcontrol.cpp
     ../../shell/src/systemcontrol.h
+    ../../shell/src/systemcontroltypes.h
     ../../shell/src/systemcontrolutils.cpp
     ../../shell/src/systemcontrolutils.h
 )

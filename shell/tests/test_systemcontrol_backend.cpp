@@ -1,9 +1,14 @@
 #include "systemcontrol.h"
 
 #include <QDir>
+#include <QDBusInterface>
+#include <QDBusReply>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 namespace {
 
@@ -25,6 +30,7 @@ class SystemControlBackendTest final : public QObject
 
 private slots:
     void defersInitialBackendProbe();
+    void networkRefreshDoesNotBlockTheEventLoop();
     void controlsFixtureBacklightBatteryAndAudio();
 };
 
@@ -50,6 +56,75 @@ void SystemControlBackendTest::defersInitialBackendProbe()
 
     qunsetenv("MOKO_SYSFS_ROOT");
     qunsetenv("MOKO_WPCTL");
+}
+
+void SystemControlBackendTest::networkRefreshDoesNotBlockTheEventLoop()
+{
+    QDBusInterface manager(QStringLiteral("org.freedesktop.NetworkManager"),
+                           QStringLiteral("/org/freedesktop/NetworkManager"),
+                           QStringLiteral("org.freedesktop.NetworkManager"),
+                           QDBusConnection::systemBus());
+    QVERIFY2(manager.isValid(), qPrintable(manager.lastError().message()));
+    manager.setTimeout(1000);
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetTestDelay"), 300)).isValid());
+
+    SystemControl control(nullptr, true);
+    QSignalSpy changed(&control, &SystemControl::networkChanged);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    control.preloadNetwork();
+    QVERIFY2(elapsed.elapsed() < 50, "Network preload blocked the GUI thread");
+
+    bool timerFired = false;
+    QTimer::singleShot(25, [&timerFired] { timerFired = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(timerFired, 150);
+    QTRY_VERIFY_WITH_TIMEOUT(control.networkManagerAvailable(), 3000);
+    QVERIFY(changed.count() > 0);
+    QVERIFY(control.wifiAvailable());
+    QVERIFY(control.wifiEnabled());
+    QCOMPARE(control.wifiState(), QStringLiteral("Connected"));
+    QCOMPARE(control.activeSsid(), QStringLiteral("MOKO Lab"));
+    QCOMPARE(control.wifiNetworks().size(), 180);
+    const QVariantMap activeNetwork = control.wifiNetworks().constFirst().toMap();
+    QCOMPARE(activeNetwork.value(QStringLiteral("ssid")).toString(), QStringLiteral("MOKO Lab"));
+    QVERIFY(activeNetwork.value(QStringLiteral("active")).toBool());
+    QVERIFY(activeNetwork.value(QStringLiteral("connected")).toBool());
+
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetConnectionReady"), false)).isValid());
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetTestDelay"), 0)).isValid());
+    control.preloadNetwork();
+    QTRY_COMPARE_WITH_TIMEOUT(control.wifiState(), QStringLiteral("Connected locally"), 3000);
+    QCOMPARE(control.activeSsid(), QStringLiteral("MOKO Lab"));
+    const QVariantMap localNetwork = control.wifiNetworks().constFirst().toMap();
+    QVERIFY(localNetwork.value(QStringLiteral("active")).toBool());
+    QVERIFY(!localNetwork.value(QStringLiteral("connected")).toBool());
+
+    QVERIFY(control.connectWifi(QStringLiteral("Test Network 001"), QStringLiteral("test-password")));
+    QVERIFY(control.networkBusy());
+    QTRY_VERIFY_WITH_TIMEOUT(
+        control.operationMessage().contains(QStringLiteral("Finishing connection")), 1000);
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetConnectionReady"), true)).isValid());
+    control.preloadNetwork();
+    QTRY_COMPARE_WITH_TIMEOUT(control.wifiState(), QStringLiteral("Connected"), 3000);
+    QCOMPARE(control.activeSsid(), QStringLiteral("Test Network 001"));
+    QTRY_VERIFY_WITH_TIMEOUT(!control.networkBusy(), 1000);
+    QVERIFY(control.disconnectWifi());
+    QTRY_COMPARE_WITH_TIMEOUT(control.wifiState(), QStringLiteral("Disconnected"), 1000);
+    QVERIFY(!control.networkBusy());
+
+    QVERIFY(QDBusReply<void>(manager.call(QStringLiteral("SetTestDelay"), 2000)).isValid());
+    elapsed.restart();
+    control.preloadNetwork();
+    QCoreApplication::processEvents();
+    control.preloadNetwork();
+    QVERIFY2(elapsed.elapsed() < 100, "Overlapping network refreshes blocked the GUI thread");
+
+    timerFired = false;
+    QTimer::singleShot(25, [&timerFired] { timerFired = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(timerFired, 150);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        control.operationMessage().contains(QStringLiteral("temporarily unavailable")), 2500);
+    QVERIFY(control.networkManagerAvailable());
 }
 
 void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()

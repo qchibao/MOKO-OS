@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bluetoothagent.h"
+#include "systemcontroltypes.h"
 
 #include <QObject>
 #include <QStringList>
@@ -130,6 +131,7 @@ public:
     Q_INVOKABLE void startFullRefresh();
     Q_INVOKABLE void preloadNetwork();
     Q_INVOKABLE void preloadBluetooth();
+    Q_INVOKABLE void setTargetedRefreshSection(const QString &sectionId);
     Q_INVOKABLE bool setWifiEnabled(bool enabled);
     Q_INVOKABLE bool requestWifiScan();
     Q_INVOKABLE bool connectWifi(const QString &ssid, const QString &password);
@@ -168,6 +170,8 @@ signals:
 private:
     void refreshNetwork();
     void refreshBluetooth();
+    void applyNetworkObjects(const MokoSystemControl::DbusManagedObjects &objects);
+    void applyBluetoothObjects(const MokoSystemControl::DbusManagedObjects &objects);
     void refreshAudio();
     void refreshPower();
     void refreshTime();
@@ -181,24 +185,37 @@ private:
     QVariantMap wifiNetwork(const QString &ssid) const;
     bool validAudioDevice(int id, const QVariantList &devices) const;
     void setOperationMessage(const QString &message);
+    void verifyWifiConnection();
 
     QTimer *m_refreshTimer = nullptr;
     bool m_targetedRefreshOnly = false;
     bool m_networkRefreshEnabled = false;
     bool m_bluetoothRefreshEnabled = false;
+    bool m_networkRefreshPending = false;
+    bool m_bluetoothRefreshPending = false;
+    bool m_networkRefreshInFlight = false;
+    bool m_bluetoothRefreshInFlight = false;
+    bool m_networkScanPending = false;
+    bool m_wifiScanRequestInFlight = false;
+    bool m_bluetoothScanPending = false;
     bool m_networkPreloadPending = false;
     bool m_bluetoothPreloadPending = false;
     BluetoothAgent m_bluetoothAgent;
     QString m_bluetoothAgentPath;
     bool m_bluetoothAgentRegistered = false;
+    bool m_bluetoothAgentRegistrationPending = false;
+    QString m_pendingBluetoothPairDeviceId;
 
     bool m_networkManagerAvailable = false;
     bool m_wifiAvailable = false;
     bool m_wifiEnabled = false;
     bool m_wifiScanning = false;
     bool m_networkBusy = false;
+    QString m_wifiConnectionTarget;
+    int m_wifiVerificationAttempts = 0;
     QString m_wifiState = QStringLiteral("Unavailable");
     QString m_activeSsid;
+    bool m_wifiAssociated = false;
     QString m_wifiDevicePath;
     QVariantList m_wifiNetworks;
 

@@ -11,6 +11,8 @@ private slots:
     void parsesAudioLevels();
     void decodesNetworkNames();
     void calculatesPercentages();
+    void requiresCompleteNetworkConfiguration();
+    void normalizesLargeWifiScans();
 };
 
 void SystemControlTest::parsesAudioEndpoints()
@@ -70,6 +72,39 @@ void SystemControlTest::calculatesPercentages()
     QCOMPARE(MokoSystemControl::percentage(500, 200), 100);
     QCOMPARE(MokoSystemControl::percentage(-1, 200), -1);
     QCOMPARE(MokoSystemControl::percentage(10, 0), -1);
+}
+
+void SystemControlTest::requiresCompleteNetworkConfiguration()
+{
+    QVERIFY(MokoSystemControl::networkConnectionReady(100, true, true, true, true));
+    QVERIFY(!MokoSystemControl::networkConnectionReady(70, true, true, true, true));
+    QVERIFY(!MokoSystemControl::networkConnectionReady(100, false, true, true, true));
+    QVERIFY(!MokoSystemControl::networkConnectionReady(100, true, false, true, true));
+    QVERIFY(!MokoSystemControl::networkConnectionReady(100, true, true, false, true));
+    QVERIFY(!MokoSystemControl::networkConnectionReady(100, true, true, true, false));
+}
+
+void SystemControlTest::normalizesLargeWifiScans()
+{
+    QVariantList networks;
+    for (int index = 0; index < 200; ++index) {
+        networks.append(QVariantMap{{QStringLiteral("id"), QStringLiteral("/ap/%1").arg(index)},
+                                    {QStringLiteral("ssid"), QStringLiteral("Network %1").arg(index)},
+                                    {QStringLiteral("strength"), index % 100},
+                                    {QStringLiteral("secure"), index % 2 == 0}});
+    }
+    networks.append(QVariantMap{{QStringLiteral("id"), QStringLiteral("/ap/duplicate")},
+                                {QStringLiteral("ssid"), QStringLiteral("Network 5")},
+                                {QStringLiteral("strength"), 99},
+                                {QStringLiteral("secure"), true}});
+
+    const QVariantList normalized = MokoSystemControl::normalizeWifiNetworks(
+        networks, QStringLiteral("/ap/5"), true);
+    QCOMPARE(normalized.size(), 200);
+    const QVariantMap active = normalized.constFirst().toMap();
+    QCOMPARE(active.value(QStringLiteral("id")).toString(), QStringLiteral("/ap/5"));
+    QVERIFY(active.value(QStringLiteral("active")).toBool());
+    QVERIFY(active.value(QStringLiteral("connected")).toBool());
 }
 
 QTEST_GUILESS_MAIN(SystemControlTest)

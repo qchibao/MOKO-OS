@@ -1,11 +1,59 @@
 #include "systemcontrolutils.h"
 
 #include <QRegularExpression>
+#include <QMap>
 
 #include <algorithm>
 #include <cmath>
 
 namespace MokoSystemControl {
+
+bool networkConnectionReady(uint deviceState,
+                            bool activeConnection,
+                            bool hasAddress,
+                            bool hasRoute,
+                            bool hasDns)
+{
+    return deviceState == 100 && activeConnection && hasAddress && hasRoute && hasDns;
+}
+
+QVariantList normalizeWifiNetworks(const QVariantList &networks,
+                                   const QString &activeAccessPoint,
+                                   bool connectionReady)
+{
+    QMap<QString, QVariantMap> strongestBySsid;
+    for (const QVariant &networkValue : networks) {
+        QVariantMap network = networkValue.toMap();
+        const QString ssid = network.value(QStringLiteral("ssid")).toString().trimmed();
+        if (ssid.isEmpty())
+            continue;
+        const bool active = !activeAccessPoint.isEmpty()
+            && network.value(QStringLiteral("id")).toString() == activeAccessPoint;
+        network.insert(QStringLiteral("active"), active);
+        network.insert(QStringLiteral("connected"), active && connectionReady);
+        const QVariantMap existing = strongestBySsid.value(ssid);
+        if (existing.isEmpty() || active
+            || (!existing.value(QStringLiteral("active")).toBool()
+                && existing.value(QStringLiteral("strength")).toInt()
+                    < network.value(QStringLiteral("strength")).toInt())) {
+            strongestBySsid.insert(ssid, network);
+        }
+    }
+
+    QVariantList result;
+    for (const QVariantMap &network : strongestBySsid.values())
+        result.append(network);
+    std::sort(result.begin(), result.end(), [](const QVariant &left, const QVariant &right) {
+        const QVariantMap a = left.toMap();
+        const QVariantMap b = right.toMap();
+        if (a.value(QStringLiteral("active")).toBool()
+            != b.value(QStringLiteral("active")).toBool())
+            return a.value(QStringLiteral("active")).toBool();
+        return a.value(QStringLiteral("strength")).toInt()
+            > b.value(QStringLiteral("strength")).toInt();
+    });
+    return result;
+}
 
 QList<AudioEndpoint> parseWpctlEndpoints(const QString &output, const QString &sectionName)
 {

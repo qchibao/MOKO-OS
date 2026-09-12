@@ -686,6 +686,38 @@ assertion. No QEMU run attached a writable disk. Final clean ISO generation and
 byte-for-byte reproducibility use this H8 record commit; the generated
 `out/SHA256SUMS` is the release checksum source.
 
+### Connectivity refresh follow-up (2026-09-12)
+
+The Settings and Shell connectivity backend was hardened after the physical
+MacBook report. NetworkManager discovery now uses asynchronous D-Bus calls for
+the manager, Wi-Fi device, access points and IP configuration, so a large scan
+or a slow physical radio cannot block the Qt event loop or freeze the Display
+page. Refreshes are coalesced, page-scoped polling is enabled only while the
+Network or Bluetooth page is active, and cached state remains visible while a
+new snapshot is pending.
+
+Wi-Fi is reported as `Connected` only when NetworkManager reports an associated
+device with an active connection, an address, a route and DNS data. An
+associated device without usable configuration is shown as `Connected locally`
+and keeps its SSID visible; it is never presented as working Internet. Connect
+operations remain busy until that usable state is observed, then fail with a
+truthful message if it never arrives. Bluetooth discovery, agent registration,
+pairing and device actions use the same non-blocking pattern.
+
+The regression harness runs a fake NetworkManager on a private D-Bus session.
+It exposes 180 unique SSIDs plus a duplicate, wrapped D-Bus variants, delayed
+and unresponsive calls, real activation/disconnect marshalling, and the
+associated-but-unconfigured state. The backend test verifies that timers keep
+firing during a delayed scan, refreshes coalesce, and stale state survives a
+transient timeout.
+
+Rollback: remove the asynchronous discovery/test additions and restore the
+previous synchronous backend. This change does not alter boot ordering, the
+compositor, disk-safety policy, mount behavior, privileges or MOKO AI. QEMU
+ISO validation remains pending; the component, QML smoke and static safety
+tests pass. Wi-Fi stability on the Intel MacBook Pro 2015 still requires a
+physical retest.
+
 ### H8 physical-only remainder
 
 QEMU cannot certify the MacBook internal panel and scaling, three-finger drag,

@@ -2,6 +2,7 @@
 
 #include <QList>
 #include <QString>
+#include <QVariantList>
 
 namespace MokoSystemControl {
 
@@ -18,6 +19,17 @@ struct AudioLevel
     bool muted = false;
     bool valid = false;
 };
+
+// A Wi-Fi device is only considered fully connected when NetworkManager has
+// supplied the basic data needed for actual network use.
+bool networkConnectionReady(uint deviceState,
+                            bool activeConnection,
+                            bool hasAddress,
+                            bool hasRoute,
+                            bool hasDns);
+QVariantList normalizeWifiNetworks(const QVariantList &networks,
+                                   const QString &activeAccessPoint,
+                                   bool connectionReady);
 
 QList<AudioEndpoint> parseWpctlEndpoints(const QString &output, const QString &sectionName);
 AudioLevel parseWpctlVolume(const QString &output);
