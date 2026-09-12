@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <unistd.h>
 
 using VariantMapList = QList<QVariantMap>;
@@ -61,6 +62,7 @@ QString networkDeviceState(uint state);
  * loop permanently behind.
  */
 constexpr int kDbusCallTimeoutMs = 1500;
+constexpr int kWpctlTimeoutMs = 2500;
 
 QVariant unwrapped(const QVariant &value)
 {
@@ -1444,9 +1446,9 @@ bool SystemControl::runWpctl(const QStringList &arguments, QString *output)
     process.setArguments(arguments);
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start();
-    if (!process.waitForStarted(1000) || !process.waitForFinished(2500)) {
+    if (!process.waitForStarted(1000) || !process.waitForFinished(kWpctlTimeoutMs)) {
         process.kill();
-        process.waitForFinished();
+        process.waitForFinished(500);
         return false;
     }
     if (output != nullptr)
@@ -1454,55 +1456,141 @@ bool SystemControl::runWpctl(const QStringList &arguments, QString *output)
     return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
 }
 
-void SystemControl::refreshAudio()
+void SystemControl::runWpctlAsync(
+    const QStringList &arguments,
+    std::function<void(bool, const QString &)> completion)
 {
-    QString status;
-    const bool statusOk = runWpctl({QStringLiteral("status"), QStringLiteral("--name")}, &status);
-    m_outputDevices.clear();
-    m_inputDevices.clear();
-    m_outputDeviceName.clear();
-    m_inputDeviceName.clear();
-    if (statusOk) {
-        const auto outputs = MokoSystemControl::parseWpctlEndpoints(status, QStringLiteral("Sinks"));
-        for (const auto &endpoint : outputs) {
-            m_outputDevices.append(endpointMap(endpoint));
-            if (endpoint.defaultDevice)
-                m_outputDeviceName = endpoint.name;
-        }
-        const auto inputs = MokoSystemControl::parseWpctlEndpoints(status, QStringLiteral("Sources"));
-        for (const auto &endpoint : inputs) {
-            m_inputDevices.append(endpointMap(endpoint));
-            if (endpoint.defaultDevice)
-                m_inputDeviceName = endpoint.name;
-        }
+    const QString program = executableFromEnvironment("MOKO_WPCTL", QStringLiteral("wpctl"));
+    if (program.isEmpty()) {
+        QTimer::singleShot(0, this, [completion = std::move(completion)] {
+            completion(false, {});
+        });
+        return;
     }
 
-    QString outputLevelText;
-    QString inputLevelText;
-    const auto outputLevel = runWpctl({QStringLiteral("get-volume"),
-                                      QStringLiteral("@DEFAULT_AUDIO_SINK@")},
-                                     &outputLevelText)
-        ? MokoSystemControl::parseWpctlVolume(outputLevelText)
-        : MokoSystemControl::AudioLevel{};
-    const auto inputLevel = runWpctl({QStringLiteral("get-volume"),
-                                     QStringLiteral("@DEFAULT_AUDIO_SOURCE@")},
-                                    &inputLevelText)
-        ? MokoSystemControl::parseWpctlVolume(inputLevelText)
-        : MokoSystemControl::AudioLevel{};
-    m_audioAvailable = statusOk || outputLevel.valid || inputLevel.valid;
-    if (outputLevel.valid) {
-        m_outputVolume = outputLevel.percent;
-        m_outputMuted = outputLevel.muted;
+    auto *process = new QProcess(this);
+    auto *timeout = new QTimer(process);
+    auto completed = std::make_shared<bool>(false);
+    process->setProgram(program);
+    process->setArguments(arguments);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    timeout->setSingleShot(true);
+
+    const auto finish = [process, timeout, completed,
+                         completion = std::move(completion)](bool success) {
+        if (*completed)
+            return;
+        *completed = true;
+        timeout->stop();
+        const QString output = QString::fromUtf8(process->readAll()).trimmed();
+        completion(success, output);
+        process->deleteLater();
+    };
+    connect(process, &QProcess::finished, this,
+            [process, finish](int exitCode, QProcess::ExitStatus exitStatus) mutable {
+                finish(exitStatus == QProcess::NormalExit && exitCode == 0);
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [finish](QProcess::ProcessError) mutable { finish(false); });
+    connect(timeout, &QTimer::timeout, this, [process, finish]() mutable {
+        process->kill();
+        finish(false);
+    });
+
+    process->start();
+    timeout->start(kWpctlTimeoutMs);
+}
+
+void SystemControl::refreshAudio()
+{
+    if (m_audioRefreshInFlight) {
+        m_audioRefreshPending = true;
+        return;
     }
-    if (inputLevel.valid) {
-        m_inputVolume = inputLevel.percent;
-        m_inputMuted = inputLevel.muted;
-    }
-    if (m_outputDeviceName.isEmpty() && m_audioAvailable)
-        m_outputDeviceName = QStringLiteral("Default output");
-    if (m_inputDeviceName.isEmpty() && m_audioAvailable)
-        m_inputDeviceName = QStringLiteral("Default microphone");
-    emit audioChanged();
+    m_audioRefreshInFlight = true;
+    m_audioRefreshPending = false;
+
+    struct AudioRefreshState {
+        int remaining = 3;
+        bool statusOk = false;
+        bool outputLevelOk = false;
+        bool inputLevelOk = false;
+        QString status;
+        QString outputLevel;
+        QString inputLevel;
+    };
+    auto state = std::make_shared<AudioRefreshState>();
+    const auto complete = [this, state] {
+        if (--state->remaining != 0)
+            return;
+
+        m_outputDevices.clear();
+        m_inputDevices.clear();
+        m_outputDeviceName.clear();
+        m_inputDeviceName.clear();
+        if (state->statusOk) {
+            const auto outputs = MokoSystemControl::parseWpctlEndpoints(
+                state->status, QStringLiteral("Sinks"));
+            for (const auto &endpoint : outputs) {
+                m_outputDevices.append(endpointMap(endpoint));
+                if (endpoint.defaultDevice)
+                    m_outputDeviceName = endpoint.name;
+            }
+            const auto inputs = MokoSystemControl::parseWpctlEndpoints(
+                state->status, QStringLiteral("Sources"));
+            for (const auto &endpoint : inputs) {
+                m_inputDevices.append(endpointMap(endpoint));
+                if (endpoint.defaultDevice)
+                    m_inputDeviceName = endpoint.name;
+            }
+        }
+
+        const auto outputLevel = state->outputLevelOk
+            ? MokoSystemControl::parseWpctlVolume(state->outputLevel)
+            : MokoSystemControl::AudioLevel{};
+        const auto inputLevel = state->inputLevelOk
+            ? MokoSystemControl::parseWpctlVolume(state->inputLevel)
+            : MokoSystemControl::AudioLevel{};
+        m_audioAvailable = state->statusOk || outputLevel.valid || inputLevel.valid;
+        if (outputLevel.valid) {
+            m_outputVolume = outputLevel.percent;
+            m_outputMuted = outputLevel.muted;
+        }
+        if (inputLevel.valid) {
+            m_inputVolume = inputLevel.percent;
+            m_inputMuted = inputLevel.muted;
+        }
+        if (m_outputDeviceName.isEmpty() && m_audioAvailable)
+            m_outputDeviceName = QStringLiteral("Default output");
+        if (m_inputDeviceName.isEmpty() && m_audioAvailable)
+            m_inputDeviceName = QStringLiteral("Default microphone");
+
+        m_audioRefreshInFlight = false;
+        emit audioChanged();
+        if (m_audioRefreshPending) {
+            m_audioRefreshPending = false;
+            QTimer::singleShot(0, this, &SystemControl::refreshAudio);
+        }
+    };
+
+    runWpctlAsync({QStringLiteral("status"), QStringLiteral("--name")},
+                  [state, complete](bool ok, const QString &output) {
+                      state->statusOk = ok;
+                      state->status = output;
+                      complete();
+                  });
+    runWpctlAsync({QStringLiteral("get-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@")},
+                  [state, complete](bool ok, const QString &output) {
+                      state->outputLevelOk = ok;
+                      state->outputLevel = output;
+                      complete();
+                  });
+    runWpctlAsync({QStringLiteral("get-volume"), QStringLiteral("@DEFAULT_AUDIO_SOURCE@")},
+                  [state, complete](bool ok, const QString &output) {
+                      state->inputLevelOk = ok;
+                      state->inputLevel = output;
+                      complete();
+                  });
 }
 
 bool SystemControl::validAudioDevice(int id, const QVariantList &devices) const

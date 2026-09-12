@@ -6,6 +6,7 @@ ISO=${1:-$ROOT/out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso}
 RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
+SHELL_READY_TIMEOUT_SECONDS=${MOKO_SHELL_READY_TIMEOUT:-120}
 SHUTDOWN_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_TIMEOUT:-60}
 SHUTDOWN_VISUAL_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_VISUAL_TIMEOUT:-60}
 GUEST_BOOT_BUDGET_MS=${MOKO_GUEST_BOOT_BUDGET_MS:-0}
@@ -53,6 +54,10 @@ command -v docker >/dev/null || {
 }
 [[ "$SCREENSHOT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "MOKO_SCREENSHOT_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
+[[ "$SHELL_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_SHELL_READY_TIMEOUT must be a positive integer." >&2
   exit 1
 }
 [[ "$SHUTDOWN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
@@ -924,7 +929,7 @@ for run in $(seq 1 "$RUNS"); do
   done
 
   if [[ "$BOOT_MODE" != hardware-diagnostics ]]; then
-    timing_deadline=$((SECONDS + 30))
+    timing_deadline=$((SECONDS + SHELL_READY_TIMEOUT_SECONDS))
     while ! grep -Eq 'MOKO_BOOT_TIMING stage=shell-ready uptime_ms=[0-9]+ uid=1000' "$SERIAL_PATH"; do
       if (( SECONDS >= timing_deadline )); then
         tail -100 "$SERIAL_PATH" >&2

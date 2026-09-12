@@ -7,6 +7,8 @@
 #include <QStringList>
 #include <QVariantList>
 
+#include <functional>
+
 class QTimer;
 
 class SystemControl final : public QObject
@@ -182,6 +184,8 @@ private:
     void refreshTime();
     void ensureBluetoothAgent();
     bool runWpctl(const QStringList &arguments, QString *output = nullptr);
+    void runWpctlAsync(const QStringList &arguments,
+                       std::function<void(bool, const QString &)> completion);
     bool bluetoothCall(const QString &deviceId,
                        const QString &method,
                        const QString &successMessage,
@@ -244,6 +248,8 @@ private:
     bool m_inputMuted = false;
     QString m_inputDeviceName;
     QVariantList m_inputDevices;
+    bool m_audioRefreshInFlight = false;
+    bool m_audioRefreshPending = false;
 
     bool m_brightnessAvailable = false;
     int m_brightness = 0;

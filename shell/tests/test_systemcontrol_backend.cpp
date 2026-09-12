@@ -33,6 +33,7 @@ private slots:
     void usesBoundedLogindPowerActions();
     void defersInitialBackendProbe();
     void networkRefreshDoesNotBlockTheEventLoop();
+    void audioRefreshDoesNotBlockTheEventLoop();
     void controlsFixtureBacklightBatteryAndAudio();
 };
 
@@ -54,7 +55,7 @@ void SystemControlBackendTest::defersInitialBackendProbe()
 
     QVERIFY(!QFile::exists(commandLog));
     control.refresh();
-    QVERIFY(QFile::exists(commandLog));
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(commandLog), 1000);
 
     qunsetenv("MOKO_SYSFS_ROOT");
     qunsetenv("MOKO_WPCTL");
@@ -127,6 +128,41 @@ void SystemControlBackendTest::networkRefreshDoesNotBlockTheEventLoop()
     QTRY_VERIFY_WITH_TIMEOUT(
         control.operationMessage().contains(QStringLiteral("temporarily unavailable")), 2500);
     QVERIFY(control.networkManagerAvailable());
+}
+
+void SystemControlBackendTest::audioRefreshDoesNotBlockTheEventLoop()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString fakeWpctl = directory.filePath(QStringLiteral("wpctl"));
+    writeFile(fakeWpctl,
+              QByteArrayLiteral("#!/bin/sh\nsleep 1\n"
+                                "case \"$1\" in\n"
+                                "  status) printf '%s\\n' 'Audio' ' Sinks:' "
+                                "'  * 45. Built-in Output [vol: 0.64]' ' Sources:' "
+                                "'  * 46. Built-in Microphone [vol: 0.35]' ;;\n"
+                                "  get-volume) echo 'Volume: 0.50' ;;\n"
+                                "esac\n"),
+              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+
+    qputenv("MOKO_SYSFS_ROOT", directory.path().toUtf8());
+    qputenv("MOKO_WPCTL", fakeWpctl.toUtf8());
+    SystemControl control(nullptr, true);
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    control.startFullRefresh();
+    QVERIFY2(elapsed.elapsed() < 100, "Audio refresh blocked the GUI thread");
+
+    bool timerFired = false;
+    QTimer::singleShot(25, [&timerFired] { timerFired = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(timerFired, 150);
+    QTRY_VERIFY_WITH_TIMEOUT(control.audioAvailable(), 2000);
+    QCOMPARE(control.outputVolume(), 50);
+    QCOMPARE(control.inputVolume(), 50);
+
+    qunsetenv("MOKO_SYSFS_ROOT");
+    qunsetenv("MOKO_WPCTL");
 }
 
 void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
@@ -204,7 +240,7 @@ void SystemControlBackendTest::controlsFixtureBacklightBatteryAndAudio()
     QVERIFY(!control.externalPowerConnected());
     QVERIFY(!control.batteryCharging());
 
-    QVERIFY(control.audioAvailable());
+    QTRY_VERIFY_WITH_TIMEOUT(control.audioAvailable(), 1000);
     QCOMPARE(control.outputVolume(), 64);
     QCOMPARE(control.inputVolume(), 35);
     QCOMPARE(control.outputDevices().size(), 1);

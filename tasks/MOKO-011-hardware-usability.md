@@ -764,3 +764,30 @@ suspend/resume and poweroff presentation. MOKO-011 therefore remains
 **IN PROGRESS**. Stop after generating the ISO and complete
 `docs/LIVE_USB_CHECKLIST.md` on the same Intel MacBook Pro 2015 before any
 MOKO-012 work.
+
+### Post-H8 Shell responsiveness follow-up (2026-09-13)
+
+The first ISO built after the boot-readiness telemetry fixes reached the MOKO
+desktop and published `shell-ready`, but its immediate ACPI shutdown gate did
+not receive logind's shutdown event in the Shell. The deferred full system
+refresh started 250 ms after that marker. Its audio probe ran three `wpctl`
+commands synchronously on the GUI thread and used an unbounded final wait after
+a timeout, so an unavailable or wedged PipeWire/WirePlumber client could keep
+the Qt event loop from handling `PrepareForShutdown`.
+
+Background audio discovery now runs three fixed-argument `wpctl` probes
+asynchronously, coalesces overlapping refreshes and enforces a 2.5 second
+timeout without waiting on the GUI thread. Interactive audio mutations retain
+their fixed argument vectors and bounded synchronous result because the user
+requested those individual actions. The ISO harness also gives first-frame
+telemetry its own configurable timeout; this accommodates QEMU/TCG variance
+without relaxing the overall boot, health, disk-safety or shutdown gates.
+
+The Shell component suite passes `10/10`. Its backend regression uses a slow
+fake `wpctl` and proves that `startFullRefresh()` returns promptly, Qt timers
+continue to run and the eventual audio state is applied. ISO rebuild and ACPI
+blackout validation remain pending at this checkpoint.
+
+Rollback: revert this follow-up commit. It does not change disk discovery,
+mount policy, boot ordering, compositor protocol, privileges, installer state
+or the frozen MOKO AI boundary.
