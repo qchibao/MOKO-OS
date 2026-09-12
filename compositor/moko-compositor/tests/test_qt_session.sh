@@ -59,7 +59,7 @@ while [ ! -S "$runtime/$socket" ]; do
   sleep 0.05
 done
 
-"$shell" >"$runtime/shell.log" 2>&1 &
+MOKO_FORCE_BOOT_READY_FALLBACK=1 "$shell" >"$runtime/shell.log" 2>&1 &
 shell_pid=$!
 
 attempt=0

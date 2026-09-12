@@ -266,16 +266,15 @@ int main(int argc, char *argv[])
         writeBootTimingEvent(QStringLiteral("shell-ready"));
         QTimer::singleShot(250, &systemControl, &SystemControl::startFullRefresh);
     };
-    QObject::connect(window, &QQuickWindow::frameSwapped, bootTimingGuard, reportShellReady);
-    QObject::connect(window, &QQuickWindow::afterRendering, bootTimingGuard, reportShellReady);
-    QObject::connect(window, &QQuickWindow::afterFrameEnd, bootTimingGuard, reportShellReady);
-    // Some lightweight Wayland backends do not emit frameSwapped/afterFrameEnd
-    // even though the surface is visible. Keep telemetry and deferred probing
-    // from blocking forever on that compositor-specific behavior.
-    QTimer::singleShot(3000, bootTimingGuard, [window, reportShellReady] {
-        if (window->isVisible() || window->visibility() != QWindow::Hidden)
-            reportShellReady();
-    });
+    const bool forceBootReadyFallback = qEnvironmentVariableIsSet("MOKO_FORCE_BOOT_READY_FALLBACK");
+    if (!forceBootReadyFallback) {
+        QObject::connect(window, &QQuickWindow::frameSwapped, bootTimingGuard, reportShellReady);
+        QObject::connect(window, &QQuickWindow::afterRendering, bootTimingGuard, reportShellReady);
+        QObject::connect(window, &QQuickWindow::afterFrameEnd, bootTimingGuard, reportShellReady);
+    }
+    // Qt can keep QWindow visibility as Hidden on a mapped lightweight Wayland
+    // surface. Use a bounded event-loop fallback instead of trusting that hint.
+    QTimer::singleShot(3000, bootTimingGuard, reportShellReady);
     // Loading QML can present the first frame before this listener is attached.
     // Request one observed frame so boot timing and deferred probes cannot stall.
     QTimer::singleShot(0, window, &QQuickWindow::requestUpdate);
