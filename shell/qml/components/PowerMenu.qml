@@ -17,17 +17,29 @@ FocusScope {
     opacity: visible ? 1 : 0
 
     function focusDefaultAction() {
+        if (!root.visible || !shutdownButton.enabled)
+            return false
+
+        // Claim focus at both levels. The compositor focuses the Shell surface,
+        // while Qt still needs a concrete control to receive Return/Enter.
+        root.forceActiveFocus()
+        shutdownButton.forceActiveFocus()
         Qt.callLater(function() {
             if (root.visible && shutdownButton.enabled)
                 shutdownButton.forceActiveFocus()
         })
+        return shutdownButton.activeFocus
     }
 
     function reportPresentationReady() {
         if (!root.visible || root.opacity < 0.999 || root.presentationReported)
             return
+        if (!focusDefaultAction()) {
+            focusRetry.restart()
+            return
+        }
+        focusRetry.stop()
         root.presentationReported = true
-        root.focusDefaultAction()
         root.presentationReady()
     }
 
@@ -104,6 +116,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: restartButton
                     KeyNavigation.backtab: cancelButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.sleepRequested()
+                        }
+                    }
                     onClicked: root.sleepRequested()
                 }
 
@@ -117,6 +135,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: shutdownButton
                     KeyNavigation.backtab: sleepButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.restartRequested()
+                        }
+                    }
                     onClicked: root.restartRequested()
                 }
 
@@ -130,6 +154,12 @@ FocusScope {
                     KeyNavigation.down: cancelButton
                     KeyNavigation.tab: cancelButton
                     KeyNavigation.backtab: restartButton
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            event.accepted = true
+                            root.shutdownRequested()
+                        }
+                    }
                     onClicked: root.shutdownRequested()
                 }
             }
@@ -142,6 +172,12 @@ FocusScope {
                 KeyNavigation.up: shutdownButton
                 KeyNavigation.tab: sleepButton
                 KeyNavigation.backtab: shutdownButton
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        event.accepted = true
+                        root.dismissRequested()
+                    }
+                }
                 onClicked: root.dismissRequested()
             }
         }
@@ -169,6 +205,7 @@ FocusScope {
 
     onVisibleChanged: {
         presentationReported = false
+        focusRetry.stop()
         if (visible) {
             focusDefaultAction()
             Qt.callLater(reportPresentationReady)
@@ -180,6 +217,13 @@ FocusScope {
     onBusyChanged: {
         if (visible && !busy)
             focusDefaultAction()
+    }
+
+    Timer {
+        id: focusRetry
+        interval: 16
+        repeat: true
+        onTriggered: reportPresentationReady()
     }
 
     Behavior on opacity {
