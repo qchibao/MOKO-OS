@@ -820,3 +820,31 @@ this checkpoint.
 Rollback: revert this scoped follow-up. Safe Graphics continues to use Cage
 and logind's fallback power handling. No disk, mount, installer, privilege or
 MOKO AI behavior changes.
+
+### Shutdown telemetry lifetime follow-up (2026-09-13)
+
+The physical-key ISO gate reached the focused `PowerOff(false)` request but
+intermittently lost every subsequent shutdown marker. The Shell blackout and
+the system-owned blackout guard use the same event file; the guard already
+survived shutdown because its unit disables default dependencies, while
+`moko-live-launch-monitor.service` inherited systemd's implicit
+`Conflicts=shutdown.target`. The monitor could therefore be stopped at the
+start of the poweroff transaction after relaying `state=requested`, dropping
+the fade, compositor-blackout and ready events even when shutdown completed.
+
+The DEV_ONLY monitor now uses `DefaultDependencies=no` and is explicitly
+ordered before `shutdown.target`, matching the lifetime required by the guard.
+This changes only QEMU/Developer Preview telemetry: it does not delay logind,
+hold an inhibitor, alter the rendered blackout, or modify disk-safety policy.
+The power menu also waits through a second Qt event-loop turn and confirms both
+its focus scope and Shut Down button have active focus before publishing its
+ready marker.
+
+Static presentation, missing-serial logging, disk-safety and the full Debian
+component suite pass. The ISO preflight now inspects the built monitor unit so
+an image containing the old shutdown lifetime cannot pass. Clean ISO rebuild
+and BIOS blackout validation remain pending at this checkpoint.
+
+Rollback: revert the scoped shutdown telemetry commit. The system-owned
+blackout guard and Shell delay inhibitor remain unchanged, so reverting does
+not weaken or otherwise change the actual shutdown and storage-safety gates.

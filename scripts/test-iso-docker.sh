@@ -850,6 +850,12 @@ PY
     chmod 0755 /tmp/moko-live-launch-monitor
     MOKO_LIVE_LAUNCH_MONITOR=/tmp/moko-live-launch-monitor \
       bash /source/tests/test-live-launch-monitor.sh
+    unsquashfs -cat /tmp/filesystem.squashfs \
+      etc/systemd/system/moko-live-launch-monitor.service \
+      > /tmp/moko-live-launch-monitor.service
+    grep -Fxq "DefaultDependencies=no" /tmp/moko-live-launch-monitor.service
+    grep -Eq "^Before=(.*[[:space:]])?shutdown\\.target([[:space:]]|$)" \
+      /tmp/moko-live-launch-monitor.service
     for unit in moko-live-disk-safety.service moko-live-health.service; do
       unsquashfs -cat /tmp/filesystem.squashfs \
         "etc/systemd/system/$unit" > "/tmp/$unit"

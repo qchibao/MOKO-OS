@@ -24,11 +24,7 @@ FocusScope {
         // while Qt still needs a concrete control to receive Return/Enter.
         root.forceActiveFocus()
         shutdownButton.forceActiveFocus()
-        Qt.callLater(function() {
-            if (root.visible && shutdownButton.enabled)
-                shutdownButton.forceActiveFocus()
-        })
-        return shutdownButton.activeFocus
+        return root.activeFocus && shutdownButton.activeFocus
     }
 
     function reportPresentationReady() {
@@ -38,9 +34,21 @@ FocusScope {
             focusRetry.restart()
             return
         }
-        focusRetry.stop()
-        root.presentationReported = true
-        root.presentationReady()
+        // Let the compositor/QPA focus transition settle before advertising
+        // readiness. The second claim closes the race where Enter arrives
+        // between the overlay mapping and the final Qt focus assignment.
+        Qt.callLater(function() {
+            if (!root.visible || root.opacity < 0.999 || root.presentationReported)
+                return
+            shutdownButton.forceActiveFocus()
+            if (!root.activeFocus || !shutdownButton.activeFocus) {
+                focusRetry.restart()
+                return
+            }
+            focusRetry.stop()
+            root.presentationReported = true
+            root.presentationReady()
+        })
     }
 
     function activateFocusedAction() {

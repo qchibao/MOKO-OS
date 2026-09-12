@@ -129,6 +129,10 @@ grep -Fq 'MOKO_POWER_*' \
   "$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-live-launch-monitor"
 grep -Fq 'Before=greetd.service' \
   "$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-live-launch-monitor.service"
+grep -Fq 'DefaultDependencies=no' \
+  "$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-live-launch-monitor.service"
+grep -Eq '^Before=(.*[[:space:]])?shutdown\.target([[:space:]]|$)' \
+  "$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-live-launch-monitor.service"
 if grep -Fq 'After=greetd.service' \
     "$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-live-launch-monitor.service"; then
   echo "Launch telemetry monitor would stop before the graphical session." >&2
@@ -154,7 +158,8 @@ compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 grep -Fq 'Qt.callLater(function()' "$power_menu"
 grep -Fq 'root.forceActiveFocus()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
-grep -Fq 'return shutdownButton.activeFocus' "$power_menu"
+grep -Fq 'return root.activeFocus && shutdownButton.activeFocus' "$power_menu"
+grep -Fq 'if (!root.activeFocus || !shutdownButton.activeFocus)' "$power_menu"
 grep -Fq 'focusRetry.restart()' "$power_menu"
 grep -Fq 'focusRetry.stop()' "$power_menu"
 grep -Fq 'sequence: "Return"' "$power_menu"

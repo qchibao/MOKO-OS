@@ -1,7 +1,8 @@
 [Unit]
 # DEV_ONLY: removed when Developer Preview validation moves to a guest agent.
 Description=MOKO Developer Preview application launch monitor
-Before=greetd.service
+DefaultDependencies=no
+Before=greetd.service shutdown.target
 Wants=greetd.service
 
 [Service]
