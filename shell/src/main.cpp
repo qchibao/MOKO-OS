@@ -267,6 +267,9 @@ int main(int argc, char *argv[])
                          writeBootTimingEvent(QStringLiteral("shell-ready"));
                          QTimer::singleShot(250, &systemControl, &SystemControl::startFullRefresh);
                      });
+    // Loading QML can present the first frame before this listener is attached.
+    // Request one observed frame so boot timing and deferred probes cannot stall.
+    QTimer::singleShot(0, window, &QQuickWindow::requestUpdate);
 
     if (parser.isSet("control-center")) {
         window->setProperty("activeSystemPanel", QStringLiteral("control-center"));

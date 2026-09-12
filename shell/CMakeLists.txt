@@ -119,6 +119,11 @@ if(BUILD_TESTING)
         TIMEOUT 10
     )
 
+    add_test(NAME moko-shell-boot-timing
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_shell_boot_timing.sh
+                $<TARGET_FILE:moko-shell>)
+    set_tests_properties(moko-shell-boot-timing PROPERTIES TIMEOUT 10)
+
     add_test(NAME moko-shell-power-menu-smoke
         COMMAND moko-shell --smoke-test --windowed --power-menu)
     set_tests_properties(moko-shell-power-menu-smoke PROPERTIES
