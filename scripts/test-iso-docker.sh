@@ -581,8 +581,16 @@ docker run --rm --platform linux/amd64 \
       firmware-atheros firmware-realtek firmware-sof-signed \
       firmware-intel-sound firmware-cirrus firmware-libertas \
       firmware-intel-graphics firmware-nvidia-graphics firmware-mediatek \
-      amd64-microcode intel-microcode
+      amd64-microcode intel-microcode \
+      firmware-linux-free firmware-linux-nonfree firmware-intel-misc \
+      firmware-ath9k-htc firmware-carl9170
     do
+      # The last five are not on the explicit keep-list in moko.list.chroot; they
+      # arrive as the Depends/Recommends closure of the entries that are. They
+      # are asserted anyway because that keep-list comment claims this gate
+      # guards them, and an unasserted claim is worse than a strict test. If a
+      # future Debian release drops one of those Recommends, this fails loudly
+      # instead of the image silently losing i915 or Atheros firmware.
       grep -Fxq "$package" /tmp/package-names || {
           echo "Required Live USB package missing: $package" >&2
           exit 1
@@ -595,7 +603,7 @@ docker run --rm --platform linux/amd64 \
     # firmware; if any of these reappears the flag has regressed and the image
     # has grown by roughly 282 MiB.
     for package in \
-      firmware-netronome firmware-nvidia-tesla-535-gsp firmware-marvell-prestera \
+      firmware-netronome firmware-nvidia-tesla-535-gsp \
       firmware-cavium firmware-qlogic firmware-myricom firmware-bnx2x \
       firmware-netxen firmware-ipw2x00 firmware-ivtv firmware-bnx2 \
       firmware-siano firmware-zd1211 firmware-ast firmware-b43-installer \
@@ -606,6 +614,29 @@ docker run --rm --platform linux/amd64 \
         exit 1
       fi
     done
+
+    # firmware-marvell-prestera is deliberately NOT in the loop above.
+    # --firmware-chroot false never removed it and never could: it does not
+    # arrive through chroot_firmware, it arrives because firmware-libertas
+    # Recommends it and live-build installs Recommends. What removes it is
+    # 0250-moko-firmware-trim.hook.chroot, which purges it after the package
+    # lists are installed. Filing it under a flag regression would send whoever
+    # debugs a failure here to the wrong file. Verified provenance: an
+    # archive-wide scan of every relation field in trixie main, contrib,
+    # non-free and non-free-firmware found exactly one edge into it, and zero
+    # Depends edges out of it, so the purge removes one package and cascades
+    # nowhere.
+    if grep -Fxq "firmware-marvell-prestera" /tmp/package-names; then
+      echo "firmware-marvell-prestera present: 0250-moko-firmware-trim did not purge it, this is not a --firmware-chroot regression" >&2
+      exit 1
+    fi
+    # Pairing guard: the purge must not take the Marvell Wi-Fi firmware with it.
+    # firmware-libertas is already required above; restating it here keeps the
+    # two checks from being edited apart.
+    grep -Fxq "firmware-libertas" /tmp/package-names || {
+      echo "firmware-libertas missing: the marvell-prestera purge removed a wanted package" >&2
+      exit 1
+    }
 
     grep -q "timeout 20" /tmp/isolinux.cfg
     grep -q "set timeout_style=hidden" /tmp/grub-config.cfg

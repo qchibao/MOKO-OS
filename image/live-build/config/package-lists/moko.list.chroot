@@ -59,15 +59,42 @@ firmware-brcm80211
 # LB_FIRMWARE_CHROOT defaults to true:
 #   /usr/share/live/build/functions/configuration.sh:488
 #
-# Turning the firehose off leaves the 15 packages reachable from the five
-# entries above (Depends+Recommends closure, verified against trixie's Packages
-# index). Six of the 22 it drops are things a real laptop needs, so they are
-# listed explicitly here instead of being left to chance. Everything else in the
-# drop set is datacentre or legacy-capture hardware: netronome 140.6 MiB,
-# nvidia-tesla-535-gsp 59.4, marvell-prestera 59.0, cavium 5.2, qlogic 4.6,
-# myricom 3.9, bnx2x 2.3, netxen 2.1, ipw2x00 1.5, ivtv 1.2, bnx2 0.6, siano
-# 1.3, zd1211 0.1, ast 0.04, b43-installer, b43legacy-installer.
-# Net installed saving: 281.8 MiB.
+# Turning the firehose off leaves the packages reachable from the entries below
+# (Depends+Recommends closure, verified against trixie's Packages index). Six of
+# what it drops are things a real laptop needs, so they are listed explicitly
+# here instead of being left to chance. Everything else in the drop set is
+# datacentre or legacy-capture hardware: netronome 140.6 MiB,
+# nvidia-tesla-535-gsp 59.4, cavium 5.2, qlogic 4.6, myricom 3.9, bnx2x 2.3,
+# netxen 2.1, ipw2x00 1.5, ivtv 1.2, bnx2 0.6, siano 1.3, zd1211 0.1, ast 0.04,
+# b43-installer, b43legacy-installer.
+#
+# MEASURED, not estimated -- build 2026-09-12T06:34:27Z at commit 388521d:
+#   firmware/microcode packages   37 -> 22
+#   total packages               713 -> 691
+#   filesystem.squashfs   1218408448 -> 1135702016 bytes   (-79 MiB)
+#   hybrid.iso            1383333888 -> 1295843328 bytes   (-83 MiB)
+#   initrd.img             135312 KiB ->   129735 KiB      (-5.4 MiB compressed,
+#                                                  -30.8 MiB uncompressed)
+# The baselines are MOKO-OS-v0.1.1-boot-profile.iso and -repro-a.hybrid.iso,
+# both built 2026-09-09. The exact release ISO of that date was overwritten by
+# this build, so the comparison is against a same-week image, not a strict A/B.
+# The initrd barely moves because initramfs-tools copies firmware per *included
+# module*, and the two biggest blobs never left: amdgpu 80 MiB and nvidia 63 MiB
+# are still 88% of the 163 MiB of firmware in the initrd. See the "amdgpu /
+# nvidia are deliberately NOT stripped" note in STATUS.md.
+#
+# THE ONE PACKAGE THIS FLAG DOES NOT REMOVE: firmware-marvell-prestera (59 MiB,
+# Marvell Prestera 98DX switch-ASIC firmware). An earlier revision of this
+# comment listed it among the flag's drops. That was wrong and the built image
+# proved it -- the package is present. It never came through chroot_firmware;
+# an archive-wide scan of every relation field in trixie found exactly one edge:
+#   firmware-libertas --Recommends--> firmware-marvell-prestera
+# and firmware-libertas is on the keep-list below. `apt-cache showpkg` reports
+# an empty Reverse Depends for it because that section lists only Depends, never
+# Recommends -- do not be misled by it the way the first attempt was.
+# 0250-moko-firmware-trim.hook.chroot purges it; zero packages in the archive
+# Depends on it, so the purge removes exactly one package and firmware-libertas
+# keeps working. Final count after that hook: 21.
 #
 # WHY THOSE ARE NOT LISTED EXPLICITLY: 0200-build-moko-shell.hook.chroot ends
 # with `apt-get autoremove -y`, and these ten arrive as auto-installed. That

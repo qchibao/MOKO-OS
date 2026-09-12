@@ -45,15 +45,77 @@ zero unexpected block mounts and black shutdown frames. The Intel MacBook Pro
 - MOKO-011 stays `IN PROGRESS` until the locked physical checklist passes on
   the Intel MacBook Pro 2015. MOKO-012 remains disabled.
 
-## Boot-time work (unvalidated by a rebuilt ISO)
+## Boot-time work (built and statically verified, not yet boot-tested)
 
-Status: five changes, committed on `hotfix/v0.1.1-physical-ui` as `4a5a99a`
-(locale/timezone), `ec112d6` (unit masking + modprobe hygiene) and `431f48d`
-(firmware keep-list). **None has been through an `lb build` yet, so none is
-validated.** Every number below was measured on the *shipped* v0.1.1 release
-ISO under QEMU/TCG on macOS, not on a rebuilt one.
+Status: six changes on `hotfix/v0.1.1-physical-ui` -- `4a5a99a`
+(locale/timezone), `ec112d6` (unit masking + modprobe hygiene), `431f48d`
+(firmware keep-list) and a sixth, `0250-moko-firmware-trim.hook.chroot`, added
+after the first build measured what the keep-list actually produced.
+
+**The first five have been through an `lb build`.** Build of 2026-09-12
+(`12m20s`, exit 0, clean tree at `388521d`) produced
+`out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`, sha256
+`0f026a4768989d37cd69151f20e4c4e90b488fe73b73d72762438515bda31ca1`. Size and
+package results are measured below. **No boot result exists for it yet** -- it
+has not been through QEMU or physical hardware, so the boot-time claims are
+still unvalidated. The `diag*` numbers further down were measured on the
+*shipped* v0.1.1 release ISO under QEMU/TCG on macOS.
 
 `main` and tag `v0.1.0` are untouched.
+
+**Measured result of the 2026-09-12 build**
+
+| | shipped v0.1.1 | rebuilt | delta |
+|---|---|---|---|
+| `hybrid.iso` | 1,383,333,888 B | 1,295,843,328 B | **-83 MiB** |
+| `filesystem.squashfs` | 1,218,408,448 B | 1,135,702,016 B | **-79 MiB** |
+| `initrd.img` (compressed) | 135,312 KiB | 129,735 KiB | **-5.4 MiB** |
+| `initrd.img` (uncompressed) | 296.8 MiB | 266 MiB | -30.8 MiB |
+| firmware in initrd (uncompressed) | 198.1 MiB | 163 MiB | -35.1 MiB |
+| firmware/microcode packages | 37 | 22 | -15 |
+| total packages | 713 | 691 | -22 |
+
+Baselines are `out/MOKO-OS-v0.1.1-boot-profile.iso` and
+`-repro-a.hybrid.iso`, both 2026-09-09 -- *not* a strict A/B, because the
+2026-09-12 build overwrote the release ISO at the canonical path. The validated
+release candidate survives byte-identically as
+`out/MOKO-OS-v0.1.1-dev-amd64.repro-d42-a.iso` (sha256 `4bcb3bae...81a06ed8`,
+verified after the fact); the "Previous v0.1.1 QEMU release candidate" section
+below now names that file.
+
+`0160-moko-locale-tz.hook.chroot` is confirmed to have *run*: build log line
+2986, output `en_US.UTF-8... done` / `Generation complete.`. Whether that
+removes the 36-38s `0050-locales` cost at boot is the open question and needs a
+QEMU run of this ISO.
+
+`i915` firmware (11 MiB / 43 files) is present in the rebuilt initrd, which is
+the check that matters for the Intel MacBook this OS is validated on.
+
+**Two claims from earlier revisions that measurement corrected**
+
+- *"roughly 40 MiB off a 138 MB initrd"* was wrong as stated. The uncompressed
+  saving is real (-30.8 MiB) and close to the prediction; the *compressed*
+  saving is only -5.4 MiB, because firmware blobs barely compress. The earlier
+  text compared an uncompressed prediction against a compressed measurement.
+  The mechanism was right, the arithmetic framing was not.
+- *`--firmware-chroot false` removes `firmware-marvell-prestera`* was wrong.
+  That package never came through `chroot_firmware`. An archive-wide scan of
+  every relation field in trixie found exactly one edge into it --
+  `firmware-libertas --Recommends--> firmware-marvell-prestera` -- and
+  `firmware-libertas` is on the keep-list. `apt-cache showpkg` reports an empty
+  Reverse Depends for it because that section lists only `Depends`, never
+  `Recommends`, which is what made the provenance look unexplained.
+  `0250-moko-firmware-trim.hook.chroot` now purges it (59 MiB; zero packages in
+  the archive `Depends` on it, so the purge cascades nowhere), bringing the
+  count to 21. **That hook has not been through a build yet**, so the
+  2026-09-12 ISO still contains the package and
+  `scripts/test-iso-docker.sh` would fail on it until the next build.
+- The two biggest blobs are deliberately *not* stripped: `amdgpu` 80 MiB and
+  `nvidia` 63 MiB are 88% of the 163 MiB of firmware still in the initrd. A
+  failed GPU probe inside the initrd may not recover before `switch_root` and
+  can drop to a text console, which violates "normal boot must never show
+  Debian/Linux/systemd/debug text". Removing them needs multi-machine physical
+  testing, not a QEMU run.
 
 **How it was measured.** The release ISO's own `vmlinuz` + `initrd` were booted
 directly with `qemu -kernel/-initrd/-append`, serial captured through a FIFO and
@@ -91,6 +153,13 @@ all 33 other components at 0-3s each.
    `kvm_intel` were in an earlier revision and were removed on purpose - they
    bought nothing measurable while genuinely disabling nested virtualisation
    in the shipped image, which is a capability loss rather than hygiene.
+6. `0250-moko-firmware-trim.hook.chroot` - purges `firmware-marvell-prestera`,
+   the one 59 MiB datacentre package the keep-list drags back in through a
+   `Recommends` edge. Numbered `0250` because hooks run *after* every
+   `chroot_package-lists` pass (build log: installs at lines 220 and 2661, hooks
+   from 2981), and after `0200`'s own apt-get of the Qt6 build toolchain. It
+   fails the build rather than shipping silently if `firmware-libertas` did not
+   survive the purge.
 
 **Honest caveats, both material**
 
@@ -104,12 +173,14 @@ all 33 other components at 0-3s each.
   `live-config`'s 58s. Run-to-run TCG variance is +-15-30s, which is why only
   within-run attribution is quoted here.
 - *The transferable wins are the I/O-bound ones.* Firmware is the largest:
-  `--firmware-chroot false` removes 22 packages / 281.8 MiB installed, and
-  because initramfs-tools copies firmware per included module
-  (`hook-functions:128 --firmwaredirs`) those packages leave the initrd too -
-  roughly 40 MiB off a 138 MB initrd that must be read off the USB stick before
-  the kernel can start. Compressed firmware does not shrink under zstd, so that
-  reduction is close to one-for-one on the wire.
+  `--firmware-chroot false` plus `0250-` removes 16 packages (~282 MiB
+  installed, ~341 MiB with the Marvell purge), and because initramfs-tools
+  copies firmware per included module (`hook-functions:128 --firmwaredirs`) some
+  of that leaves the initrd too. Measured, not predicted: -30.8 MiB
+  uncompressed but only **-5.4 MiB compressed**, because firmware blobs barely
+  compress -- the earlier "close to one-for-one on the wire" claim was wrong in
+  the direction that flattered the change. The wire-level win is really the
+  **-83 MiB ISO / -79 MiB squashfs**, which is what the USB stick has to read.
 - *10s is not reachable for this image.* A Debian-live squashfs USB image has to
   read ~1.2 GB over USB and bring up kernel, initrd, systemd, live-config, DRM,
   a wlroots compositor and a Qt6 Shell. The realistic optimised floor is
@@ -117,8 +188,18 @@ all 33 other components at 0-3s each.
   explicitly frozen ("do not enable internal-disk OS installation").
 
 **Test / rollback.** `scripts/test-iso-docker.sh` asserts the presence of all
-21 firmware packages now expected and the absence of the 16 datacentre/legacy
-ones, so a regression of `--firmware-chroot false` fails the gate loudly.
+21 firmware/microcode packages the image should carry and the absence of 15
+datacentre/legacy ones, so a regression of `--firmware-chroot false` fails the
+gate loudly. `firmware-marvell-prestera` is asserted absent by its own check
+with its own message, because attributing it to the flag would point whoever
+debugs a failure at the wrong file; `firmware-libertas` is asserted present next
+to it so the purge cannot quietly take the Wi-Fi firmware with it. All 21 are now asserted, including
+the five that arrive only through the closure rather than the explicit
+keep-list (`firmware-linux-free`, `firmware-linux-nonfree`,
+`firmware-intel-misc`, `firmware-ath9k-htc`, `firmware-carl9170`) -- an earlier
+revision of this file noted the keep-list comment claimed coverage the test did
+not actually provide, and the test was tightened to match the claim rather than
+the claim being weakened to match the test.
 Rollback per change: delete the `0160-` hook; drop `--firmware-chroot false`
 and `timezone=` from `auto-config.sh`; revert `moko.list.chroot`;
 `systemctl unmask systemd-udev-settle.service NetworkManager-wait-online.service`;
@@ -144,8 +225,12 @@ The cheap way to close this without any injection is
 
 ## Previous v0.1.1 QEMU release candidate
 
-- ISO: `out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`
+- ISO: `out/MOKO-OS-v0.1.1-dev-amd64.repro-d42-a.iso`
 - SHA-256: `4bcb3baee0a268175fb5b6e0461a77010d3eaca400ce6ede9bfa4f9b81a06ed8`
+  (re-verified against the file on 2026-09-12. The canonical path
+  `out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` was overwritten by the 2026-09-12
+  boot-fix build, so this candidate now lives under the repro filename only.
+  Nothing validated was lost.)
 - ISO source commit: `d42b2bb70e893dbc6068ed3405fb83c8db831cf5`
 - Build timestamp: `2026-09-06T09:33:10Z`
 - Reproducibility: two clean builds from the same commit are byte-identical.

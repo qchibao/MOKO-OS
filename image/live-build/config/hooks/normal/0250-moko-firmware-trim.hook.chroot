@@ -1,0 +1,89 @@
+#!/bin/sh
+# MOKO OS -- drop datacentre switch-ASIC firmware that Recommends pulls in.
+#
+# WHY THIS HOOK EXISTS
+#
+# auto-config.sh passes `--firmware-chroot false`, which stops
+# /usr/lib/live/build/chroot_firmware from calling Firmware_List_From_Contents
+# (functions/firmwarelists.sh:53). That path used to append every package
+# owning a file under lib/firmware/ -- no dependency graph at all -- to
+# chroot/root/packages.chroot, marking them Manual. Disabling it took the
+# installed firmware/microcode count from 37 to 22 and removed ~282 MiB.
+#
+# It did NOT remove firmware-marvell-prestera, and it never could: that
+# package does not arrive through chroot_firmware. Measured provenance
+# (archive-wide scan of every Depends/Recommends/Suggests/Breaks/Replaces/
+# Conflicts/Pre-Depends/Enhances field in trixie main+contrib+non-free+
+# non-free-firmware):
+#
+#   firmware-libertas  --Recommends-->  firmware-marvell-prestera
+#
+# firmware-libertas IS on the explicit keep-list in
+# config/package-lists/moko.list.chroot (Marvell Wi-Fi/Bluetooth for older
+# laptops), and live-build's apt options
+# (functions/configuration.sh:120 -- APT_OPTIONS defaults to
+# "--yes -o Acquire::Retries=5") contain no --no-install-recommends, so
+# Recommends are installed. Confirmed in build-v0.1.1-bootfix.log: the package
+# is selected during `lb chroot_install-packages install`, interleaved with
+# exactly the predicted 15-package closure (log lines 236, 363, 1090-1092,
+# 2068).
+#
+# Note for whoever reads this next: `apt-cache showpkg firmware-marvell-prestera`
+# shows an EMPTY "Reverse Depends" and looks like the package has no origin at
+# all. That section lists only Depends, never Recommends. Do not conclude
+# "nothing pulls it" from it.
+#
+# WHY PURGE RATHER THAN DROP firmware-libertas
+#
+# firmware-marvell-prestera is 60,463 KiB installed (61,322,660 byte .deb) of
+# binary firmware for Marvell Prestera 98DX switch ASICs -- datacentre
+# switching silicon. No laptop, and specifically not the Intel MacBook 2015
+# this OS is validated on, contains one. The same archive-wide scan found
+# ZERO packages with a Depends on it, so purging removes exactly one package
+# and nothing cascades: apt only propagates removals through Depends and
+# Pre-Depends, never through Recommends or Suggests. firmware-libertas keeps
+# working; only a switch-ASIC blob leaves the image.
+#
+# ORDERING IS LOAD-BEARING. Hooks run after every chroot_package-lists pass
+# (`install` and `live`), so the package is already present here, and nothing
+# reinstalls it afterwards because firmware-libertas is already configured.
+# This hook is numbered 0250 so it also runs after 0200-build-moko-shell,
+# whose own apt-get install of the Qt6/cmake build toolchain cannot drag it
+# back in.
+#
+# Test:
+#   ./scripts/build-iso-docker.sh
+#   # in the built ISO manifest:
+#   xorriso -osirrox on -indev out/*.hybrid.iso -extract /live/filesystem.packages /tmp/p
+#   cut -f1 /tmp/p | grep -c '^firmware-'   # expect 11, marvell-prestera absent
+#   grep -x firmware-libertas <(cut -f1 /tmp/p)   # expect a match -- still kept
+#   scripts/test-iso-docker.sh asserts both the absence and the keep-list.
+#
+# Rollback: delete this file. firmware-marvell-prestera returns via the
+# Recommends edge above; nothing else in the image changes. Costs ~57 MiB of
+# squashfs and does not affect boot behaviour.
+set -eu
+
+TRIM="firmware-marvell-prestera"
+
+for package in $TRIM; do
+  if dpkg-query -W -f='${Status}\n' "$package" 2>/dev/null | grep -q 'install ok installed'; then
+    before=$(du -sm /usr/lib/firmware 2>/dev/null | cut -f1 || echo '?')
+    apt-get purge -y --no-install-recommends "$package"
+    after=$(du -sm /usr/lib/firmware 2>/dev/null | cut -f1 || echo '?')
+    echo "0250-moko-firmware-trim: purged $package (/usr/lib/firmware ${before} MiB -> ${after} MiB)"
+  else
+    echo "0250-moko-firmware-trim: $package not installed, nothing to do" >&2
+  fi
+done
+
+# The keep-list must survive the purge. Fail loudly rather than ship an image
+# with Marvell Wi-Fi firmware silently missing.
+for keep in firmware-libertas; do
+  dpkg-query -W -f='${Status}\n' "$keep" 2>/dev/null | grep -q 'install ok installed' || {
+    echo "0250-moko-firmware-trim: FATAL -- $keep disappeared during the purge" >&2
+    exit 1
+  }
+done
+
+apt-get clean
