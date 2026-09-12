@@ -32,6 +32,35 @@ disabled. The H8 component suite and isolated QEMU functional gates pass with
 zero unexpected block mounts and black shutdown frames. The Intel MacBook Pro
 2015 remains the final authority for physical validation.
 
+### Physical bug backlog from the Intel MacBook Pro 2015 test
+
+Five defects were reported from real hardware. Their state, kept deliberately
+pessimistic:
+
+| # | Report | State |
+|---|---|---|
+| 1 | Settings -> System -> Display freezes | not started |
+| 2 | Wi-Fi connects, then drops; no working network | not started |
+| 3 | Three-finger move works but the pointer does not follow | code fix committed `786a93c`; compile- and unit-verified, **not** verified in a running session, **not** in any ISO yet |
+| 4 | MOKO loading screen takes ~2 min and appears twice; target <10 s boot | partially addressed - see "Boot-time work" below |
+| 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | not started |
+
+On #3: the fix is confined to three gesture handlers in
+`compositor/moko-compositor/src/main.c`, with regression coverage and a
+test/rollback note in `tasks/MOKO-011-hardware-usability.md` under "Phase 3
+addendum". The headless harness sets `WLR_LIBINPUT_NO_DEVICES=1`, so no
+synthetic swipe can be injected and the drag itself still needs the physical
+re-test. Build #2 was cut **before** this commit, so shipping it requires a
+build #3.
+
+On #4: `10 s` is not achievable for a Debian-live squashfs USB image. It must
+read ~1.2 GB over USB and bring up the kernel, initrd, systemd, live-config,
+DRM, a wlroots compositor and a Qt6 Shell; the realistic optimised floor is
+~20-30 s from ~120 s, and ~10 s would need an internal-NVMe install, which is
+frozen by the hotfix constraints. The work that has landed is a **size** win
+(-142 MiB ISO, ~341 MiB off installed size), which shortens USB read time, not
+a measured boot-time win. See the non-attributability note below.
+
 ## Physical hotfix automated gate
 
 - Debian 13 component suite: compositor `4/4`, Shell `8/8`, existing AI `3/3`
@@ -45,35 +74,54 @@ zero unexpected block mounts and black shutdown frames. The Intel MacBook Pro
 - MOKO-011 stays `IN PROGRESS` until the locked physical checklist passes on
   the Intel MacBook Pro 2015. MOKO-012 remains disabled.
 
-## Boot-time work (built and statically verified, not yet boot-tested)
+## Boot-time work (built, QEMU boot-tested, not yet on physical hardware)
 
 Status: six changes on `hotfix/v0.1.1-physical-ui` -- `4a5a99a`
 (locale/timezone), `ec112d6` (unit masking + modprobe hygiene), `431f48d`
 (firmware keep-list) and a sixth, `0250-moko-firmware-trim.hook.chroot`, added
 after the first build measured what the keep-list actually produced.
 
-**The first five have been through an `lb build`.** Build of 2026-09-12
-(`12m20s`, exit 0, clean tree at `388521d`) produced
-`out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`, sha256
-`0f026a4768989d37cd69151f20e4c4e90b488fe73b73d72762438515bda31ca1`. Size and
-package results are measured below. **No boot result exists for it yet** -- it
-has not been through QEMU or physical hardware, so the boot-time claims are
-still unvalidated. The `diag*` numbers further down were measured on the
-*shipped* v0.1.1 release ISO under QEMU/TCG on macOS.
+**All six have been through an `lb build` and a QEMU cold boot.** Build #2 of
+2026-09-12 (`~15m`, exit 0, clean tree at `63ac678`) produced
+`out/MOKO-OS-v0.1.1-dev-amd64.hybrid.iso`, 1,234,239,488 B, sha256
+`b354396159bff24decfe6cb5a768037cdeea7a2aa1fa74905b0c87948639a365`. An
+earlier build #1 (`12m20s`, tree at `388521d`, sha256 `0f026a47...`) carried the
+first five changes only; it was overwritten by build #2 at the canonical path.
+
+Build #2 **passed `scripts/test-iso-docker.sh`** (1 cold boot, BIOS, virtio-vga,
+`graphics=hardware`, `greetd_restarts=0`, disk safety
+`result=pass unexpected_block_mounts=0 automounter=absent`, shutdown black frame
+`bright_pixels=0`). Serial log carried no `libEGL`, no renderer and no
+`wlr_xdg_surface` errors; the debug log held only two benign `intel-hda`
+register warnings.
+
+**It has not been booted on physical hardware**, so the size results below are
+measured and the boot-*time* results are QEMU/TCG only. The `diag*` numbers
+further down were measured on the *shipped* v0.1.1 release ISO, likewise under
+QEMU/TCG on macOS.
 
 `main` and tag `v0.1.0` are untouched.
 
-**Measured result of the 2026-09-12 build**
+**Measured result of the 2026-09-12 builds**
 
-| | shipped v0.1.1 | rebuilt | delta |
-|---|---|---|---|
-| `hybrid.iso` | 1,383,333,888 B | 1,295,843,328 B | **-83 MiB** |
-| `filesystem.squashfs` | 1,218,408,448 B | 1,135,702,016 B | **-79 MiB** |
-| `initrd.img` (compressed) | 135,312 KiB | 129,735 KiB | **-5.4 MiB** |
-| `initrd.img` (uncompressed) | 296.8 MiB | 266 MiB | -30.8 MiB |
-| firmware in initrd (uncompressed) | 198.1 MiB | 163 MiB | -35.1 MiB |
-| firmware/microcode packages | 37 | 22 | -15 |
-| total packages | 713 | 691 | -22 |
+| | shipped v0.1.1 | build #1 | **build #2** | delta vs shipped |
+|---|---|---|---|---|
+| `hybrid.iso` | 1,383,333,888 B | 1,295,843,328 B | **1,234,239,488 B** | **-142 MiB** |
+| `filesystem.squashfs` | 1,218,408,448 B | 1,135,702,016 B | **1,074,262,016 B** | **-137 MiB** |
+| `initrd.img` (compressed) | 135,312 KiB | 129,735 KiB | **129,735 KiB** | **-5.4 MiB** |
+| `initrd.img` (uncompressed) | 296.8 MiB | 266 MiB | **266 MiB** | -30.8 MiB |
+| firmware in initrd (uncompressed) | 198.1 MiB | 163 MiB | **163 MiB** | -35.1 MiB |
+| `/usr/lib/firmware` in chroot | -- | 629 MiB | **571 MiB** | -58 MiB |
+| firmware/microcode packages | 37 | 22 | **21** | -16 |
+| total packages | 713 | 691 | **690** | -23 |
+
+Build #2's initrd is byte-for-byte near-identical to build #1's (132,849,274 vs
+132,848,640 B), which is the expected result: no module in the initrd depends on
+`firmware-marvell-prestera`, so purging it cannot change the initrd. The whole
+-58 MiB lands in the squashfs (1,135,702,016 -> 1,074,262,016 = -58.7 MiB),
+matching the `/usr/lib/firmware` reduction reported by hook `0250` at build log
+line 4867. The accounting closes: ISO -142 MiB = squashfs -137 MiB + initrd
+-5.4 MiB.
 
 Baselines are `out/MOKO-OS-v0.1.1-boot-profile.iso` and
 `-repro-a.hybrid.iso`, both 2026-09-09 -- *not* a strict A/B, because the
@@ -84,12 +132,29 @@ verified after the fact); the "Previous v0.1.1 QEMU release candidate" section
 below now names that file.
 
 `0160-moko-locale-tz.hook.chroot` is confirmed to have *run*: build log line
-2986, output `en_US.UTF-8... done` / `Generation complete.`. Whether that
-removes the 36-38s `0050-locales` cost at boot is the open question and needs a
-QEMU run of this ISO.
+2986, output `en_US.UTF-8... done` / `Generation complete.`.
 
-`i915` firmware (11 MiB / 43 files) is present in the rebuilt initrd, which is
+`i915` firmware (11 MiB / 43 files) is present in the build #2 initrd, which is
 the check that matters for the Intel MacBook this OS is validated on.
+`firmware-marvell-prestera` firmware is confirmed absent from it.
+
+**Boot markers, build #2 vs the shipped baseline (both QEMU/TCG, BIOS):**
+
+| Marker | shipped v0.1.1 | build #2 |
+|---|---|---|
+| `stage=session-start` | -- | 98.110 s |
+| `stage=compositor-ready` | -- | 115.820 s |
+| `stage=shell-launch` | -- | 116.280 s |
+| `stage=shell-ready` | 156.85 s | **146.590 s** |
+
+That is -10.26 s on a single run, and **it is not attributable**: measured
+run-to-run variance under TCG is +/-15-30 s (see the `diag*` table below), so
+one boot cannot separate this change from noise. What the run *does* establish
+is that nothing regressed -- every health gate passed and the boot is clean.
+The serial log does not carry `systemd-analyze`, so the `live-config` /
+`0050-locales` split was not re-measured on this ISO; the honest statement is
+that the locale fix is built and its hook ran, not that its boot-time saving is
+measured.
 
 **Two claims from earlier revisions that measurement corrected**
 
@@ -107,9 +172,12 @@ the check that matters for the Intel MacBook this OS is validated on.
   `Recommends`, which is what made the provenance look unexplained.
   `0250-moko-firmware-trim.hook.chroot` now purges it (59 MiB; zero packages in
   the archive `Depends` on it, so the purge cascades nowhere), bringing the
-  count to 21. **That hook has not been through a build yet**, so the
-  2026-09-12 ISO still contains the package and
-  `scripts/test-iso-docker.sh` would fail on it until the next build.
+  count to 21. **Build #2 proves the hook end to end**: log line 4857
+  `Executing hook .../0250-moko-firmware-trim.hook.chroot`, line 4866
+  `Removing firmware-marvell-prestera (20250410-2)`, line 4867
+  `purged firmware-marvell-prestera (/usr/lib/firmware 629 MiB -> 571 MiB)`.
+  The resulting manifest has 0 entries for it, still carries
+  `firmware-libertas` (line 70), and `scripts/test-iso-docker.sh` passes.
 - The two biggest blobs are deliberately *not* stripped: `amdgpu` 80 MiB and
   `nvidia` 63 MiB are 88% of the 163 MiB of firmware still in the initrd. A
   failed GPU probe inside the initrd may not recover before `switch_root` and
@@ -180,7 +248,8 @@ all 33 other components at 0-3s each.
   uncompressed but only **-5.4 MiB compressed**, because firmware blobs barely
   compress -- the earlier "close to one-for-one on the wire" claim was wrong in
   the direction that flattered the change. The wire-level win is really the
-  **-83 MiB ISO / -79 MiB squashfs**, which is what the USB stick has to read.
+  **-142 MiB ISO / -137 MiB squashfs** after the Marvell purge, which is what
+  the USB stick has to read.
 - *10s is not reachable for this image.* A Debian-live squashfs USB image has to
   read ~1.2 GB over USB and bring up kernel, initrd, systemd, live-config, DRM,
   a wlroots compositor and a Qt6 Shell. The realistic optimised floor is
@@ -193,7 +262,11 @@ datacentre/legacy ones, so a regression of `--firmware-chroot false` fails the
 gate loudly. `firmware-marvell-prestera` is asserted absent by its own check
 with its own message, because attributing it to the flag would point whoever
 debugs a failure at the wrong file; `firmware-libertas` is asserted present next
-to it so the purge cannot quietly take the Wi-Fi firmware with it. All 21 are now asserted, including
+to it so the purge cannot quietly take the Wi-Fi firmware with it. Because a
+silent pass can also mean an inert assertion, all three of those checks were
+proven live by negative control rather than assumed from the green run: a bogus
+package injected into the required list, then each of the two Marvell checks
+flipped onto the other package. All three exited 1 with their own message. All 21 are now asserted, including
 the five that arrive only through the closure rather than the explicit
 keep-list (`firmware-linux-free`, `firmware-linux-nonfree`,
 `firmware-intel-misc`, `firmware-ath9k-htc`, `firmware-carl9170`) -- an earlier
