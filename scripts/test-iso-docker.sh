@@ -441,9 +441,8 @@ request_desktop_shutdown() {
   fi
 
   POWER_MENU_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu.png"
-  capture_frame "/artifacts/$POWER_MENU_SCREENSHOT_NAME" \
+  capture_power_menu_frame "/artifacts/$POWER_MENU_SCREENSHOT_NAME" \
     "$POWER_MENU_SCREENSHOT_NAME"
-  assert_power_menu_frame "/artifacts/$POWER_MENU_SCREENSHOT_NAME"
 
   # TCG can take longer than a native machine to deliver and process HMP's
   # synthesized key after the rendered-frame capture. Keep the keyboard path,
@@ -524,6 +523,26 @@ print(f"MOKO Power menu frame: luminance_delta={delta:.1f}")
 if delta < 70:
     raise SystemExit("Power menu panel was not visible in the captured framebuffer")
 PY
+}
+
+capture_power_menu_frame() {
+  local path=$1
+  local screenshot_name=$2
+  local deadline=$((SECONDS + FRAME_CAPTURE_TIMEOUT_SECONDS))
+
+  # The guest presentation event can precede QEMU monitor scanout updates.
+  # Sample only newly written frames and keep the pixel assertion unchanged.
+  while true; do
+    capture_frame "$path" "$screenshot_name"
+    if assert_power_menu_frame "/artifacts/$screenshot_name"; then
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "Power menu did not become visible in the captured framebuffer." >&2
+      return 1
+    fi
+    sleep 0.25
+  done
 }
 
 black_frame_is_ready() {

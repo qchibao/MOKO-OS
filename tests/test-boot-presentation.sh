@@ -235,7 +235,9 @@ grep -Fq 'MOKO_SHELL_OVERLAY state=acknowledged serial=%1 uid=%2' \
   "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'QThread::currentThread() != thread()' "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
-grep -Fq 'assert_power_menu_frame' <<<"$desktop_shutdown"
+grep -Fq 'capture_power_menu_frame' <<<"$desktop_shutdown"
+grep -Fq 'assert_power_menu_frame "/artifacts/$screenshot_name"' \
+  "$ROOT/scripts/test-iso-docker.sh"
 grep -Fq 'POWER_MENU_SCREENSHOT_NAME=' <<<"$desktop_shutdown"
 grep -Fq 'monitor "sendkey ret"' <<<"$desktop_shutdown"
 grep -Fq 'state=requested uid=1000" 60' <<<"$desktop_shutdown"
