@@ -202,9 +202,6 @@ ApplicationWindow {
         onControlCenterRequested: (page) => {
             controlCenter.currentPage = page
             window.toggleSystemPanel("control-center")
-            if (window.controlCenterVisible) {
-                mokoSystemControl.reportControlCenterOpened(page)
-            }
         }
         onNotificationCenterRequested: window.toggleSystemPanel("notification-center")
         onScreenshotRequested: mokoScreenshotController.captureFullScreen()
