@@ -322,6 +322,8 @@ ApplicationWindow {
                 mokoScreenshotController.captureFullScreen()
             } else if (action === "notification-center") {
                 window.toggleSystemPanel("notification-center")
+            } else if (action === "control-center") {
+                window.toggleSystemPanel("control-center")
             } else if (action === "launcher") {
                 window.toggleSystemPanel("launcher")
             } else if (action === "ai") {
@@ -439,8 +441,40 @@ ApplicationWindow {
     Shortcut { sequence: "Meta+Space"; onActivated: window.toggleSystemPanel("launcher") }
     Shortcut { sequence: "Meta+A"; onActivated: window.toggleSystemPanel("ai") }
     Shortcut { sequence: "Meta+N"; onActivated: window.toggleSystemPanel("notification-center") }
+    Shortcut { sequence: "Meta+C"; onActivated: window.toggleSystemPanel("control-center") }
     Shortcut { sequence: "Ctrl+Space"; onActivated: mokoWindowManager.toggleKeyboardLayout() }
     Shortcut { sequence: "Print"; onActivated: mokoScreenshotController.captureFullScreen() }
+    Shortcut {
+        sequence: "Alt+1"
+        enabled: window.controlCenterVisible
+        onActivated: controlCenter.currentPage = 0
+    }
+    Shortcut {
+        sequence: "Alt+2"
+        enabled: window.controlCenterVisible
+        onActivated: controlCenter.currentPage = 1
+    }
+    Shortcut {
+        sequence: "Alt+3"
+        enabled: window.controlCenterVisible
+        onActivated: controlCenter.currentPage = 2
+    }
+    Shortcut {
+        sequence: "Alt+4"
+        enabled: window.controlCenterVisible
+        onActivated: controlCenter.currentPage = 3
+    }
+    Shortcut {
+        sequence: "Alt+5"
+        enabled: window.controlCenterVisible
+        onActivated: controlCenter.currentPage = 4
+    }
+    Shortcut {
+        sequence: "Ctrl+M"
+        enabled: window.controlCenterVisible && controlCenter.currentPage === 1
+                 && mokoSystemControl.audioAvailable
+        onActivated: mokoSystemControl.setOutputMuted(!mokoSystemControl.outputMuted)
+    }
     Shortcut {
         sequence: "Ctrl+Alt+A"
         onActivated: {

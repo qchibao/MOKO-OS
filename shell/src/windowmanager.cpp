@@ -150,6 +150,9 @@ struct WindowManagerCallbacks
         case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_SCREENSHOT:
             name = QStringLiteral("screenshot");
             break;
+        case MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_CONTROL_CENTER:
+            name = QStringLiteral("control-center");
+            break;
         default:
             return;
         }

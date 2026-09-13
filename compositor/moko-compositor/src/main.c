@@ -1734,6 +1734,11 @@ static bool handle_keybinding(struct moko_server *server,
                               MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_NOTIFICATION_CENTER);
         return true;
     }
+    if (logo && (symbol == XKB_KEY_c || symbol == XKB_KEY_C)) {
+        request_global_action(server,
+                              MOKO_WINDOW_MANAGER_V1_GLOBAL_ACTION_CONTROL_CENTER);
+        return true;
+    }
     if (alt_or_logo && symbol == XKB_KEY_Tab) {
         cycle_focus(server, modifiers & WLR_MODIFIER_SHIFT);
         return true;

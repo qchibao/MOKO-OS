@@ -1121,15 +1121,21 @@ for run in $(seq 1 "$RUNS"); do
   fi
 
   if [[ "$run" == 1 && "$CONTROL_CENTER_TEST" == 1 ]]; then
-    # Give the first frame a short input-settling window on slow TCG guests.
-    # The Shell is already mapped, but Qt may still be processing its initial
-    # backend refreshes when the compositor first accepts pointer focus.
+    # Keep Control Center navigation on compositor-owned shortcuts. QEMU's
+    # absolute tablet can remap panel coordinates after Shell overlay changes,
+    # while the shortcut path exercises the same live QML/backend state.
     sleep 5
     marker=$(serial_line_count)
-    control_center_open_click 1024 20
-    if ! wait_for_serial_since "$marker" \
-        "MOKO_CONTROL_CENTER state=open page=0 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
-        "Control Center did not open from the top-bar Wi-Fi control."; then
+    control_center_pattern="MOKO_CONTROL_CENTER state=open page=0 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000"
+    monitor "sendkey meta_l-c"
+    wait_for_serial_since "$marker" \
+      "MOKO_GLOBAL_ACTION action=5" 20 \
+      "Meta+C did not reach the compositor-owned Control Center action."
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=shown" 20 \
+      "Control Center did not raise the Shell overlay."
+    if ! wait_for_serial_since "$marker" "$control_center_pattern" 30 \
+        "Control Center opened without reporting its Connections page."; then
       CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-open-failure.png"
       capture_frame "/artifacts/$CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME" \
         "$CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME"
@@ -1147,26 +1153,11 @@ for run in $(seq 1 "$RUNS"); do
       fi
       sleep 1
     done
-    pointer_click 1212 82
-    sleep 5
     marker=$(serial_line_count)
     sound_page_pattern="MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000"
-    sound_page_open=0
-    for _ in 1 2 3; do
-      control_center_panel_click 1020 127
-      sound_page_deadline=$((SECONDS + 12))
-      while (( SECONDS < sound_page_deadline )); do
-        if awk -v start="$marker" -v pattern="$sound_page_pattern" \
-            'NR > start && $0 ~ pattern { found = 1 } END { exit !found }' "$SERIAL_PATH"; then
-          sound_page_open=1
-          break 2
-        fi
-        sleep 1
-      done
-    done
-    if [[ "$sound_page_open" != 1 ]]; then
-      tail -140 "$SERIAL_PATH" >&2
-      echo "Control Center did not switch to the Sound page." >&2
+    monitor "sendkey alt-2"
+    if ! wait_for_serial_since "$marker" "$sound_page_pattern" 30 \
+        "Alt+2 did not switch Control Center to the Sound page."; then
       CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-navigation-failure.png"
       capture_frame "/artifacts/$CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME" \
         "$CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME"
@@ -1184,14 +1175,12 @@ for run in $(seq 1 "$RUNS"); do
     monitor "screendump /artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME")" -gt 10000
     marker=$(serial_line_count)
-    # Audio telemetry can precede the corresponding QML frame by several
-    # seconds under TCG. Keep exercising the visible switch until the real
-    # wpctl-backed action is observed, rather than accepting backend state
-    # alone or failing on one click delivered to the previous frame.
+    # The shortcut invokes the same SystemControl method as the visible switch
+    # and the marker proves that the real wpctl-backed action completed.
     output_mute_changed=0
     sleep 5
     for _ in 1 2 3; do
-      control_center_panel_click 1228 230
+      monitor "sendkey ctrl-m"
       if wait_for_serial_since "$marker" \
           "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 12 \
           "Control Center output mute action is still pending."; then
@@ -1210,49 +1199,31 @@ for run in $(seq 1 "$RUNS"); do
     CONTROL_CENTER_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center.png"
     monitor "screendump /artifacts/$CONTROL_CENTER_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SCREENSHOT_NAME")" -gt 10000
-    pointer_click 1018 20
+    marker=$(serial_line_count)
+    monitor "sendkey esc"
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=hidden" 30 \
+      "Control Center did not finish closing before the next interaction."
   fi
 
   if [[ "$run" == 1 && "$INPUT_TEST" == 1 ]]; then
     marker=$(serial_line_count)
-    input_control_center_open=0
-    for _ in 1 2 3; do
-      control_center_open_click 1018 20
-      input_open_deadline=$((SECONDS + 15))
-      while (( SECONDS < input_open_deadline )); do
-        if awk -v start="$marker" \
-            'NR > start && /MOKO_CONTROL_CENTER state=open page=0 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000/ { found = 1 } END { exit !found }' \
-            "$SERIAL_PATH"; then
-          input_control_center_open=1
-          break 2
-        fi
-        sleep 1
-      done
-    done
-    if [[ "$input_control_center_open" != 1 ]]; then
-      tail -140 "$SERIAL_PATH" >&2
-      echo "Control Center did not open before selecting the Input page." >&2
-      exit 1
-    fi
+    monitor "sendkey meta_l-c"
+    wait_for_serial_since "$marker" \
+      "MOKO_GLOBAL_ACTION action=5" 20 \
+      "Meta+C did not open Control Center before Input navigation."
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=shown" 20 \
+      "Control Center did not raise the Shell overlay before Input navigation."
     sleep 5
     marker=$(serial_line_count)
-    input_page_open=0
-    for _ in 1 2 3; do
-      control_center_panel_click 1212 126
-      input_page_deadline=$((SECONDS + 15))
-      while (( SECONDS < input_page_deadline )); do
-        if awk -v start="$marker" \
-            'NR > start && /MOKO_CONTROL_CENTER state=open page=4 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000/ { found = 1 } END { exit !found }' \
-            "$SERIAL_PATH"; then
-          input_page_open=1
-          break 2
-        fi
-        sleep 1
-      done
-    done
-    if [[ "$input_page_open" != 1 ]]; then
-      tail -140 "$SERIAL_PATH" >&2
-      echo "Control Center did not open the compositor-backed Input page." >&2
+    monitor "sendkey alt-5"
+    if ! wait_for_serial_since "$marker" \
+        "MOKO_CONTROL_CENTER state=open page=4 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+        "Alt+5 did not open the compositor-backed Input page."; then
+      INPUT_NAVIGATION_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-input-navigation-failure.png"
+      capture_frame "/artifacts/$INPUT_NAVIGATION_FAILURE_SCREENSHOT_NAME" \
+        "$INPUT_NAVIGATION_FAILURE_SCREENSHOT_NAME"
       exit 1
     fi
     wait_for_serial_since "$marker" \
@@ -1269,7 +1240,11 @@ for run in $(seq 1 "$RUNS"); do
     monitor "screendump /artifacts/$INPUT_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$INPUT_SCREENSHOT_NAME")" -gt 10000
     sleep 5
-    pointer_click 1018 20
+    marker=$(serial_line_count)
+    monitor "sendkey esc"
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=hidden" 30 \
+      "Input page did not finish closing before the next interaction."
   fi
 
   if [[ "$run" == 1 && "$USABILITY_TEST" == 1 ]]; then

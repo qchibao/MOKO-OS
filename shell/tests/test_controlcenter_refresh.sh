@@ -20,6 +20,13 @@ grep -Fq 'function onBluetoothChanged() { root.reportState() }' "$PANEL"
 grep -Fq 'function onAudioChanged() { root.reportState() }' "$PANEL"
 grep -Fq 'function onPowerChanged() { root.reportState() }' "$PANEL"
 
+for shortcut in 'Meta+C' 'Alt+1' 'Alt+2' 'Alt+3' 'Alt+4' 'Alt+5' 'Ctrl+M'; do
+  grep -Fq "sequence: \"$shortcut\"" "$MAIN" || {
+    echo "Control Center keyboard navigation is missing $shortcut." >&2
+    exit 1
+  }
+done
+
 if sed -n '/onControlCenterRequested:/,/^        }/p' "$MAIN" \
     | grep -Fq 'reportControlCenterOpened'; then
   echo "Control Center reports stale state directly from the top-bar click." >&2
