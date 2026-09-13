@@ -251,6 +251,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(moko-window-manager-dispatch-tests PRIVATE
         Qt6::Core
+        Qt6::Gui
         Qt6::DBus
         Qt6::Test
         Threads::Threads

@@ -199,11 +199,12 @@
 
     <request name="present_shell_overlay" since="7">
       <description summary="show the Shell and track its output presentation">
-        The trusted Shell sends this request after committing its prepared
-        overlay buffer. The compositor raises that already rendered MOKO Shell
-        overlay and starts a bounded presentation transaction. It replies with
-        the matching serial only after the resulting scene frame has been
-        presented on every connected output.
+        The trusted Shell sends this request only after a Qt Wayland sync
+        confirms that its prepared overlay buffer has reached the compositor.
+        The compositor raises that rendered MOKO Shell overlay and starts a
+        bounded presentation transaction. It replies with the matching serial
+        only after the resulting scene frame has been presented on every
+        connected output.
       </description>
       <arg name="serial" type="uint" summary="client-generated transaction serial"/>
     </request>

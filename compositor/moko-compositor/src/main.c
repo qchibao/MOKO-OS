@@ -2774,11 +2774,9 @@ static void manager_present_shell_overlay(struct wl_client *client,
     server->shell_overlay_presentation_resource = resource;
     reset_shell_overlay_output_state(server);
     report_event("MOKO_SHELL_OVERLAY state=presentation-requested serial=%u", serial);
-    /* The trusted Shell requests presentation from a frame-swapped callback,
-     * so its menu buffer is already committed when this separate control
-     * connection reaches the compositor. Waiting for another client commit
-     * deadlocks an otherwise idle Qt surface. Raise the prepared buffer now,
-     * then acknowledge only after the output presentation event below. */
+    /* The trusted Shell waits for a sync callback on its Qt Wayland display
+     * before this separate control request is sent. Its prepared menu buffer
+     * is therefore already processed when we raise and track the Shell. */
     if (!show_shell_overlay(server)) {
         report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u", serial);
         cancel_shell_overlay_presentation(server);

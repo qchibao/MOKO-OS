@@ -238,6 +238,13 @@ grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
 grep -Fq 'MOKO_SHELL_OVERLAY state=acknowledged serial=%1 uid=%2' \
   "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'QThread::currentThread() != thread()' "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'QQuickWindow::AfterSwapStage' "$shell_main_cpp"
+grep -Fq 'markShellOverlayRendered(serial)' "$shell_main_cpp"
+grep -Fq 'wl_display_sync(m_native->qtDisplay)' "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'wl_display_flush(m_native->qtDisplay)' "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'MOKO_SHELL_OVERLAY state=qt-synchronized serial=%1' "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq "'MOKO_SHELL_OVERLAY state=qt-synchronized'" \
+  "$ROOT/compositor/moko-compositor/tests/test_qt_session.sh"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
 grep -Fq 'capture_power_menu_frame' <<<"$desktop_shutdown"
 grep -Fq 'assert_power_menu_frame "/artifacts/$screenshot_name"' \

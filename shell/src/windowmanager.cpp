@@ -8,9 +8,11 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QSettings>
 #include <QSocketNotifier>
 #include <QThread>
+#include <QtGui/qguiapplication_platform.h>
 #include <QtMath>
 
 #include <cerrno>
@@ -33,6 +35,8 @@ struct WindowManager::NativeState
     wl_display *display = nullptr;
     wl_registry *registry = nullptr;
     moko_window_manager_v1 *manager = nullptr;
+    wl_display *qtDisplay = nullptr;
+    wl_callback *shellOverlaySync = nullptr;
 };
 
 namespace {
@@ -173,6 +177,16 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         native->owner->handleShellOverlayPresented(serial);
     }
+
+    static void shellOverlaySyncDone(void *data, wl_callback *callback, uint32_t)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        if (native->shellOverlaySync != callback)
+            return;
+        wl_callback_destroy(callback);
+        native->shellOverlaySync = nullptr;
+        native->owner->handleShellOverlaySyncDone();
+    }
 };
 
 namespace {
@@ -194,6 +208,10 @@ const moko_window_manager_v1_listener managerListener = {
     .gesture_config = WindowManagerCallbacks::managerGestureConfig,
     .power_menu = WindowManagerCallbacks::managerPowerMenu,
     .shell_overlay_presented = WindowManagerCallbacks::managerShellOverlayPresented,
+};
+
+const wl_callback_listener shellOverlaySyncListener = {
+    .done = WindowManagerCallbacks::shellOverlaySyncDone,
 };
 
 constexpr int shutdownEventPumpIntervalMs = 20;
@@ -596,7 +614,7 @@ bool WindowManager::setShellOverlay(bool visible)
 {
     if (!desktopProtocolAvailable() || m_native->manager == nullptr)
         return false;
-    m_shellOverlayPresentationSerial = 0;
+    cancelShellOverlayPresentation();
     moko_window_manager_v1_set_shell_overlay(m_native->manager, visible ? 1 : 0);
     return flushRequest();
 }
@@ -610,16 +628,93 @@ bool WindowManager::presentShellOverlay()
         return false;
     }
 
+    cancelShellOverlayPresentation();
     ++m_nextShellOverlayPresentationSerial;
     if (m_nextShellOverlayPresentationSerial == 0)
         ++m_nextShellOverlayPresentationSerial;
     m_shellOverlayPresentationSerial = m_nextShellOverlayPresentationSerial;
-    moko_window_manager_v1_present_shell_overlay(m_native->manager,
-                                                 m_shellOverlayPresentationSerial);
+    const quint32 serial = m_shellOverlayPresentationSerial;
+    if (!m_shellOverlayRenderScheduler)
+        return true;
+    m_shellOverlayRenderScheduler(serial);
+    return true;
+}
+
+void WindowManager::setShellOverlayRenderScheduler(std::function<void(quint32)> scheduler)
+{
+    m_shellOverlayRenderScheduler = std::move(scheduler);
+    if (m_shellOverlayRenderScheduler && m_shellOverlayPresentationSerial != 0)
+        m_shellOverlayRenderScheduler(m_shellOverlayPresentationSerial);
+}
+
+void WindowManager::markShellOverlayRendered(quint32 serial)
+{
+    if (serial == 0 || serial != m_shellOverlayPresentationSerial)
+        return;
+    writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=rendered serial=%1")
+                       .arg(serial));
+    beginShellOverlaySync(serial);
+}
+
+void WindowManager::beginShellOverlaySync(quint32 serial)
+{
+    if (serial == 0 || serial != m_shellOverlayPresentationSerial
+        || m_native->manager == nullptr) {
+        return;
+    }
+
+    auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+    auto *wayland = app != nullptr
+        ? app->nativeInterface<QNativeInterface::QWaylandApplication>() : nullptr;
+    m_native->qtDisplay = wayland != nullptr ? wayland->display() : nullptr;
+    if (m_native->qtDisplay == nullptr) {
+        sendShellOverlayPresentation(serial);
+        return;
+    }
+
+    m_native->shellOverlaySync = wl_display_sync(m_native->qtDisplay);
+    if (m_native->shellOverlaySync == nullptr) {
+        cancelShellOverlayPresentation();
+        return;
+    }
+    wl_callback_add_listener(m_native->shellOverlaySync,
+                             &shellOverlaySyncListener,
+                             m_native.get());
+    const int flushed = wl_display_flush(m_native->qtDisplay);
+    if (flushed < 0 && errno != EAGAIN)
+        cancelShellOverlayPresentation();
+}
+
+void WindowManager::handleShellOverlaySyncDone()
+{
+    const quint32 serial = m_shellOverlayPresentationSerial;
+    if (serial == 0)
+        return;
+    writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=qt-synchronized serial=%1")
+                       .arg(serial));
+    sendShellOverlayPresentation(serial);
+}
+
+bool WindowManager::sendShellOverlayPresentation(quint32 serial)
+{
+    if (serial == 0 || serial != m_shellOverlayPresentationSerial
+        || m_native->manager == nullptr) {
+        return false;
+    }
+    moko_window_manager_v1_present_shell_overlay(m_native->manager, serial);
     if (flushRequest())
         return true;
-    m_shellOverlayPresentationSerial = 0;
+    cancelShellOverlayPresentation();
     return false;
+}
+
+void WindowManager::cancelShellOverlayPresentation()
+{
+    if (m_native != nullptr && m_native->shellOverlaySync != nullptr) {
+        wl_callback_destroy(m_native->shellOverlaySync);
+        m_native->shellOverlaySync = nullptr;
+    }
+    m_shellOverlayPresentationSerial = 0;
 }
 
 bool WindowManager::prepareShutdown()
@@ -794,6 +889,7 @@ void WindowManager::stopWaylandDispatchWakeup()
 
 void WindowManager::disconnectWayland()
 {
+    cancelShellOverlayPresentation();
     stopWaylandDispatchWakeup();
     m_waylandDispatchTimer.stop();
     if (m_notifier != nullptr) {
@@ -837,7 +933,6 @@ void WindowManager::disconnectWayland()
     m_outputScale = 100;
     m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
     m_keyboardLayout = 0;
-    m_shellOverlayPresentationSerial = 0;
     if (wasConnected || hadWindows || hadInputState || hadDesktopState) {
         ++m_revision;
         if (wasConnected)

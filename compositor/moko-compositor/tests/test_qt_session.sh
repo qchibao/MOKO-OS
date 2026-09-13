@@ -88,6 +88,8 @@ until grep -q '^MOKO_POWER_MENU state=ready uid=' "$events" 2>/dev/null; do
 done
 
 for marker in \
+  'MOKO_SHELL_OVERLAY state=rendered' \
+  'MOKO_SHELL_OVERLAY state=qt-synchronized' \
   'MOKO_SHELL_OVERLAY state=presentation-requested' \
   'MOKO_SHELL_OVERLAY state=shown' \
   'MOKO_SHELL_OVERLAY state=presented' \
@@ -95,6 +97,24 @@ for marker in \
 do
   grep -q "^$marker" "$events"
 done
+
+rendered_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=rendered' "$events" | cut -d: -f1)
+synchronized_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=qt-synchronized' "$events" | cut -d: -f1)
+requested_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=presentation-requested' "$events" | cut -d: -f1)
+presented_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=presented' "$events" | cut -d: -f1)
+ready_line=$(grep -nFm1 'MOKO_POWER_MENU state=ready' "$events" | cut -d: -f1)
+if [ "$rendered_line" -ge "$synchronized_line" ] \
+  || [ "$synchronized_line" -ge "$requested_line" ] \
+  || [ "$requested_line" -ge "$presented_line" ] \
+  || [ "$presented_line" -ge "$ready_line" ]; then
+  cat "$events" >&2
+  printf 'MOKO Power menu presentation barriers completed out of order.\n' >&2
+  exit 1
+fi
+
+if [ "${MOKO_PRINT_TEST_EVENTS:-0}" = 1 ]; then
+  cat "$events"
+fi
 
 "$files" --smoke-test >"$runtime/files.log" 2>&1 &
 files_pid=$!

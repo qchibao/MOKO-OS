@@ -1,6 +1,6 @@
 # MOKO OS status
 
-Updated: 2026-09-12
+Updated: 2026-09-13
 
 | Task | State | Notes |
 |---|---|---|
@@ -31,6 +31,13 @@ MOKO review/install flow. MOKO AI remains frozen and the OS installer remains
 disabled. The H8 component suite and isolated QEMU functional gates pass with
 zero unexpected block mounts and black shutdown frames. The Intel MacBook Pro
 2015 remains the final authority for physical validation.
+
+The latest UEFI repetition caught a stale Power-menu framebuffer even though
+the compositor presentation telemetry was green. The Shell now inserts a Qt
+Wayland sync barrier between the rendered menu frame and the separate MOKO
+control request. Static checks, compositor `5/5`, Shell `12/12`, and the real
+threaded Qt multi-window session pass with the barrier markers in strict order.
+A clean ISO rebuild and repeated BIOS/UEFI framebuffer gates are pending.
 
 ### Physical bug backlog from the Intel MacBook Pro 2015 test
 

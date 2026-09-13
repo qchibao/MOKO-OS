@@ -17,11 +17,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
 #include <QQuickWindow>
 #include <QQuickStyle>
+#include <QRunnable>
 #include <QSet>
 #include <QTimer>
 
@@ -257,6 +259,19 @@ int main(int argc, char *argv[])
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window)
         return 1;
+
+    windowManager.setShellOverlayRenderScheduler(
+        [window, manager = QPointer<WindowManager>(&windowManager)](quint32 serial) {
+            window->scheduleRenderJob(QRunnable::create([manager, serial] {
+                if (manager == nullptr)
+                    return;
+                QMetaObject::invokeMethod(manager, [manager, serial] {
+                    if (manager != nullptr)
+                        manager->markShellOverlayRendered(serial);
+                }, Qt::QueuedConnection);
+            }), QQuickWindow::AfterSwapStage);
+            window->requestUpdate();
+        });
 
     QObject::connect(window, &QQuickWindow::frameSwapped, window, [window] {
         QMetaObject::invokeMethod(window, "handleFrameSwapped", Qt::DirectConnection);

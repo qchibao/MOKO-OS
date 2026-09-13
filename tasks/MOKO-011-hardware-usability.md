@@ -999,3 +999,28 @@ A clean replacement ISO and repeated BIOS/UEFI shutdown gates remain required.
 Rollback: revert this scoped presentation follow-up. It does not change the
 power-key/logind inhibitor, blackout transaction, Live disk policy, installer
 state, Safe Graphics path or frozen MOKO AI boundary.
+
+### Power-menu cross-connection ordering hotfix (2026-09-13)
+
+The UEFI release gate then exposed the remaining physical-host race: Qt's
+fullscreen Shell and the MOKO control protocol use different Wayland
+connections. Under TCG/UEFI load, `present_shell_overlay` could be processed
+before the Qt socket's newly rendered menu commit, so the compositor's output
+presentation ACK described the previous Launcher/AI scene. The framebuffer
+check correctly rejected that stale frame (`luminance_delta=-20.7`).
+
+The Shell now schedules a render-stage barrier, waits for `wl_display_sync()`
+on Qt's native Wayland display, and sends the compositor request only from the
+sync callback. The compositor protocol documents this ordering contract; the
+existing output presentation ACK remains authoritative. Cancellation and
+disconnect paths destroy a pending callback and clear the transaction serial.
+
+Regression coverage requires the real threaded Qt session to observe, in
+order, `rendered`, `qt-synchronized`, `presentation-requested`, `presented`,
+and `ready`. Static boot checks, compositor CTest `5/5`, Shell CTest `12/12`,
+and the Qt multi-window session pass. This changes no power action, logind
+inhibitor, disk-safety policy, installer state or frozen MOKO AI capability.
+
+Rollback: revert this scoped synchronization commit. The prior compositor
+presentation protocol and shutdown blackout remain available, but the UEFI
+cross-connection race would return.

@@ -107,6 +107,8 @@ public:
     Q_INVOKABLE bool toggleKeyboardLayout();
     Q_INVOKABLE bool setShellOverlay(bool visible);
     Q_INVOKABLE bool presentShellOverlay();
+    void setShellOverlayRenderScheduler(std::function<void(quint32)> scheduler);
+    void markShellOverlayRendered(quint32 serial);
     bool prepareShutdown();
     Q_INVOKABLE bool refreshConnection();
     Q_INVOKABLE void reportInputPanelOpened() const;
@@ -150,6 +152,10 @@ private:
                              quint32 keyboardLayout);
     void handleShutdownBlackoutPresented();
     void handleShellOverlayPresented(quint32 serial);
+    void beginShellOverlaySync(quint32 serial);
+    void handleShellOverlaySyncDone();
+    bool sendShellOverlayPresentation(quint32 serial);
+    void cancelShellOverlayPresentation();
     void updatePowerKeyHandling();
     void pumpShutdownEvents(quint64 generation);
     bool flushRequest();
@@ -158,6 +164,7 @@ private:
 
     std::unique_ptr<NativeState> m_native;
     std::unique_ptr<PowerKeyInhibitor> m_powerKeyInhibitor;
+    std::function<void(quint32)> m_shellOverlayRenderScheduler;
     QList<WindowInfo> m_windows;
     QSocketNotifier *m_notifier = nullptr;
     QTimer m_waylandDispatchTimer;
