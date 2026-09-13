@@ -909,3 +909,32 @@ menu blackout gates remain required.
 Rollback: revert this scoped responsiveness commit. The prior power-action
 blackout transaction and logind inhibitor remain independently reversible; Live
 disk safety and the Safe Graphics fallback are unaffected.
+
+### Power-menu presented-frame ordering follow-up (2026-09-13)
+
+The first BIOS gate for the responsiveness follow-up exposed a narrower frame
+ordering race. `MOKO_POWER_MENU state=ready` was emitted from a `frameSwapped`
+signal that had already been queued for the previous Launcher/AI scene. The
+compositor then raised that old buffer, and the test's Return key reached the
+previously focused application instead of the default Shut Down action. The
+failure framebuffer is
+`out/moko-iso-smoke-20260912T233906Z-bios-desktop-boot-1-power-action-failure.png`.
+
+Power-menu presentation now has explicit preparation, overlay-focus and final
+presentation phases. It requires two requested swaps before asking the
+compositor to raise the Shell, waits until Qt reports the Shell window active,
+reclaims focus for Shut Down, and requires one more swapped frame before
+publishing readiness. This keeps the already-rendered menu buffer visible as
+soon as the compositor raises the Shell and prevents a stale swap from
+satisfying the readiness gate. It does not add timeouts to hide the race.
+
+The Debian validation suite passes after the change: static boot/shutdown and
+disk-safety checks; compositor CTest `5/5`; Shell CTest `10/10`; frozen AI CTest
+`3/3`; native apps CTest `15/15`; and the Qt compositor multi-window session.
+The render gate now verifies that the bright center panel is separated from the
+dimmed desktop; the known failure artifact fails that comparison. Clean ISO
+rebuild and the physical-key BIOS shutdown gate remain pending.
+
+Rollback: revert this scoped follow-up. The compositor protocol, logind action,
+shutdown blackout, power-key inhibitor, Live disk policy, installer state and
+frozen MOKO AI boundary are unchanged.

@@ -158,8 +158,14 @@ compositor_source="$ROOT/compositor/moko-compositor/src/main.c"
 shell_main_qml="$ROOT/shell/qml/Main.qml"
 grep -Fq 'root.forceActiveFocus()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
+grep -Fq 'return root.activeFocus && shutdownButton.activeFocus' "$power_menu"
+grep -Fq 'signal scenePrepared()' "$power_menu"
 grep -Fq 'signal presentationFrameRequested()' "$power_menu"
 grep -Fq 'function confirmPresentedFrame()' "$power_menu"
+grep -Fq 'root.presentationPhase = 2' "$power_menu"
+grep -Fq 'root.presentationPhase = 3' "$power_menu"
+grep -Fq 'root.presentationPhase = 4' "$power_menu"
+grep -Fq '!root.windowActive || !root.focusDefaultAction()' "$power_menu"
 grep -Fq 'presentationRetry.start()' "$power_menu"
 grep -Fq 'presentationRetry.stop()' "$power_menu"
 if grep -Fq 'Behavior on opacity' "$power_menu"; then
@@ -170,7 +176,14 @@ grep -Fq 'sequence: "Return"' "$power_menu"
 grep -Fq 'sequence: "Enter"' "$power_menu"
 grep -Fq 'onActivated: root.activateFocusedAction()' "$power_menu"
 grep -Fq 'powerMenu.confirmPresentedFrame()' "$shell_main_qml"
+grep -Fq 'windowActive: window.active' "$shell_main_qml"
+grep -Fq 'onScenePrepared: mokoWindowManager.setShellOverlay(true)' "$shell_main_qml"
 grep -Fq 'onPresentationFrameRequested: window.requestUpdate()' "$shell_main_qml"
+if sed -n '/function showPowerMenu()/,/^    }/p' "$shell_main_qml" \
+    | grep -Fq 'setShellOverlay(true)'; then
+  echo "Power menu raises the Shell before its newly rendered scene is ready." >&2
+  exit 1
+fi
 dispatch_wayland=$(sed -n '/void WindowManager::dispatchWayland()/,/^}/p' \
   "$ROOT/shell/src/windowmanager.cpp")
 if grep -Fq 'wl_display_dispatch(m_native->display)' <<<"$dispatch_wayland"; then

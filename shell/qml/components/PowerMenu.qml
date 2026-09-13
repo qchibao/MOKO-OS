@@ -5,14 +5,17 @@ FocusScope {
     id: root
     property var control
     property var lifecycle
+    property bool windowActive: false
     readonly property bool busy: control
                                  && (control.powerActionPending || control.suspendPending
                                      || (lifecycle && lifecycle.shuttingDown))
     property bool presentationReported: false
+    property int presentationPhase: 0
     signal dismissRequested()
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    signal scenePrepared()
     signal presentationFrameRequested()
     signal presentationReady()
 
@@ -26,10 +29,12 @@ FocusScope {
         // while Qt still needs a concrete control to receive Return/Enter.
         root.forceActiveFocus()
         shutdownButton.forceActiveFocus()
+        return root.activeFocus && shutdownButton.activeFocus
     }
 
     function requestPresentationFrame() {
-        if (!root.visible || root.presentationReported)
+        if (!root.visible || root.presentationReported
+                || root.presentationPhase === 0)
             return
         root.focusDefaultAction()
         root.presentationFrameRequested()
@@ -38,8 +43,35 @@ FocusScope {
     function confirmPresentedFrame() {
         if (!root.visible || root.presentationReported)
             return false
-        root.focusDefaultAction()
+
+        // A frameSwapped signal from the previously queued desktop frame can
+        // arrive just after visibility changes. Require two requested swaps
+        // before raising the Shell so the compositor never exposes that stale
+        // Launcher/AI buffer as a ready Power menu.
+        if (root.presentationPhase === 1) {
+            root.presentationPhase = 2
+            root.requestPresentationFrame()
+            return false
+        }
+        if (root.presentationPhase === 2) {
+            root.presentationPhase = 3
+            root.scenePrepared()
+            return false
+        }
+        if (root.presentationPhase === 3) {
+            if (!root.windowActive || !root.focusDefaultAction())
+                return false
+            root.presentationPhase = 4
+            root.requestPresentationFrame()
+            return false
+        }
+        if (root.presentationPhase !== 4 || !root.windowActive
+                || !root.focusDefaultAction()) {
+            return false
+        }
+
         presentationRetry.stop()
+        root.presentationPhase = 5
         root.presentationReported = true
         root.presentationReady()
         return true
@@ -207,12 +239,18 @@ FocusScope {
 
     onVisibleChanged: {
         presentationReported = false
+        presentationPhase = visible ? 1 : 0
         presentationRetry.stop()
         if (visible) {
             focusDefaultAction()
             presentationRetry.start()
             Qt.callLater(requestPresentationFrame)
         }
+    }
+
+    onWindowActiveChanged: {
+        if (visible && windowActive && presentationPhase === 3)
+            requestPresentationFrame()
     }
 
     onBusyChanged: {

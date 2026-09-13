@@ -136,9 +136,6 @@ ApplicationWindow {
         controlCenterVisible = false
         notificationCenterVisible = false
         powerMenuVisible = true
-        // The content state is already changed when the compositor raises the
-        // Shell, so the first visible frame contains the menu itself.
-        mokoWindowManager.setShellOverlay(true)
         window.requestUpdate()
     }
 
@@ -244,6 +241,8 @@ ApplicationWindow {
         z: 40
         control: mokoSystemControl
         lifecycle: mokoSessionLifecycle
+        windowActive: window.active
+        onScenePrepared: mokoWindowManager.setShellOverlay(true)
         onPresentationFrameRequested: window.requestUpdate()
         onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()

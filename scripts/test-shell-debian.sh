@@ -74,6 +74,21 @@ if any(max(pixel) > 8 for pixel in image.getdata()):
 PY
 
     WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
+      /tmp/moko-shell-build/moko-shell --smoke-test --windowed --power-menu \
+      --size 1280x720 --screenshot /artifacts/moko-power-menu-preview.png
+    python3 - <<'PY'
+from PIL import Image, ImageStat
+
+image = Image.open("/artifacts/moko-power-menu-preview.png").convert("RGB")
+center = image.crop((410, 270, 870, 522))
+background = image.crop((450, 45, 850, 180))
+center_luma = sum(ImageStat.Stat(center).mean) / 3
+background_luma = sum(ImageStat.Stat(background).mean) / 3
+if center_luma < background_luma + 70:
+    raise SystemExit("MOKO Power menu panel was not rendered in the prepared frame")
+PY
+
+    WAYLAND_DISPLAY=wayland-moko QT_QPA_PLATFORM=wayland \
       /tmp/moko-shell-build/moko-shell --smoke-test --windowed --control-center \
       --size 1280x720 --screenshot /artifacts/moko-control-center-preview.png
     test -s /artifacts/moko-control-center-preview.png
