@@ -241,8 +241,7 @@ ApplicationWindow {
         z: 40
         control: mokoSystemControl
         lifecycle: mokoSessionLifecycle
-        windowActive: window.active
-        onScenePrepared: mokoWindowManager.setShellOverlay(true)
+        onScenePrepared: powerMenu.overlayPrepared = mokoWindowManager.setShellOverlay(true)
         onPresentationFrameRequested: window.requestUpdate()
         onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()

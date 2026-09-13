@@ -5,7 +5,7 @@ FocusScope {
     id: root
     property var control
     property var lifecycle
-    property bool windowActive: false
+    property bool overlayPrepared: false
     readonly property bool busy: control
                                  && (control.powerActionPending || control.suspendPending
                                      || (lifecycle && lifecycle.shuttingDown))
@@ -36,6 +36,8 @@ FocusScope {
         if (!root.visible || root.presentationReported
                 || root.presentationPhase === 0)
             return
+        if (root.presentationPhase === 3 && !root.overlayPrepared)
+            root.scenePrepared()
         root.focusDefaultAction()
         root.presentationFrameRequested()
     }
@@ -59,13 +61,13 @@ FocusScope {
             return false
         }
         if (root.presentationPhase === 3) {
-            if (!root.windowActive || !root.focusDefaultAction())
+            if (!root.overlayPrepared || !root.focusDefaultAction())
                 return false
             root.presentationPhase = 4
             root.requestPresentationFrame()
             return false
         }
-        if (root.presentationPhase !== 4 || !root.windowActive
+        if (root.presentationPhase !== 4
                 || !root.focusDefaultAction()) {
             return false
         }
@@ -239,6 +241,7 @@ FocusScope {
 
     onVisibleChanged: {
         presentationReported = false
+        overlayPrepared = false
         presentationPhase = visible ? 1 : 0
         presentationRetry.stop()
         if (visible) {
@@ -246,11 +249,6 @@ FocusScope {
             presentationRetry.start()
             Qt.callLater(requestPresentationFrame)
         }
-    }
-
-    onWindowActiveChanged: {
-        if (visible && windowActive && presentationPhase === 3)
-            requestPresentationFrame()
     }
 
     onBusyChanged: {

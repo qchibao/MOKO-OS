@@ -922,11 +922,13 @@ failure framebuffer is
 
 Power-menu presentation now has explicit preparation, overlay-focus and final
 presentation phases. It requires two requested swaps before asking the
-compositor to raise the Shell, waits until Qt reports the Shell window active,
-reclaims focus for Shut Down, and requires one more swapped frame before
-publishing readiness. This keeps the already-rendered menu buffer visible as
-soon as the compositor raises the Shell and prevents a stale swap from
-satisfying the readiness gate. It does not add timeouts to hide the race.
+compositor to raise the Shell, records the compositor overlay request's flushed
+ACK, reclaims focus for Shut Down, and requires one more swapped frame before
+publishing readiness. It does not depend on Qt's `window.active` hint, which is
+not reliable for fullscreen Wayland surfaces under UEFI, while the compositor
+still owns the actual keyboard focus. This keeps the already-rendered menu
+buffer visible as soon as the compositor raises the Shell and prevents a stale
+swap from satisfying the readiness gate.
 
 The Debian validation suite passes after the change: static boot/shutdown and
 disk-safety checks; compositor CTest `5/5`; Shell CTest `10/10`; frozen AI CTest
