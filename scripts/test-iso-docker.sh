@@ -241,6 +241,14 @@ monitor() {
     socat - UNIX-CONNECT:/tmp/qemu-monitor.sock >/dev/null
 }
 
+close_focused_app() {
+  if [[ "$BOOT_MODE" == safe-graphics ]]; then
+    monitor "sendkey ctrl-q"
+  else
+    monitor "sendkey alt-f4"
+  fi
+}
+
 qmp_request() {
   local command=$1
   local response
@@ -328,12 +336,6 @@ dock_app_click() {
       return 1
       ;;
   esac
-
-  # Raise the Shell surface first. A client window can cover the reserved Dock
-  # strip while it is settling; Meta exposes the real Dock without bypassing
-  # the user-facing activation path.
-  monitor "sendkey meta_l-space"
-  sleep 1
 
   # Mirrors Dock.qml's compact 1280x800 geometry and pinned application order.
   local app_count=5
@@ -433,6 +435,20 @@ wait_for_serial_since() {
   done
   awk -v start="$start_line" -v pattern="$pattern" \
     'NR > start && $0 ~ pattern { line = $0 } END { print line }' "$SERIAL_PATH"
+}
+
+wait_for_serial_since_quiet() {
+  local start_line=$1
+  local pattern=$2
+  local timeout=$3
+  local deadline=$((SECONDS + timeout))
+  while ! awk -v start="$start_line" -v pattern="$pattern" \
+      'NR > start && $0 ~ pattern { found = 1 } END { exit !found }' "$SERIAL_PATH"; do
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 1
+  done
 }
 
 request_desktop_shutdown() {
@@ -1437,7 +1453,7 @@ for run in $(seq 1 "$RUNS"); do
     }
 
     if [[ -n "$AI_EXPECT_APP_ID" ]]; then
-      monitor "sendkey ctrl-q"
+      close_focused_app
       ai_return_deadline=$((SECONDS + 30))
       while ! grep -E -q "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=$AI_EXPECT_APP_ID" "$SERIAL_PATH"; do
         if (( SECONDS >= ai_return_deadline )); then
@@ -1756,10 +1772,20 @@ for run in $(seq 1 "$RUNS"); do
         "MOKO Files did not minimize through compositor state."
 
       marker=$(serial_line_count)
-      dock_app_click org.moko.Files
-      wait_for_serial_since "$marker" \
-        "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 20 \
-        "The Files Dock icon did not focus and restore its compositor window."
+      dock_restore_ready=0
+      for _ in 1 2 3; do
+        dock_app_click org.moko.Files
+        if wait_for_serial_since_quiet "$marker" \
+            "MOKO_WINDOW_STATE id=[0-9]+ app_id=org.moko.Files state=1 " 10; then
+          dock_restore_ready=1
+          break
+        fi
+      done
+      if [[ "$dock_restore_ready" != 1 ]]; then
+        tail -140 "$SERIAL_PATH" >&2
+        echo "The Files Dock icon did not focus and restore its compositor window." >&2
+        exit 1
+      fi
       files_launch_count=$(grep -Ec \
         'MOKO_APP_LAUNCH app_id=org.moko.Files state=running pid=[1-9][0-9]* uid=1000' \
         "$SERIAL_PATH")
@@ -1769,7 +1795,20 @@ for run in $(seq 1 "$RUNS"); do
       }
 
       marker=$(serial_line_count)
-      dock_app_click org.moko.Settings
+      settings_mapped=0
+      for _ in 1 2 3; do
+        dock_app_click org.moko.Settings
+        if wait_for_serial_since_quiet "$marker" \
+            "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" 15; then
+          settings_mapped=1
+          break
+        fi
+      done
+      if [[ "$settings_mapped" != 1 ]]; then
+        tail -140 "$SERIAL_PATH" >&2
+        echo "MOKO Settings did not map alongside MOKO Files." >&2
+        exit 1
+      fi
       wait_for_serial_since "$marker" \
         "MOKO_COMPOSITOR_WINDOW state=mapped id=[0-9]+ app_id=org.moko.Settings" "$APP_READY_TIMEOUT_SECONDS" \
         "MOKO Settings did not map alongside MOKO Files."
@@ -1808,7 +1847,7 @@ for run in $(seq 1 "$RUNS"); do
         "Alt+Tab did not focus MOKO Settings."
 
       marker=$(serial_line_count)
-      monitor "sendkey ctrl-q"
+      close_focused_app
       wait_for_serial_since "$marker" \
         "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.Settings" 30 \
         "MOKO Settings did not close cleanly after the multi-window workflow."
@@ -1922,24 +1961,24 @@ for run in $(seq 1 "$RUNS"); do
         monitor "screendump /artifacts/$PACKAGE_INSTALLED_SCREENSHOT_NAME -f png"
         test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$PACKAGE_INSTALLED_SCREENSHOT_NAME")" -gt 10000
 
-        monitor "sendkey ctrl-q"
+        close_focused_app
         wait_for_serial_since "$marker" \
           "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.PackageInstaller" 30 \
           "MOKO Package Installer did not close after the installation test."
       fi
 
       marker=$(serial_line_count)
-      monitor "sendkey ctrl-q"
+      close_focused_app
       wait_for_serial_since "$marker" \
         "MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=org.moko.Files" 30 \
         "MOKO Files did not close after validating the Browser download."
     fi
 
     if [[ "$REQUIRE_APP_READY" == 1 ]]; then
-      monitor "sendkey ctrl-q"
+      close_focused_app
       if [[ "$SETTINGS_OPEN_HARDWARE" == 1 ]]; then
         sleep 3
-        monitor "sendkey ctrl-q"
+        close_focused_app
       fi
       return_deadline=$((SECONDS + 30))
       return_pattern="MOKO_COMPOSITOR_WINDOW state=unmapped id=[0-9]+ app_id=$LAUNCH_APP_ID"
