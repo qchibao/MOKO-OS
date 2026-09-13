@@ -420,11 +420,17 @@ request_desktop_shutdown() {
     return 1
   fi
 
-  # The visible-presentation marker also arms the default Shut Down focus, so
-  # Enter follows the same bounded, unprivileged UI action as a keyboard user.
+  POWER_MENU_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu.png"
+  capture_frame "/artifacts/$POWER_MENU_SCREENSHOT_NAME" \
+    "$POWER_MENU_SCREENSHOT_NAME"
+  assert_power_menu_frame "/artifacts/$POWER_MENU_SCREENSHOT_NAME"
+
+  # TCG can take longer than a native machine to deliver and process HMP's
+  # synthesized key after the rendered-frame capture. Keep the keyboard path,
+  # but give the guest enough time to enter the real shutdown transaction.
   monitor "sendkey ret"
   if ! wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 15 \
+      "MOKO_CONTROL_ACTION action=poweroff state=requested uid=1000" 60 \
       "The focused MOKO Power action did not request poweroff through logind."; then
     POWER_ACTION_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-action-failure.png"
     capture_frame "/artifacts/$POWER_ACTION_FAILURE_SCREENSHOT_NAME" \
@@ -479,6 +485,24 @@ allowed = max(8, total // 10000)
 print(f"MOKO shutdown black frame: bright_pixels={bright} allowed={allowed} total={total}")
 if bright > allowed:
     raise SystemExit("Shutdown framebuffer was not fully black")
+PY
+}
+
+assert_power_menu_frame() {
+  local path=$1
+  docker exec -i "$CONTAINER" python3 - "$path" <<'PY'
+import sys
+from PIL import Image, ImageStat
+
+image = Image.open(sys.argv[1]).convert("RGB")
+center = image.crop((410, 275, 870, 527))
+background = image.crop((450, 45, 850, 180))
+center_luma = sum(ImageStat.Stat(center).mean) / 3
+background_luma = sum(ImageStat.Stat(background).mean) / 3
+delta = center_luma - background_luma
+print(f"MOKO Power menu frame: luminance_delta={delta:.1f}")
+if delta < 70:
+    raise SystemExit("Power menu panel was not visible in the captured framebuffer")
 PY
 }
 

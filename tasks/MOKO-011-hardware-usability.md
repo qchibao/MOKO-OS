@@ -938,3 +938,26 @@ rebuild and the physical-key BIOS shutdown gate remain pending.
 Rollback: revert this scoped follow-up. The compositor protocol, logind action,
 shutdown blackout, power-key inhibitor, Live disk policy, installer state and
 frozen MOKO AI boundary are unchanged.
+
+### Power-menu release-gate input follow-up (2026-09-13)
+
+The rebuilt BIOS image rendered the correct Power menu and published its
+presented-frame marker, but the release gate stopped waiting 15 seconds after
+QEMU HMP injected `sendkey ret`. A retained debug VM showed the same queued
+Return entering the existing blackout and logind transaction roughly one
+second after that deadline under TCG.
+
+The ISO release gate now captures and checks the visible Power panel before
+keeping its focused Return path, with a 60-second action deadline for slow TCG
+execution. This keeps the gate strict about the physical Power-key hold,
+rendered menu, keyboard action, unprivileged logind request, full-black
+framebuffer and clean ACPI poweroff without treating host emulation lag as a
+guest failure. Runtime power, compositor, disk-safety and AI code are unchanged.
+
+Rollback: revert this test-harness follow-up. It does not alter the Live image
+or any production safety policy.
+
+Validation: the rebuilt `722a76c` ISO passed the BIOS blocker once. The gate
+measured a `+136.9` Power-panel luminance delta, observed the unprivileged
+logind poweroff request and shutdown-blackout markers, measured `0` bright
+pixels in both blackout captures, and received a clean QEMU exit status.

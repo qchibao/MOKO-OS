@@ -211,6 +211,10 @@ fi
 grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
   "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
+grep -Fq 'assert_power_menu_frame' <<<"$desktop_shutdown"
+grep -Fq 'POWER_MENU_SCREENSHOT_NAME=' <<<"$desktop_shutdown"
+grep -Fq 'monitor "sendkey ret"' <<<"$desktop_shutdown"
+grep -Fq 'state=requested uid=1000" 60' <<<"$desktop_shutdown"
 power_request=$(sed -n '/^static void request_power_menu/,/^}/p' "$compositor_source")
 grep -Fq 'moko_window_manager_v1_send_power_menu' <<<"$power_request"
 grep -Fq 'wl_display_flush_clients(server->display);' <<<"$power_request"
