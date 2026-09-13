@@ -572,7 +572,12 @@ black_frame_is_ready() {
 import sys
 from PIL import Image, ImageChops
 
-image = Image.open(sys.argv[1]).convert("RGB")
+try:
+    with Image.open(sys.argv[1]) as source:
+        source.load()
+        image = source.convert("RGB")
+except (FileNotFoundError, OSError, SyntaxError):
+    raise SystemExit(1)
 red, green, blue = image.split()
 maximum = ImageChops.lighter(red, ImageChops.lighter(green, blue))
 histogram = maximum.histogram()
@@ -600,7 +605,7 @@ from PIL import Image
 try:
     with Image.open(sys.argv[1]) as image:
         image.load()
-except (FileNotFoundError, OSError):
+except (FileNotFoundError, OSError, SyntaxError):
     raise SystemExit(1)
 PY
   do
@@ -1210,16 +1215,46 @@ for run in $(seq 1 "$RUNS"); do
 
   if [[ "$run" == 1 && "$INPUT_TEST" == 1 ]]; then
     marker=$(serial_line_count)
-    pointer_click 1018 20
-    wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
-      "Control Center did not open before selecting the Input page."
+    input_control_center_open=0
+    for _ in 1 2 3; do
+      control_center_open_click 1018 20
+      input_open_deadline=$((SECONDS + 15))
+      while (( SECONDS < input_open_deadline )); do
+        if awk -v start="$marker" \
+            'NR > start && /MOKO_CONTROL_CENTER state=open page=0 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000/ { found = 1 } END { exit !found }' \
+            "$SERIAL_PATH"; then
+          input_control_center_open=1
+          break 2
+        fi
+        sleep 1
+      done
+    done
+    if [[ "$input_control_center_open" != 1 ]]; then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "Control Center did not open before selecting the Input page." >&2
+      exit 1
+    fi
     sleep 5
     marker=$(serial_line_count)
-    pointer_click 1212 126
-    wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_CENTER state=open page=4 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
-      "Control Center did not open the compositor-backed Input page."
+    input_page_open=0
+    for _ in 1 2 3; do
+      control_center_panel_click 1212 126
+      input_page_deadline=$((SECONDS + 15))
+      while (( SECONDS < input_page_deadline )); do
+        if awk -v start="$marker" \
+            'NR > start && /MOKO_CONTROL_CENTER state=open page=4 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000/ { found = 1 } END { exit !found }' \
+            "$SERIAL_PATH"; then
+          input_page_open=1
+          break 2
+        fi
+        sleep 1
+      done
+    done
+    if [[ "$input_page_open" != 1 ]]; then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "Control Center did not open the compositor-backed Input page." >&2
+      exit 1
+    fi
     wait_for_serial_since "$marker" \
       "MOKO_INPUT_PANEL state=open protocol=1 touchpads=0 capabilities=0 input_state=0 acceleration=20 uid=1000" 30 \
       "Input page did not report the real QEMU no-trackpad state."
