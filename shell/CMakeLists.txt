@@ -140,7 +140,8 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME moko-control-center-refresh
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_controlcenter_refresh.sh)
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_controlcenter_refresh.sh
+                $<TARGET_FILE:moko-shell>)
     set_tests_properties(moko-control-center-refresh PROPERTIES TIMEOUT 10)
 
     qt_add_executable(moko-application-registry-tests

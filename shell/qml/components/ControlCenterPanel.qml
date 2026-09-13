@@ -78,16 +78,16 @@ GlassPanel {
         return "Weak"
     }
 
-    function queueStateReport() {
-        if (visible && control && !stateReport.running)
-            stateReport.start()
+    function reportState() {
+        if (visible && control)
+            control.reportControlCenterOpened(currentPage)
     }
 
     function refreshState() {
         if (!control)
             return
         control.refresh()
-        queueStateReport()
+        reportState()
     }
 
     onCurrentPageChanged: {
@@ -102,28 +102,16 @@ GlassPanel {
             refreshState()
             if (currentPage === 4 && windowManager)
                 windowManager.reportInputPanelOpened()
-        } else {
-            stateReport.stop()
-        }
-    }
-
-    Timer {
-        id: stateReport
-        interval: 100
-        repeat: false
-        onTriggered: {
-            if (root.visible && root.control)
-                root.control.reportControlCenterOpened(root.currentPage)
         }
     }
 
     Connections {
         target: root.control
         enabled: root.visible
-        function onNetworkChanged() { root.queueStateReport() }
-        function onBluetoothChanged() { root.queueStateReport() }
-        function onAudioChanged() { root.queueStateReport() }
-        function onPowerChanged() { root.queueStateReport() }
+        function onNetworkChanged() { root.reportState() }
+        function onBluetoothChanged() { root.reportState() }
+        function onAudioChanged() { root.reportState() }
+        function onPowerChanged() { root.reportState() }
     }
 
     component SectionTitle: RowLayout {
