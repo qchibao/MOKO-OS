@@ -79,8 +79,8 @@ GlassPanel {
     }
 
     function queueStateReport() {
-        if (visible && control)
-            stateReport.restart()
+        if (visible && control && !stateReport.running)
+            stateReport.start()
     }
 
     function refreshState() {

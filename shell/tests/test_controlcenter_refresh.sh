@@ -8,6 +8,12 @@ MAIN="$ROOT/qml/Main.qml"
 grep -Fq 'function refreshState()' "$PANEL"
 grep -Fq 'control.refresh()' "$PANEL"
 grep -Fq 'onVisibleChanged:' "$PANEL"
+grep -Fq 'if (visible && control && !stateReport.running)' "$PANEL"
+grep -Fq 'stateReport.start()' "$PANEL"
+if grep -Fq 'stateReport.restart()' "$PANEL"; then
+  echo "Control Center state reporting can be starved by continuous refresh signals." >&2
+  exit 1
+fi
 grep -Fq 'function onNetworkChanged() { root.queueStateReport() }' "$PANEL"
 grep -Fq 'function onBluetoothChanged() { root.queueStateReport() }' "$PANEL"
 grep -Fq 'function onAudioChanged() { root.queueStateReport() }' "$PANEL"
