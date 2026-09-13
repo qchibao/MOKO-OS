@@ -7,8 +7,10 @@ RUNS=${MOKO_BOOT_RUNS:-1}
 TIMEOUT_SECONDS=${MOKO_BOOT_TIMEOUT:-300}
 SCREENSHOT_TIMEOUT_SECONDS=${MOKO_SCREENSHOT_TIMEOUT:-180}
 SHELL_READY_TIMEOUT_SECONDS=${MOKO_SHELL_READY_TIMEOUT:-120}
+POWER_MENU_TIMEOUT_SECONDS=${MOKO_POWER_MENU_TIMEOUT:-60}
 SHUTDOWN_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_TIMEOUT:-60}
 SHUTDOWN_VISUAL_TIMEOUT_SECONDS=${MOKO_SHUTDOWN_VISUAL_TIMEOUT:-60}
+FRAME_CAPTURE_TIMEOUT_SECONDS=${MOKO_FRAME_CAPTURE_TIMEOUT:-15}
 GUEST_BOOT_BUDGET_MS=${MOKO_GUEST_BOOT_BUDGET_MS:-0}
 BOOT_MODE=${MOKO_BOOT_MODE:-desktop}
 BOOT_FIRMWARE=${MOKO_BOOT_FIRMWARE:-bios}
@@ -32,6 +34,8 @@ AI_EXPECT_APP_ID=${MOKO_AI_EXPECT_APP_ID:-}
 IMAGE=${MOKO_QEMU_IMAGE:-moko-os-debian13-qemu}
 QEMU_ACCEL=${MOKO_QEMU_ACCEL:-tcg,thread=multi,tb-size=2048}
 QEMU_CPU=${MOKO_QEMU_CPU:-max}
+QEMU_SMP=${MOKO_QEMU_SMP:-4}
+QEMU_MEMORY_MB=${MOKO_QEMU_MEMORY_MB:-3072}
 QEMU_VIDEO_DEVICE=${MOKO_QEMU_VIDEO_DEVICE:-virtio-vga}
 QEMU_EXIT_ACTION=${MOKO_QEMU_EXIT_ACTION:-powerdown}
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -60,6 +64,10 @@ command -v docker >/dev/null || {
   echo "MOKO_SHELL_READY_TIMEOUT must be a positive integer." >&2
   exit 1
 }
+[[ "$POWER_MENU_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_POWER_MENU_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
 [[ "$SHUTDOWN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "MOKO_SHUTDOWN_TIMEOUT must be a positive integer." >&2
   exit 1
@@ -68,8 +76,20 @@ command -v docker >/dev/null || {
   echo "MOKO_SHUTDOWN_VISUAL_TIMEOUT must be a positive integer." >&2
   exit 1
 }
+[[ "$FRAME_CAPTURE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_FRAME_CAPTURE_TIMEOUT must be a positive integer." >&2
+  exit 1
+}
 [[ "$GUEST_BOOT_BUDGET_MS" =~ ^[0-9]+$ ]] || {
   echo "MOKO_GUEST_BOOT_BUDGET_MS must be zero or a positive integer." >&2
+  exit 1
+}
+[[ "$QEMU_SMP" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_QEMU_SMP must be a positive integer." >&2
+  exit 1
+}
+[[ "$QEMU_MEMORY_MB" =~ ^[1-9][0-9]*$ ]] || {
+  echo "MOKO_QEMU_MEMORY_MB must be a positive integer." >&2
   exit 1
 }
 case "$BOOT_MODE" in
@@ -412,7 +432,7 @@ request_desktop_shutdown() {
     return 1
   fi
   if ! wait_for_serial_since "$marker" \
-      "MOKO_POWER_MENU state=ready uid=1000" 30 \
+      "MOKO_POWER_MENU state=ready uid=1000" "$POWER_MENU_TIMEOUT_SECONDS" \
       "MOKO Power menu did not finish its visible presentation."; then
     POWER_MENU_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu-failure.png"
     capture_frame "/artifacts/$POWER_MENU_FAILURE_SCREENSHOT_NAME" \
@@ -526,7 +546,10 @@ PY
 capture_frame() {
   local path=$1
   local screenshot_name=$2
-  local deadline=$((SECONDS + 3))
+  # UEFI/TCG can take several seconds to encode a 1280x800 PNG. The file is
+  # removed before requesting the frame, so this longer wait cannot accept a
+  # stale capture; the pixel assertions below remain unchanged.
+  local deadline=$((SECONDS + FRAME_CAPTURE_TIMEOUT_SECONDS))
 
   docker exec "$CONTAINER" rm -f "$path"
   monitor "screendump /artifacts/$screenshot_name -f png"
@@ -934,8 +957,8 @@ for run in $(seq 1 "$RUNS"); do
       -machine q35 \
       -accel "$QEMU_ACCEL" \
       -cpu "$QEMU_CPU" \
-      -smp 4 \
-      -m 3072 \
+      -smp "$QEMU_SMP" \
+      -m "$QEMU_MEMORY_MB" \
       "${QEMU_VIDEO_ARGUMENTS[@]}" \
       -audiodev driver=none,id=moko-audio \
       -device ich9-intel-hda \
