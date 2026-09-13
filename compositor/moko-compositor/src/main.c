@@ -104,6 +104,9 @@ struct moko_output {
     uint32_t shutdown_black_commit_seq;
     bool shutdown_black_frame_submitted;
     bool shutdown_black_frame_presented;
+    uint32_t shell_overlay_commit_seq;
+    bool shell_overlay_frame_submitted;
+    bool shell_overlay_frame_presented;
 };
 
 struct moko_toplevel {
@@ -195,6 +198,9 @@ struct moko_server {
     uint32_t keyboard_layout;
     bool shell_overlay_visible;
     struct moko_toplevel *shell_overlay_restore;
+    bool shell_overlay_presentation_pending;
+    uint32_t shell_overlay_presentation_serial;
+    struct wl_resource *shell_overlay_presentation_resource;
 
     struct wl_list pointer_devices;
     bool natural_scroll_enabled;
@@ -253,7 +259,11 @@ struct moko_server {
     bool shutdown_presented;
 };
 
-static void set_shell_overlay(struct moko_server *server, bool visible);
+static bool set_shell_overlay(struct moko_server *server, bool visible);
+static bool show_shell_overlay(struct moko_server *server);
+static void schedule_all_output_frames(struct moko_server *server);
+static void cancel_shell_overlay_presentation(struct moko_server *server);
+static void announce_shell_overlay_presented(struct moko_server *server);
 static void broadcast_desktop_config(struct moko_server *server);
 static void broadcast_gesture_config(struct moko_server *server);
 static void focus_fallback(struct moko_server *server, struct moko_toplevel *exclude);
@@ -271,6 +281,10 @@ static void request_power_menu(struct moko_server *server)
          * starve this separate control connection on slow renderers. */
         moko_window_manager_v1_send_power_menu(server->power_key_handler_resource);
         wl_display_flush_clients(server->display);
+        /* The Shell can be waiting on an idle Wayland frame callback before it
+         * renders the menu scene. Wake the outputs without raising the Shell;
+         * the Shell requests the overlay only after the new scene is ready. */
+        schedule_all_output_frames(server);
     }
     report_event("MOKO_POWER_KEY state=menu-requested delivered=%d", delivered ? 1 : 0);
 }
@@ -304,6 +318,37 @@ static bool all_outputs_presented_black_frame(const struct moko_server *server)
             return false;
     }
     return true;
+}
+
+static bool all_outputs_presented_shell_overlay(const struct moko_server *server)
+{
+    if (wl_list_empty(&server->outputs))
+        return false;
+
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        if (!output->shell_overlay_frame_presented)
+            return false;
+    }
+    return true;
+}
+
+static void reset_shell_overlay_output_state(struct moko_server *server)
+{
+    struct moko_output *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        output->shell_overlay_commit_seq = 0;
+        output->shell_overlay_frame_submitted = false;
+        output->shell_overlay_frame_presented = false;
+    }
+}
+
+static void cancel_shell_overlay_presentation(struct moko_server *server)
+{
+    server->shell_overlay_presentation_pending = false;
+    server->shell_overlay_presentation_serial = 0;
+    server->shell_overlay_presentation_resource = NULL;
+    reset_shell_overlay_output_state(server);
 }
 
 static void schedule_all_output_frames(struct moko_server *server)
@@ -345,6 +390,7 @@ static void start_shutdown_fade(struct moko_server *server)
     if (server->shutdown_active)
         return;
 
+    cancel_shell_overlay_presentation(server);
     server->shutdown_active = true;
     server->shutdown_presented = false;
     server->shutdown_alpha = 0.0f;
@@ -1001,6 +1047,7 @@ static void focus_toplevel(struct moko_toplevel *toplevel)
     struct moko_server *server = toplevel->server;
     if (!toplevel->is_shell && server->shell_overlay_visible
         && server->shell_toplevel != NULL) {
+        cancel_shell_overlay_presentation(server);
         wlr_scene_node_reparent(&server->shell_toplevel->scene_tree->node,
                                 server->background_tree);
         wlr_scene_node_lower_to_bottom(&server->shell_toplevel->scene_tree->node);
@@ -1038,28 +1085,37 @@ static void focus_toplevel(struct moko_toplevel *toplevel)
     broadcast_toplevel(toplevel);
 }
 
-static void set_shell_overlay(struct moko_server *server, bool visible)
+static bool show_shell_overlay(struct moko_server *server)
 {
     struct moko_toplevel *shell = server->shell_toplevel;
     if (shell == NULL || !shell->mapped)
-        return;
-
-    if (visible) {
-        if (!server->shell_overlay_visible)
-            server->shell_overlay_restore = server->active_toplevel;
-        server->shell_overlay_visible = true;
-        wlr_scene_node_reparent(&shell->scene_tree->node, &server->scene->tree);
-        wlr_scene_node_raise_to_top(&shell->scene_tree->node);
-        focus_toplevel(shell);
-        /* Reparenting can leave the output idle when no client buffer changed.
-         * Force a frame so the newly raised Shell scene reaches the scanout. */
-        schedule_all_output_frames(server);
-        report_event("MOKO_SHELL_OVERLAY state=shown");
-        return;
-    }
+        return false;
 
     if (!server->shell_overlay_visible)
-        return;
+        server->shell_overlay_restore = server->active_toplevel;
+    server->shell_overlay_visible = true;
+    wlr_scene_node_reparent(&shell->scene_tree->node, &server->scene->tree);
+    wlr_scene_node_raise_to_top(&shell->scene_tree->node);
+    focus_toplevel(shell);
+    /* Reparenting can leave the output idle when no client buffer changed.
+     * Force a frame so the newly raised Shell scene reaches the scanout. */
+    schedule_all_output_frames(server);
+    report_event("MOKO_SHELL_OVERLAY state=shown");
+    return true;
+}
+
+static bool set_shell_overlay(struct moko_server *server, bool visible)
+{
+    cancel_shell_overlay_presentation(server);
+    if (visible)
+        return show_shell_overlay(server);
+
+    struct moko_toplevel *shell = server->shell_toplevel;
+    if (shell == NULL || !shell->mapped)
+        return false;
+
+    if (!server->shell_overlay_visible)
+        return true;
     server->shell_overlay_visible = false;
     wlr_scene_node_reparent(&shell->scene_tree->node, server->background_tree);
     wlr_scene_node_lower_to_bottom(&shell->scene_tree->node);
@@ -1073,6 +1129,7 @@ static void set_shell_overlay(struct moko_server *server, bool visible)
         focus_fallback(server, shell);
     schedule_all_output_frames(server);
     report_event("MOKO_SHELL_OVERLAY state=hidden");
+    return true;
 }
 
 static struct moko_toplevel *first_available_toplevel(struct moko_server *server,
@@ -1957,6 +2014,24 @@ static void announce_shutdown_blackout(struct moko_server *server)
     wl_display_flush_clients(server->display);
 }
 
+static void announce_shell_overlay_presented(struct moko_server *server)
+{
+    if (!server->shell_overlay_presentation_pending
+        || !all_outputs_presented_shell_overlay(server)) {
+        return;
+    }
+
+    const uint32_t serial = server->shell_overlay_presentation_serial;
+    struct wl_resource *resource = server->shell_overlay_presentation_resource;
+    server->shell_overlay_presentation_pending = false;
+    server->shell_overlay_presentation_serial = 0;
+    server->shell_overlay_presentation_resource = NULL;
+    report_event("MOKO_SHELL_OVERLAY state=presented serial=%u", serial);
+    if (resource != NULL && wl_resource_get_version(resource) >= 7)
+        moko_window_manager_v1_send_shell_overlay_presented(resource, serial);
+    wl_display_flush_clients(server->display);
+}
+
 static void output_frame(struct wl_listener *listener, void *data)
 {
     (void)data;
@@ -1965,6 +2040,18 @@ static void output_frame(struct wl_listener *listener, void *data)
         output->server->scene, output->wlr_output);
     const uint32_t previous_commit_seq = output->wlr_output->commit_seq;
     const bool committed = wlr_scene_output_commit(scene_output, NULL);
+    bool retry_frame = false;
+    if (output->server->shell_overlay_presentation_pending
+        && output->server->shell_overlay_visible
+        && !output->shell_overlay_frame_submitted
+        && !output->shell_overlay_frame_presented) {
+        if (committed && output->wlr_output->commit_seq != previous_commit_seq) {
+            output->shell_overlay_commit_seq = output->wlr_output->commit_seq;
+            output->shell_overlay_frame_submitted = true;
+        } else {
+            retry_frame = true;
+        }
+    }
     if (output->server->shutdown_active
         && output->server->shutdown_alpha >= 1.0f
         && !output->shutdown_black_frame_submitted
@@ -1975,9 +2062,11 @@ static void output_frame(struct wl_listener *listener, void *data)
             output->shutdown_black_commit_seq = output->wlr_output->commit_seq;
             output->shutdown_black_frame_submitted = true;
         } else {
-            wlr_output_schedule_frame(output->wlr_output);
+            retry_frame = true;
         }
     }
+    if (retry_frame)
+        wlr_output_schedule_frame(output->wlr_output);
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
@@ -1987,6 +2076,19 @@ static void output_present(struct wl_listener *listener, void *data)
 {
     struct moko_output *output = wl_container_of(listener, output, present);
     const struct wlr_output_event_present *event = data;
+    if (output->server->shell_overlay_presentation_pending
+        && output->shell_overlay_frame_submitted
+        && !output->shell_overlay_frame_presented
+        && (int32_t)(event->commit_seq - output->shell_overlay_commit_seq) >= 0) {
+        if (!event->presented) {
+            output->shell_overlay_frame_submitted = false;
+            wlr_output_schedule_frame(output->wlr_output);
+        } else {
+            output->shell_overlay_frame_presented = true;
+            announce_shell_overlay_presented(output->server);
+        }
+    }
+
     if (!output->server->shutdown_active
         || !output->shutdown_black_frame_submitted
         || output->shutdown_black_frame_presented
@@ -1997,11 +2099,10 @@ static void output_present(struct wl_listener *listener, void *data)
     if (!event->presented) {
         output->shutdown_black_frame_submitted = false;
         wlr_output_schedule_frame(output->wlr_output);
-        return;
+    } else {
+        output->shutdown_black_frame_presented = true;
+        announce_shutdown_blackout(output->server);
     }
-
-    output->shutdown_black_frame_presented = true;
-    announce_shutdown_blackout(output->server);
 }
 
 static void output_request_state(struct wl_listener *listener, void *data)
@@ -2098,6 +2199,7 @@ static void output_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&output->destroy.link);
     wl_list_remove(&output->link);
     update_shutdown_overlay_geometry(output->server);
+    announce_shell_overlay_presented(output->server);
     announce_shutdown_blackout(output->server);
     broadcast_desktop_config(output->server);
     free(output);
@@ -2145,6 +2247,8 @@ static void new_output(struct wl_listener *listener, void *data)
         server->output_layout, wlr_output);
     struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
     wlr_scene_output_layout_add_output(server->scene_layout, layout_output, scene_output);
+    if (server->shell_overlay_presentation_pending)
+        wlr_output_schedule_frame(wlr_output);
     update_shutdown_overlay_geometry(server);
     if (reset_unsafe_scale)
         apply_output_scale(server, 100);
@@ -2227,6 +2331,7 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     if (toplevel->is_shell) {
         if (toplevel->server->shell_toplevel == toplevel)
             toplevel->server->shell_toplevel = NULL;
+        cancel_shell_overlay_presentation(toplevel->server);
         toplevel->server->shell_overlay_visible = false;
     } else {
         struct wl_resource *resource;
@@ -2271,6 +2376,7 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
             wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
         }
     }
+
 }
 
 static void toplevel_destroy(struct wl_listener *listener, void *data)
@@ -2650,6 +2756,35 @@ static void manager_set_shell_overlay(struct wl_client *client,
     set_shell_overlay(server, visible != 0);
 }
 
+static void manager_present_shell_overlay(struct wl_client *client,
+                                          struct wl_resource *resource,
+                                          uint32_t serial)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    struct moko_toplevel *shell = server->shell_toplevel;
+    if (shell == NULL || !shell->mapped) {
+        report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u", serial);
+        return;
+    }
+
+    cancel_shell_overlay_presentation(server);
+    server->shell_overlay_presentation_pending = true;
+    server->shell_overlay_presentation_serial = serial;
+    server->shell_overlay_presentation_resource = resource;
+    reset_shell_overlay_output_state(server);
+    report_event("MOKO_SHELL_OVERLAY state=presentation-requested serial=%u", serial);
+    /* The trusted Shell requests presentation from a frame-swapped callback,
+     * so its menu buffer is already committed when this separate control
+     * connection reaches the compositor. Waiting for another client commit
+     * deadlocks an otherwise idle Qt surface. Raise the prepared buffer now,
+     * then acknowledge only after the output presentation event below. */
+    if (!show_shell_overlay(server)) {
+        report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u", serial);
+        cancel_shell_overlay_presentation(server);
+    }
+}
+
 static void manager_prepare_shutdown(struct wl_client *client,
                                      struct wl_resource *resource)
 {
@@ -2694,11 +2829,14 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .set_shell_overlay = manager_set_shell_overlay,
     .prepare_shutdown = manager_prepare_shutdown,
     .set_power_key_handling = manager_set_power_key_handling,
+    .present_shell_overlay = manager_present_shell_overlay,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
 {
     struct moko_server *server = wl_resource_get_user_data(resource);
+    if (server->shell_overlay_presentation_resource == resource)
+        cancel_shell_overlay_presentation(server);
     if (server->power_key_handler_resource == resource) {
         server->power_key_handler_resource = NULL;
         server->power_key_handling_enabled = false;
@@ -2866,7 +3004,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    6,
+                                                    7,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {

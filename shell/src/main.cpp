@@ -16,6 +16,7 @@
 #include <QDBusError>
 #include <QFile>
 #include <QFileInfo>
+#include <QMetaObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
@@ -256,6 +257,10 @@ int main(int argc, char *argv[])
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window)
         return 1;
+
+    QObject::connect(window, &QQuickWindow::frameSwapped, window, [window] {
+        QMetaObject::invokeMethod(window, "handleFrameSwapped", Qt::DirectConnection);
+    }, Qt::QueuedConnection);
 
     auto *bootTimingGuard = new QObject(&app);
     bootTimingGuard->setProperty("reported", false);

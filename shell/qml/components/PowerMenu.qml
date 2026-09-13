@@ -5,7 +5,8 @@ FocusScope {
     id: root
     property var control
     property var lifecycle
-    property bool overlayPrepared: false
+    property bool overlayRequested: false
+    property bool overlayPresented: false
     readonly property bool busy: control
                                  && (control.powerActionPending || control.suspendPending
                                      || (lifecycle && lifecycle.shuttingDown))
@@ -36,10 +37,33 @@ FocusScope {
         if (!root.visible || root.presentationReported
                 || root.presentationPhase === 0)
             return
-        if (root.presentationPhase === 3 && !root.overlayPrepared)
+        if (root.presentationPhase === 3 && !root.overlayRequested)
             root.scenePrepared()
+        if (root.presentationPhase === 3 && root.overlayPresented
+                && root.finishPresentation())
+            return
         root.focusDefaultAction()
         root.presentationFrameRequested()
+    }
+
+    function finishPresentation() {
+        if (root.presentationPhase !== 3 || !root.overlayRequested
+                || !root.overlayPresented || !root.focusDefaultAction()) {
+            return false
+        }
+
+        presentationRetry.stop()
+        root.presentationPhase = 4
+        root.presentationReported = true
+        root.presentationReady()
+        return true
+    }
+
+    function confirmOverlayPresented() {
+        if (!root.visible || root.presentationReported)
+            return false
+        root.overlayPresented = true
+        return root.finishPresentation()
     }
 
     function confirmPresentedFrame() {
@@ -58,25 +82,10 @@ FocusScope {
         if (root.presentationPhase === 2) {
             root.presentationPhase = 3
             root.scenePrepared()
-            return false
-        }
-        if (root.presentationPhase === 3) {
-            if (!root.overlayPrepared || !root.focusDefaultAction())
-                return false
-            root.presentationPhase = 4
             root.requestPresentationFrame()
             return false
         }
-        if (root.presentationPhase !== 4
-                || !root.focusDefaultAction()) {
-            return false
-        }
-
-        presentationRetry.stop()
-        root.presentationPhase = 5
-        root.presentationReported = true
-        root.presentationReady()
-        return true
+        return false
     }
 
     function activateFocusedAction() {
@@ -241,7 +250,8 @@ FocusScope {
 
     onVisibleChanged: {
         presentationReported = false
-        overlayPrepared = false
+        overlayRequested = false
+        overlayPresented = false
         presentationPhase = visible ? 1 : 0
         presentationRetry.stop()
         if (visible) {

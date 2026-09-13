@@ -963,3 +963,39 @@ Validation: the rebuilt `722a76c` ISO passed the BIOS blocker once. The gate
 measured a `+136.9` Power-panel luminance delta, observed the unprivileged
 logind poweroff request and shutdown-blackout markers, measured `0` bright
 pixels in both blackout captures, and received a clean QEMU exit status.
+
+### Power-menu threaded-render-loop follow-up (2026-09-13)
+
+The next clean ISO exposed two distinct ordering problems hidden by the local
+software-render preview. First, Qt Quick's `frameSwapped` handler mutated QML
+state and issued a Wayland control request from the render thread. The handler
+is now queued onto the GUI thread before it advances the menu transaction.
+Second, the first tracked-overlay implementation waited for a new Shell surface
+commit after receiving `present_shell_overlay`. That request is deliberately
+sent from the already prepared frame's swap callback, so an idle Qt surface has
+no reason to commit again; the compositor and Shell consequently waited on one
+another while the previous Launcher/AI buffer remained visible.
+
+The version 7 contract now states the actual ordering: the trusted Shell
+commits its prepared menu buffer first, then requests overlay presentation.
+The compositor raises that buffer immediately, schedules every output, and
+still withholds its serial acknowledgement until a matching output commit is
+reported as presented. The Shell publishes `MOKO_POWER_MENU state=ready` only
+after receiving that compositor acknowledgement and reclaiming focus for the
+Shut Down action. No timeout or unverified client-side frame signal can satisfy
+the gate.
+
+Regression coverage now runs the real Qt Shell on the MOKO compositor with a
+threaded Qt Quick render loop and requires the complete requested, shown,
+presented, acknowledged and ready sequence. Static presentation checks,
+compositor CTest `5/5`, Shell CTest `10/10`, frozen AI CTest `3/3`, native apps
+CTest `15/15`, Browser network and the expanded Qt multi-window session pass.
+The first ISO built with the superseded post-request-commit handshake failed
+the BIOS gate at `MOKO_SHELL_OVERLAY state=presentation-requested serial=1`;
+its artifact is
+`out/moko-iso-smoke-20260913T045554Z-bios-desktop-boot-1-power-menu-failure.png`.
+A clean replacement ISO and repeated BIOS/UEFI shutdown gates remain required.
+
+Rollback: revert this scoped presentation follow-up. It does not change the
+power-key/logind inhibitor, blackout transaction, Live disk policy, installer
+state, Safe Graphics path or frozen MOKO AI boundary.

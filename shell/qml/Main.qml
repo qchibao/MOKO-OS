@@ -41,12 +41,12 @@ ApplicationWindow {
         mokoSessionLifecycle.notifyShutdownBlackoutPrepared()
     }
 
-    onFrameSwapped: {
+    function handleFrameSwapped() {
         if (window.powerMenuVisible)
             powerMenu.confirmPresentedFrame()
         if (shutdownBlackout.opacity >= 0.999
                 && mokoSessionLifecycle.shuttingDown) {
-            acknowledgeShutdownBlackoutFrame()
+            window.acknowledgeShutdownBlackoutFrame()
         }
     }
 
@@ -241,7 +241,7 @@ ApplicationWindow {
         z: 40
         control: mokoSystemControl
         lifecycle: mokoSessionLifecycle
-        onScenePrepared: powerMenu.overlayPrepared = mokoWindowManager.setShellOverlay(true)
+        onScenePrepared: powerMenu.overlayRequested = mokoWindowManager.presentShellOverlay()
         onPresentationFrameRequested: window.requestUpdate()
         onPresentationReady: mokoWindowManager.reportPowerMenuReady()
         onDismissRequested: window.dismissPowerMenu()
@@ -333,6 +333,9 @@ ApplicationWindow {
         }
         function onPowerMenuRequested() {
             window.showPowerMenu()
+        }
+        function onShellOverlayPresented() {
+            powerMenu.confirmOverlayPresented()
         }
     }
 

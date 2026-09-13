@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="6">
+  <interface name="moko_window_manager_v1" version="7">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -196,6 +196,26 @@
       </description>
       <arg name="enabled" type="uint"/>
     </request>
+
+    <request name="present_shell_overlay" since="7">
+      <description summary="show the Shell and track its output presentation">
+        The trusted Shell sends this request after committing its prepared
+        overlay buffer. The compositor raises that already rendered MOKO Shell
+        overlay and starts a bounded presentation transaction. It replies with
+        the matching serial only after the resulting scene frame has been
+        presented on every connected output.
+      </description>
+      <arg name="serial" type="uint" summary="client-generated transaction serial"/>
+    </request>
+
+    <event name="shell_overlay_presented" since="7">
+      <description summary="the tracked Shell overlay reached every output">
+        Sent only after an output presentation event confirms the tracked
+        Shell overlay scene on every connected output. A committed or swapped
+        client buffer alone is not sufficient acknowledgement.
+      </description>
+      <arg name="serial" type="uint" summary="matching transaction serial"/>
+    </event>
 
     <enum name="state" bitfield="true">
       <entry name="activated" value="1"/>

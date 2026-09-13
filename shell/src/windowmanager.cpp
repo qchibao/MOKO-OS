@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QSocketNotifier>
+#include <QThread>
 #include <QtMath>
 
 #include <cerrno>
@@ -48,7 +49,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 6U);
+        native->owner->m_protocolVersion = qMin(version, 7U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -161,6 +162,14 @@ struct WindowManagerCallbacks
                            .arg(static_cast<qulonglong>(geteuid())));
         emit native->owner->powerMenuRequested();
     }
+
+    static void managerShellOverlayPresented(void *data,
+                                             moko_window_manager_v1 *,
+                                             uint32_t serial)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->handleShellOverlayPresented(serial);
+    }
 };
 
 namespace {
@@ -181,6 +190,7 @@ const moko_window_manager_v1_listener managerListener = {
     .shutdown_blackout_presented = WindowManagerCallbacks::managerShutdownBlackoutPresented,
     .gesture_config = WindowManagerCallbacks::managerGestureConfig,
     .power_menu = WindowManagerCallbacks::managerPowerMenu,
+    .shell_overlay_presented = WindowManagerCallbacks::managerShellOverlayPresented,
 };
 
 constexpr int shutdownEventPumpIntervalMs = 20;
@@ -567,8 +577,30 @@ bool WindowManager::setShellOverlay(bool visible)
 {
     if (!desktopProtocolAvailable() || m_native->manager == nullptr)
         return false;
+    m_shellOverlayPresentationSerial = 0;
     moko_window_manager_v1_set_shell_overlay(m_native->manager, visible ? 1 : 0);
     return flushRequest();
+}
+
+bool WindowManager::presentShellOverlay()
+{
+    if (m_protocolVersion < 7 || m_native->manager == nullptr)
+        return false;
+    if (QThread::currentThread() != thread()) {
+        writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=request-rejected reason=wrong-thread"));
+        return false;
+    }
+
+    ++m_nextShellOverlayPresentationSerial;
+    if (m_nextShellOverlayPresentationSerial == 0)
+        ++m_nextShellOverlayPresentationSerial;
+    m_shellOverlayPresentationSerial = m_nextShellOverlayPresentationSerial;
+    moko_window_manager_v1_present_shell_overlay(m_native->manager,
+                                                 m_shellOverlayPresentationSerial);
+    if (flushRequest())
+        return true;
+    m_shellOverlayPresentationSerial = 0;
+    return false;
 }
 
 bool WindowManager::prepareShutdown()
@@ -631,6 +663,17 @@ void WindowManager::reportPowerMenuReady() const
 {
     writeLiveEvent(QStringLiteral("MOKO_POWER_MENU state=ready uid=%1")
                        .arg(static_cast<qulonglong>(geteuid())));
+}
+
+void WindowManager::handleShellOverlayPresented(quint32 serial)
+{
+    if (serial == 0 || serial != m_shellOverlayPresentationSerial)
+        return;
+    m_shellOverlayPresentationSerial = 0;
+    writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=acknowledged serial=%1 uid=%2")
+                       .arg(serial)
+                       .arg(static_cast<qulonglong>(geteuid())));
+    emit shellOverlayPresented();
 }
 
 void WindowManager::dispatchWayland()
@@ -719,6 +762,7 @@ void WindowManager::disconnectWayland()
     m_outputScale = 100;
     m_outputScaleCapabilities = MOKO_WINDOW_MANAGER_V1_OUTPUT_SCALE_CAPABILITY_SCALE_100;
     m_keyboardLayout = 0;
+    m_shellOverlayPresentationSerial = 0;
     if (wasConnected || hadWindows || hadInputState || hadDesktopState) {
         ++m_revision;
         if (wasConnected)

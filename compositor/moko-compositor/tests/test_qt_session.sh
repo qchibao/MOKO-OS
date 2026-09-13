@@ -43,6 +43,7 @@ export WLR_RENDERER=pixman
 export WLR_LIBINPUT_NO_DEVICES=1
 export QT_QPA_PLATFORM=wayland
 export QT_QUICK_BACKEND=software
+export QSG_RENDER_LOOP=threaded
 export MOKO_COMPOSITOR_EVENTS=$events
 export MOKO_LIVE_LAUNCH_EVENTS=$events
 
@@ -59,7 +60,7 @@ while [ ! -S "$runtime/$socket" ]; do
   sleep 0.05
 done
 
-MOKO_FORCE_BOOT_READY_FALLBACK=1 "$shell" >"$runtime/shell.log" 2>&1 &
+MOKO_FORCE_BOOT_READY_FALLBACK=1 "$shell" --power-menu >"$runtime/shell.log" 2>&1 &
 shell_pid=$!
 
 attempt=0
@@ -71,6 +72,28 @@ until grep -q '^MOKO_BOOT_TIMING stage=shell-ready ' "$events" 2>/dev/null; do
     exit 1
   fi
   sleep 0.05
+done
+
+attempt=0
+until grep -q '^MOKO_POWER_MENU state=ready uid=' "$events" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 200 ] || ! kill -0 "$shell_pid" 2>/dev/null; then
+    cat "$runtime/shell.log" >&2
+    cat "$runtime/compositor.log" >&2
+    cat "$events" >&2
+    printf 'MOKO Power menu did not complete tracked output presentation.\n' >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+
+for marker in \
+  'MOKO_SHELL_OVERLAY state=presentation-requested' \
+  'MOKO_SHELL_OVERLAY state=shown' \
+  'MOKO_SHELL_OVERLAY state=presented' \
+  'MOKO_SHELL_OVERLAY state=acknowledged'
+do
+  grep -q "^$marker" "$events"
 done
 
 "$files" --smoke-test >"$runtime/files.log" 2>&1 &

@@ -159,14 +159,16 @@ shell_main_qml="$ROOT/shell/qml/Main.qml"
 grep -Fq 'root.forceActiveFocus()' "$power_menu"
 grep -Fq 'shutdownButton.forceActiveFocus()' "$power_menu"
 grep -Fq 'return root.activeFocus && shutdownButton.activeFocus' "$power_menu"
-grep -Fq 'property bool overlayPrepared: false' "$power_menu"
+grep -Fq 'property bool overlayRequested: false' "$power_menu"
+grep -Fq 'property bool overlayPresented: false' "$power_menu"
 grep -Fq 'signal scenePrepared()' "$power_menu"
 grep -Fq 'signal presentationFrameRequested()' "$power_menu"
 grep -Fq 'function confirmPresentedFrame()' "$power_menu"
+grep -Fq 'function confirmOverlayPresented()' "$power_menu"
 grep -Fq 'root.presentationPhase = 2' "$power_menu"
 grep -Fq 'root.presentationPhase = 3' "$power_menu"
 grep -Fq 'root.presentationPhase = 4' "$power_menu"
-grep -Fq '!root.overlayPrepared || !root.focusDefaultAction()' "$power_menu"
+grep -Fq '!root.overlayPresented || !root.focusDefaultAction()' "$power_menu"
 grep -Fq 'presentationRetry.start()' "$power_menu"
 grep -Fq 'presentationRetry.stop()' "$power_menu"
 if grep -Fq 'Behavior on opacity' "$power_menu"; then
@@ -176,9 +178,26 @@ fi
 grep -Fq 'sequence: "Return"' "$power_menu"
 grep -Fq 'sequence: "Enter"' "$power_menu"
 grep -Fq 'onActivated: root.activateFocusedAction()' "$power_menu"
+grep -Fq 'function handleFrameSwapped()' "$shell_main_qml"
 grep -Fq 'powerMenu.confirmPresentedFrame()' "$shell_main_qml"
-grep -Fq 'onScenePrepared: powerMenu.overlayPrepared = mokoWindowManager.setShellOverlay(true)' "$shell_main_qml"
+if grep -Fq 'onFrameSwapped:' "$shell_main_qml"; then
+  echo "Power presentation must not mutate QML state on Qt Quick's render thread." >&2
+  exit 1
+fi
+shell_main_cpp="$ROOT/shell/src/main.cpp"
+grep -Fq '&QQuickWindow::frameSwapped' "$shell_main_cpp"
+grep -Fq 'QMetaObject::invokeMethod(window, "handleFrameSwapped", Qt::DirectConnection);' \
+  "$shell_main_cpp"
+grep -Fq '}, Qt::QueuedConnection);' "$shell_main_cpp"
+grep -Fq 'onScenePrepared: powerMenu.overlayRequested = mokoWindowManager.presentShellOverlay()' "$shell_main_qml"
 grep -Fq 'onPresentationFrameRequested: window.requestUpdate()' "$shell_main_qml"
+grep -Fq 'function onShellOverlayPresented()' "$shell_main_qml"
+grep -Fq 'powerMenu.confirmOverlayPresented()' "$shell_main_qml"
+confirm_swapped=$(sed -n '/function confirmPresentedFrame()/,/^    }/p' "$power_menu")
+if grep -Fq 'presentationReady()' <<<"$confirm_swapped"; then
+  echo "Qt frameSwapped must not acknowledge the Power menu presentation." >&2
+  exit 1
+fi
 if sed -n '/function showPowerMenu()/,/^    }/p' "$shell_main_qml" \
     | grep -Fq 'setShellOverlay(true)'; then
   echo "Power menu raises the Shell before its newly rendered scene is ready." >&2
@@ -210,6 +229,9 @@ if sed -n '/function runPowerAction/,/function updateClock/p' "$shell_main_qml" 
 fi
 grep -Fq 'MOKO_POWER_MENU state=ready uid=%1' \
   "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'MOKO_SHELL_OVERLAY state=acknowledged serial=%1 uid=%2' \
+  "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq 'QThread::currentThread() != thread()' "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
 grep -Fq 'assert_power_menu_frame' <<<"$desktop_shutdown"
 grep -Fq 'POWER_MENU_SCREENSHOT_NAME=' <<<"$desktop_shutdown"
@@ -218,17 +240,40 @@ grep -Fq 'state=requested uid=1000" 60' <<<"$desktop_shutdown"
 power_request=$(sed -n '/^static void request_power_menu/,/^}/p' "$compositor_source")
 grep -Fq 'moko_window_manager_v1_send_power_menu' <<<"$power_request"
 grep -Fq 'wl_display_flush_clients(server->display);' <<<"$power_request"
+grep -Fq 'schedule_all_output_frames(server);' <<<"$power_request"
 if grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"; then
   echo "Compositor raises the Shell before its Power menu scene is selected." >&2
   exit 1
 fi
 shell_overlay=$(sed -n \
-  '/^static void set_shell_overlay(struct moko_server \*server, bool visible)$/,/^}/p' \
+  '/^static bool show_shell_overlay(struct moko_server \*server)$/,/^}/p; /^static bool set_shell_overlay(struct moko_server \*server, bool visible)$/,/^}/p' \
   "$compositor_source")
 if [[ $(grep -Fc 'schedule_all_output_frames(server);' <<<"$shell_overlay") -lt 2 ]]; then
   echo "Shell overlay show/hide must schedule compositor output frames." >&2
   exit 1
 fi
+protocol="$ROOT/compositor/moko-compositor/protocols/moko-window-control-v1.xml"
+grep -Fq '<interface name="moko_window_manager_v1" version="7">' "$protocol"
+grep -Fq '<request name="present_shell_overlay" since="7">' "$protocol"
+grep -Fq '<event name="shell_overlay_presented" since="7">' "$protocol"
+overlay_request=$(sed -n \
+  '/^static void manager_present_shell_overlay/,/^}/p' "$compositor_source")
+grep -Fq 'server->shell_overlay_presentation_pending = true;' <<<"$overlay_request"
+grep -Fq 'show_shell_overlay(server)' <<<"$overlay_request"
+if grep -Fq 'shell_overlay_waiting_for_commit' "$compositor_source"; then
+  echo "Tracked Shell overlay must not wait for an impossible post-request commit." >&2
+  exit 1
+fi
+overlay_frame=$(sed -n '/^static void output_frame/,/^static void output_present/p' \
+  "$compositor_source")
+if grep -Fq 'announce_shell_overlay_presented' <<<"$overlay_frame"; then
+  echo "Compositor acknowledges the Shell overlay before output presentation." >&2
+  exit 1
+fi
+overlay_present=$(sed -n '/^static void output_present/,/^}/p' "$compositor_source")
+grep -Fq 'event->presented' <<<"$overlay_present"
+grep -Fq 'announce_shell_overlay_presented(output->server);' <<<"$overlay_present"
+grep -Fq 'moko_window_manager_v1_send_shell_overlay_presented' "$compositor_source"
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"

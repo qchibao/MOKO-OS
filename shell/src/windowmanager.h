@@ -102,6 +102,7 @@ public:
     Q_INVOKABLE bool setKeyboardLayout(int layout);
     Q_INVOKABLE bool toggleKeyboardLayout();
     Q_INVOKABLE bool setShellOverlay(bool visible);
+    Q_INVOKABLE bool presentShellOverlay();
     bool prepareShutdown();
     Q_INVOKABLE bool refreshConnection();
     Q_INVOKABLE void reportInputPanelOpened() const;
@@ -115,6 +116,7 @@ signals:
     void desktopChanged();
     void globalActionRequested(const QString &action);
     void powerMenuRequested();
+    void shellOverlayPresented();
     void shutdownBlackoutPresented();
 
 private:
@@ -139,6 +141,7 @@ private:
                              quint32 scaleCapabilities,
                              quint32 keyboardLayout);
     void handleShutdownBlackoutPresented();
+    void handleShellOverlayPresented(quint32 serial);
     void updatePowerKeyHandling();
     void pumpShutdownEvents(quint64 generation);
     bool flushRequest();
@@ -164,4 +167,6 @@ private:
     quint64 m_shutdownRequestGeneration = 0;
     int m_shutdownEventPumpAttempts = 0;
     bool m_shutdownBlackoutPending = false;
+    quint32 m_nextShellOverlayPresentationSerial = 0;
+    quint32 m_shellOverlayPresentationSerial = 0;
 };
