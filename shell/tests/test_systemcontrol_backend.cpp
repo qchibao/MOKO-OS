@@ -34,9 +34,18 @@ private slots:
     void defersInitialBackendProbe();
     void networkRefreshDoesNotBlockTheEventLoop();
     void audioRefreshDoesNotBlockTheEventLoop();
+    void audioRefreshRetainsSnapshotAcrossTransientFailure();
     void powerRefreshDoesNotBlockTheEventLoop();
     void controlsFixtureBacklightBatteryAndAudio();
 };
+
+int lineCount(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return 0;
+    return file.readAll().count('\n');
+}
 
 void SystemControlBackendTest::defersInitialBackendProbe()
 {
@@ -161,6 +170,63 @@ void SystemControlBackendTest::audioRefreshDoesNotBlockTheEventLoop()
     QTRY_VERIFY_WITH_TIMEOUT(control.audioAvailable(), 2000);
     QCOMPARE(control.outputVolume(), 50);
     QCOMPARE(control.inputVolume(), 50);
+
+    qunsetenv("MOKO_SYSFS_ROOT");
+    qunsetenv("MOKO_WPCTL");
+}
+
+void SystemControlBackendTest::audioRefreshRetainsSnapshotAcrossTransientFailure()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString commandLog = directory.filePath(QStringLiteral("wpctl.log"));
+    const QString failureMarker = directory.filePath(QStringLiteral("wpctl.fail"));
+    const QString fakeWpctl = directory.filePath(QStringLiteral("wpctl"));
+    writeFile(fakeWpctl,
+              QStringLiteral(
+                  "#!/bin/sh\n"
+                  "printf '%s\\n' \"$*\" >> '%1'\n"
+                  "if [ -f '%2' ]; then exit 1; fi\n"
+                  "case \"$1\" in\n"
+                  "  status) printf '%s\\n' 'Audio' ' Sinks:' '  * 45. Built-in Output [vol: 0.64]' ' Sources:' '  * 46. Built-in Microphone [vol: 0.35]' ;;\n"
+                  "  get-volume) case \"$2\" in *SOURCE*) echo 'Volume: 0.35' ;; *) echo 'Volume: 0.64' ;; esac ;;\n"
+                  "esac\n"
+                  "exit 0\n")
+                  .arg(commandLog, failureMarker)
+                  .toUtf8(),
+              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+
+    qputenv("MOKO_SYSFS_ROOT", directory.path().toUtf8());
+    qputenv("MOKO_WPCTL", fakeWpctl.toUtf8());
+    SystemControl control(nullptr, true);
+    control.startFullRefresh();
+    QTRY_VERIFY_WITH_TIMEOUT(control.audioAvailable(), 1500);
+    QCOMPARE(control.outputVolume(), 64);
+    QCOMPARE(control.inputVolume(), 35);
+    QCOMPARE(control.outputDevices().size(), 1);
+    QCOMPARE(control.inputDevices().size(), 1);
+    const int establishedCalls = lineCount(commandLog);
+    QVERIFY(establishedCalls >= 3);
+
+    QVERIFY(QFile(failureMarker).open(QIODevice::WriteOnly));
+    control.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(lineCount(commandLog) >= establishedCalls + 3, 1500);
+    QTest::qWait(100);
+    QVERIFY(control.audioAvailable());
+    QCOMPARE(control.outputVolume(), 64);
+    QCOMPARE(control.inputVolume(), 35);
+    QCOMPARE(control.outputDevices().size(), 1);
+    QCOMPARE(control.inputDevices().size(), 1);
+
+    // The bounded failure policy still detects a genuinely unavailable
+    // backend; it merely does not erase a good snapshot on the first miss.
+    const int firstFailureCalls = lineCount(commandLog);
+    control.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(lineCount(commandLog) >= firstFailureCalls + 3, 1500);
+    QTest::qWait(100);
+    control.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(lineCount(commandLog) >= firstFailureCalls + 6, 1500);
+    QTRY_VERIFY_WITH_TIMEOUT(!control.audioAvailable(), 1000);
 
     qunsetenv("MOKO_SYSFS_ROOT");
     qunsetenv("MOKO_WPCTL");

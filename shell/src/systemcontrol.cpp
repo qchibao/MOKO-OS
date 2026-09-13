@@ -63,6 +63,9 @@ QString networkDeviceState(uint state);
  */
 constexpr int kDbusCallTimeoutMs = 1500;
 constexpr int kWpctlTimeoutMs = 2500;
+// A single wpctl timeout is common while PipeWire is waking up on a slow
+// guest. Require a bounded run of failures before discarding a good snapshot.
+constexpr int kAudioUnavailableFailureThreshold = 3;
 
 QVariant unwrapped(const QVariant &value)
 {
@@ -1514,26 +1517,26 @@ void SystemControl::refreshAudio()
         if (--state->remaining != 0)
             return;
 
-        m_outputDevices.clear();
-        m_inputDevices.clear();
-        m_outputDeviceName.clear();
-        m_inputDeviceName.clear();
-        if (state->statusOk) {
-            const auto outputs = MokoSystemControl::parseWpctlEndpoints(
-                state->status, QStringLiteral("Sinks"));
-            for (const auto &endpoint : outputs) {
-                m_outputDevices.append(endpointMap(endpoint));
-                if (endpoint.defaultDevice)
-                    m_outputDeviceName = endpoint.name;
-            }
-            const auto inputs = MokoSystemControl::parseWpctlEndpoints(
-                state->status, QStringLiteral("Sources"));
-            for (const auto &endpoint : inputs) {
-                m_inputDevices.append(endpointMap(endpoint));
-                if (endpoint.defaultDevice)
-                    m_inputDeviceName = endpoint.name;
-            }
-        }
+        const bool previousAvailable = m_audioAvailable;
+        const int previousOutputVolume = m_outputVolume;
+        const bool previousOutputMuted = m_outputMuted;
+        const QString previousOutputDeviceName = m_outputDeviceName;
+        const QVariantList previousOutputDevices = m_outputDevices;
+        const int previousInputVolume = m_inputVolume;
+        const bool previousInputMuted = m_inputMuted;
+        const QString previousInputDeviceName = m_inputDeviceName;
+        const QVariantList previousInputDevices = m_inputDevices;
+
+        const auto clearAudioSnapshot = [this] {
+            m_outputDevices.clear();
+            m_inputDevices.clear();
+            m_outputDeviceName.clear();
+            m_inputDeviceName.clear();
+            m_outputVolume = 0;
+            m_outputMuted = false;
+            m_inputVolume = 0;
+            m_inputMuted = false;
+        };
 
         const auto outputLevel = state->outputLevelOk
             ? MokoSystemControl::parseWpctlVolume(state->outputLevel)
@@ -1541,22 +1544,68 @@ void SystemControl::refreshAudio()
         const auto inputLevel = state->inputLevelOk
             ? MokoSystemControl::parseWpctlVolume(state->inputLevel)
             : MokoSystemControl::AudioLevel{};
-        m_audioAvailable = state->statusOk || outputLevel.valid || inputLevel.valid;
-        if (outputLevel.valid) {
-            m_outputVolume = outputLevel.percent;
-            m_outputMuted = outputLevel.muted;
+        const bool liveAudio = state->statusOk || outputLevel.valid || inputLevel.valid;
+
+        if (liveAudio) {
+            m_audioRefreshFailures = 0;
+            // A successful status probe is authoritative for the endpoint list;
+            // failed volume probes only leave their individual values cached.
+            if (state->statusOk) {
+                m_outputDevices.clear();
+                m_inputDevices.clear();
+                m_outputDeviceName.clear();
+                m_inputDeviceName.clear();
+                const auto outputs = MokoSystemControl::parseWpctlEndpoints(
+                    state->status, QStringLiteral("Sinks"));
+                for (const auto &endpoint : outputs) {
+                    m_outputDevices.append(endpointMap(endpoint));
+                    if (endpoint.defaultDevice)
+                        m_outputDeviceName = endpoint.name;
+                }
+                const auto inputs = MokoSystemControl::parseWpctlEndpoints(
+                    state->status, QStringLiteral("Sources"));
+                for (const auto &endpoint : inputs) {
+                    m_inputDevices.append(endpointMap(endpoint));
+                    if (endpoint.defaultDevice)
+                        m_inputDeviceName = endpoint.name;
+                }
+            }
+
+            m_audioAvailable = true;
+            if (outputLevel.valid) {
+                m_outputVolume = outputLevel.percent;
+                m_outputMuted = outputLevel.muted;
+            }
+            if (inputLevel.valid) {
+                m_inputVolume = inputLevel.percent;
+                m_inputMuted = inputLevel.muted;
+            }
+            if (m_outputDeviceName.isEmpty())
+                m_outputDeviceName = QStringLiteral("Default output");
+            if (m_inputDeviceName.isEmpty())
+                m_inputDeviceName = QStringLiteral("Default microphone");
+        } else {
+            ++m_audioRefreshFailures;
+            if (!m_audioAvailable
+                || m_audioRefreshFailures >= kAudioUnavailableFailureThreshold) {
+                m_audioAvailable = false;
+                clearAudioSnapshot();
+            }
+            // Keep the last known-good values while an isolated probe fails.
         }
-        if (inputLevel.valid) {
-            m_inputVolume = inputLevel.percent;
-            m_inputMuted = inputLevel.muted;
-        }
-        if (m_outputDeviceName.isEmpty() && m_audioAvailable)
-            m_outputDeviceName = QStringLiteral("Default output");
-        if (m_inputDeviceName.isEmpty() && m_audioAvailable)
-            m_inputDeviceName = QStringLiteral("Default microphone");
 
         m_audioRefreshInFlight = false;
-        emit audioChanged();
+        const bool changed = previousAvailable != m_audioAvailable
+            || previousOutputVolume != m_outputVolume
+            || previousOutputMuted != m_outputMuted
+            || previousOutputDeviceName != m_outputDeviceName
+            || previousOutputDevices != m_outputDevices
+            || previousInputVolume != m_inputVolume
+            || previousInputMuted != m_inputMuted
+            || previousInputDeviceName != m_inputDeviceName
+            || previousInputDevices != m_inputDevices;
+        if (changed)
+            emit audioChanged();
         if (m_audioRefreshPending) {
             m_audioRefreshPending = false;
             QTimer::singleShot(0, this, &SystemControl::refreshAudio);

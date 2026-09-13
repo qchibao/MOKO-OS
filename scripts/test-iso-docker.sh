@@ -293,6 +293,27 @@ pointer_click() {
   qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
 }
 
+control_center_open_click() {
+  local x=$1
+  local y=$2
+  pointer_move "$x" "$y"
+  sleep 0.2
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
+  sleep 0.25
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+}
+
+control_center_panel_click() {
+  local x=$1
+  local y=$2
+  pointer_move "$x" "$y"
+  sleep 0.5
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}'
+  # Slow TCG guests can miss a short emulated USB button state.
+  sleep 1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}'
+}
+
 dock_app_click() {
   local app_id=$1
   local app_slot
@@ -1095,23 +1116,70 @@ for run in $(seq 1 "$RUNS"); do
   fi
 
   if [[ "$run" == 1 && "$CONTROL_CENTER_TEST" == 1 ]]; then
+    # Give the first frame a short input-settling window on slow TCG guests.
+    # The Shell is already mapped, but Qt may still be processing its initial
+    # backend refreshes when the compositor first accepts pointer focus.
+    sleep 5
     marker=$(serial_line_count)
-    pointer_click 1018 20
-    wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
-      "Control Center did not report real NetworkManager and Bluetooth hardware state."
+    control_center_open_click 1024 20
+    if ! wait_for_serial_since "$marker" \
+        "MOKO_CONTROL_CENTER state=open page=0 network_manager=[01] wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
+        "Control Center did not open from the top-bar Wi-Fi control."; then
+      CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-open-failure.png"
+      capture_frame "/artifacts/$CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME" \
+        "$CONTROL_CENTER_OPEN_FAILURE_SCREENSHOT_NAME"
+      exit 1
+    fi
+    backend_deadline=$((SECONDS + 90))
+    while ! grep -E -q "MOKO_CONTROL_CENTER state=open page=0 network_manager=1 wifi_device=[01] bluez_service=1 bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000" "$SERIAL_PATH"; do
+      if (( SECONDS >= backend_deadline )); then
+        tail -140 "$SERIAL_PATH" >&2
+        echo "Control Center did not observe the real NetworkManager and Bluetooth services." >&2
+        CONTROL_CENTER_BACKEND_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-backend-failure.png"
+        capture_frame "/artifacts/$CONTROL_CENTER_BACKEND_FAILURE_SCREENSHOT_NAME" \
+          "$CONTROL_CENTER_BACKEND_FAILURE_SCREENSHOT_NAME"
+        exit 1
+      fi
+      sleep 1
+    done
     pointer_click 1212 82
     sleep 5
     marker=$(serial_line_count)
-    pointer_click 1014 128
-    wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=1 brightness=[01] battery=[01] power_mode=[01] uid=1000" 30 \
-      "Control Center did not expose the live PipeWire audio state."
+    sound_page_pattern="MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=[01] brightness=[01] battery=[01] power_mode=[01] uid=1000"
+    sound_page_open=0
+    for _ in 1 2 3; do
+      control_center_panel_click 1020 127
+      sound_page_deadline=$((SECONDS + 12))
+      while (( SECONDS < sound_page_deadline )); do
+        if awk -v start="$marker" -v pattern="$sound_page_pattern" \
+            'NR > start && $0 ~ pattern { found = 1 } END { exit !found }' "$SERIAL_PATH"; then
+          sound_page_open=1
+          break 2
+        fi
+        sleep 1
+      done
+    done
+    if [[ "$sound_page_open" != 1 ]]; then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "Control Center did not switch to the Sound page." >&2
+      CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-navigation-failure.png"
+      capture_frame "/artifacts/$CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME" \
+        "$CONTROL_CENTER_NAVIGATION_FAILURE_SCREENSHOT_NAME"
+      exit 1
+    fi
+    if ! wait_for_serial_since "$marker" \
+        "MOKO_CONTROL_CENTER state=open page=1 network_manager=1 wifi_device=[01] bluez_service=[01] bluetooth_adapter=[01] audio=1 brightness=[01] battery=[01] power_mode=[01] uid=1000" 60 \
+        "Control Center did not expose the live PipeWire audio state."; then
+      CONTROL_CENTER_AUDIO_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-audio-failure.png"
+      capture_frame "/artifacts/$CONTROL_CENTER_AUDIO_FAILURE_SCREENSHOT_NAME" \
+        "$CONTROL_CENTER_AUDIO_FAILURE_SCREENSHOT_NAME"
+      exit 1
+    fi
     CONTROL_CENTER_SOUND_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-sound.png"
     monitor "screendump /artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME")" -gt 10000
     marker=$(serial_line_count)
-    pointer_click 1228 230
+    control_center_panel_click 1228 230
     wait_for_serial_since "$marker" \
       "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 30 \
       "Control Center did not change the real PipeWire output mute state."
