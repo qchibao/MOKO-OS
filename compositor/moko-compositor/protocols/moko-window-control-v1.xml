@@ -18,7 +18,7 @@
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
   </copyright>
 
-  <interface name="moko_window_manager_v1" version="7">
+  <interface name="moko_window_manager_v1" version="8">
     <description summary="bounded MOKO desktop window control">
       Exposes compositor-owned toplevel state to trusted clients in the same
       unprivileged desktop session. Requests operate only on enumerated window
@@ -198,13 +198,14 @@
     </request>
 
     <request name="present_shell_overlay" since="7">
-      <description summary="show the Shell and track its output presentation">
+      <description summary="show a synchronized Shell and track presentation">
         The trusted Shell sends this request only after a Qt Wayland sync
         confirms that its prepared overlay buffer has reached the compositor.
-        The compositor raises that rendered MOKO Shell overlay and starts a
-        bounded presentation transaction. It replies with the matching serial
-        only after the resulting scene frame has been presented on every
-        connected output.
+        This is the version 7 compatibility path. Version 8 clients should use
+        prepare_shell_overlay so they do not depend on dispatching callbacks
+        from the Qt Wayland event queue. The compositor replies with the
+        matching serial only after the resulting scene frame has been
+        presented on every connected output.
       </description>
       <arg name="serial" type="uint" summary="client-generated transaction serial"/>
     </request>
@@ -214,6 +215,26 @@
         Sent only after an output presentation event confirms the tracked
         Shell overlay scene on every connected output. A committed or swapped
         client buffer alone is not sufficient acknowledgement.
+      </description>
+      <arg name="serial" type="uint" summary="matching transaction serial"/>
+    </event>
+
+    <request name="prepare_shell_overlay" since="8">
+      <description summary="establish a compositor-side surface commit barrier">
+        Starts a bounded overlay transaction without raising the Shell. The
+        compositor records the Shell surface state and replies with the
+        matching serial. The trusted Shell requests another frame only after
+        receiving that reply. The compositor raises the Shell on the first
+        later surface commit, so the control request cannot overtake the Qt
+        buffer on a separate Wayland connection.
+      </description>
+      <arg name="serial" type="uint" summary="client-generated transaction serial"/>
+    </request>
+
+    <event name="shell_overlay_prepared" since="8">
+      <description summary="the compositor recorded the pre-render surface state">
+        Confirms that the compositor has installed the commit barrier for the
+        matching transaction. This event does not raise or focus the Shell.
       </description>
       <arg name="serial" type="uint" summary="matching transaction serial"/>
     </event>

@@ -39,6 +39,9 @@ FocusScope {
             return
         if (root.presentationPhase === 3 && !root.overlayRequested)
             root.scenePrepared()
+        if (root.presentationPhase === 3 && root.overlayRequested
+                && !root.overlayPresented)
+            return
         if (root.presentationPhase === 3 && root.overlayPresented
                 && root.finishPresentation())
             return

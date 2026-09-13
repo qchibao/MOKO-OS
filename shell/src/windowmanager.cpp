@@ -56,7 +56,7 @@ struct WindowManagerCallbacks
         auto *native = static_cast<WindowManager::NativeState *>(data);
         if (qstrcmp(interface, moko_window_manager_v1_interface.name) != 0)
             return;
-        native->owner->m_protocolVersion = qMin(version, 7U);
+        native->owner->m_protocolVersion = qMin(version, 8U);
         native->manager = static_cast<moko_window_manager_v1 *>(
             wl_registry_bind(registry, name, &moko_window_manager_v1_interface,
                              native->owner->m_protocolVersion));
@@ -178,6 +178,14 @@ struct WindowManagerCallbacks
         native->owner->handleShellOverlayPresented(serial);
     }
 
+    static void managerShellOverlayPrepared(void *data,
+                                            moko_window_manager_v1 *,
+                                            uint32_t serial)
+    {
+        auto *native = static_cast<WindowManager::NativeState *>(data);
+        native->owner->handleShellOverlayPrepared(serial);
+    }
+
     static void shellOverlaySyncDone(void *data, wl_callback *callback, uint32_t)
     {
         auto *native = static_cast<WindowManager::NativeState *>(data);
@@ -208,6 +216,7 @@ const moko_window_manager_v1_listener managerListener = {
     .gesture_config = WindowManagerCallbacks::managerGestureConfig,
     .power_menu = WindowManagerCallbacks::managerPowerMenu,
     .shell_overlay_presented = WindowManagerCallbacks::managerShellOverlayPresented,
+    .shell_overlay_prepared = WindowManagerCallbacks::managerShellOverlayPrepared,
 };
 
 const wl_callback_listener shellOverlaySyncListener = {
@@ -621,8 +630,10 @@ bool WindowManager::setShellOverlay(bool visible)
 
 bool WindowManager::presentShellOverlay()
 {
-    if (m_protocolVersion < 7 || m_native->manager == nullptr)
+    if (m_protocolVersion < 7 || m_native->manager == nullptr
+        || !m_shellOverlayRenderScheduler) {
         return false;
+    }
     if (QThread::currentThread() != thread()) {
         writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=request-rejected reason=wrong-thread"));
         return false;
@@ -634,8 +645,15 @@ bool WindowManager::presentShellOverlay()
         ++m_nextShellOverlayPresentationSerial;
     m_shellOverlayPresentationSerial = m_nextShellOverlayPresentationSerial;
     const quint32 serial = m_shellOverlayPresentationSerial;
-    if (!m_shellOverlayRenderScheduler)
-        return true;
+    if (m_protocolVersion >= 8) {
+        writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=prepare-requested serial=%1")
+                           .arg(serial));
+        moko_window_manager_v1_prepare_shell_overlay(m_native->manager, serial);
+        if (flushRequest())
+            return true;
+        cancelShellOverlayPresentation();
+        return false;
+    }
     m_shellOverlayRenderScheduler(serial);
     return true;
 }
@@ -643,8 +661,10 @@ bool WindowManager::presentShellOverlay()
 void WindowManager::setShellOverlayRenderScheduler(std::function<void(quint32)> scheduler)
 {
     m_shellOverlayRenderScheduler = std::move(scheduler);
-    if (m_shellOverlayRenderScheduler && m_shellOverlayPresentationSerial != 0)
+    if (m_shellOverlayRenderScheduler && m_shellOverlayPresentationSerial != 0
+        && m_protocolVersion < 8) {
         m_shellOverlayRenderScheduler(m_shellOverlayPresentationSerial);
+    }
 }
 
 void WindowManager::markShellOverlayRendered(quint32 serial)
@@ -653,7 +673,24 @@ void WindowManager::markShellOverlayRendered(quint32 serial)
         return;
     writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=rendered serial=%1")
                        .arg(serial));
-    beginShellOverlaySync(serial);
+    if (m_protocolVersion >= 8) {
+        writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=render-fenced serial=%1")
+                           .arg(serial));
+        sendShellOverlayPresentation(serial);
+    } else {
+        beginShellOverlaySync(serial);
+    }
+}
+
+void WindowManager::handleShellOverlayPrepared(quint32 serial)
+{
+    if (serial == 0 || serial != m_shellOverlayPresentationSerial
+        || m_protocolVersion < 8 || !m_shellOverlayRenderScheduler) {
+        return;
+    }
+    writeLiveEvent(QStringLiteral("MOKO_SHELL_OVERLAY state=compositor-prepared serial=%1")
+                       .arg(serial));
+    m_shellOverlayRenderScheduler(serial);
 }
 
 void WindowManager::beginShellOverlaySync(quint32 serial)

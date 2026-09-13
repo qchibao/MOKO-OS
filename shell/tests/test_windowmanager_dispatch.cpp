@@ -9,6 +9,7 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
@@ -70,7 +71,7 @@ public:
             return false;
         m_global = wl_global_create(m_display,
                                     &moko_window_manager_v1_interface,
-                                    7,
+                                    8,
                                     this,
                                     bindManager);
         if (m_global == nullptr || wl_display_add_socket(m_display, socketName.constData()) != 0)
@@ -86,6 +87,22 @@ public:
         return ::write(m_controlPipe[1], &command, sizeof(command)) == sizeof(command);
     }
 
+    bool sendOverlayPrepared()
+    {
+        const char command = 'o';
+        return ::write(m_controlPipe[1], &command, sizeof(command)) == sizeof(command);
+    }
+
+    uint32_t pendingOverlaySerial() const
+    {
+        return m_pendingOverlaySerial.load(std::memory_order_acquire);
+    }
+
+    uint32_t presentedOverlaySerial() const
+    {
+        return m_presentedOverlaySerial.load(std::memory_order_acquire);
+    }
+
 private:
     static void destroyManager(wl_client *, wl_resource *resource)
     {
@@ -98,6 +115,20 @@ private:
     static void ignoreUint(wl_client *, wl_resource *, uint32_t) {}
     static void ignorePair(wl_client *, wl_resource *, uint32_t, uint32_t) {}
     static void ignoreRequest(wl_client *, wl_resource *) {}
+
+    static void prepareShellOverlay(wl_client *, wl_resource *resource, uint32_t serial)
+    {
+        auto *server = static_cast<FakeWaylandServer *>(wl_resource_get_user_data(resource));
+        server->m_pendingOverlaySerial.store(serial, std::memory_order_release);
+    }
+
+    static void presentShellOverlay(wl_client *, wl_resource *resource, uint32_t serial)
+    {
+        auto *server = static_cast<FakeWaylandServer *>(wl_resource_get_user_data(resource));
+        server->m_presentedOverlaySerial.store(serial, std::memory_order_release);
+        moko_window_manager_v1_send_shell_overlay_presented(resource, serial);
+        wl_client_flush(wl_resource_get_client(resource));
+    }
 
     static const struct moko_window_manager_v1_interface *implementation()
     {
@@ -117,7 +148,8 @@ private:
             .prepare_shutdown = ignoreRequest,
             .set_gesture_enabled = ignorePair,
             .set_power_key_handling = ignoreUint,
-            .present_shell_overlay = ignoreUint,
+            .present_shell_overlay = presentShellOverlay,
+            .prepare_shell_overlay = prepareShellOverlay,
         };
         return &value;
     }
@@ -133,7 +165,7 @@ private:
     {
         auto *server = static_cast<FakeWaylandServer *>(data);
         server->m_managerResource = wl_resource_create(
-            client, &moko_window_manager_v1_interface, std::min(version, 7U), id);
+            client, &moko_window_manager_v1_interface, std::min(version, 8U), id);
         if (server->m_managerResource == nullptr) {
             wl_client_post_no_memory(client);
             return;
@@ -161,6 +193,14 @@ private:
                 } else if (commands[index] == 'p' && server->m_managerResource != nullptr) {
                     moko_window_manager_v1_send_power_menu(server->m_managerResource);
                     wl_client_flush(wl_resource_get_client(server->m_managerResource));
+                } else if (commands[index] == 'o' && server->m_managerResource != nullptr) {
+                    const uint32_t serial = server->m_pendingOverlaySerial.load(
+                        std::memory_order_acquire);
+                    if (serial != 0) {
+                        moko_window_manager_v1_send_shell_overlay_prepared(
+                            server->m_managerResource, serial);
+                        wl_client_flush(wl_resource_get_client(server->m_managerResource));
+                    }
                 }
             }
         }
@@ -202,6 +242,8 @@ private:
     wl_resource *m_managerResource = nullptr;
     wl_event_source *m_controlSource = nullptr;
     int m_controlPipe[2] = {-1, -1};
+    std::atomic_uint32_t m_pendingOverlaySerial = 0;
+    std::atomic_uint32_t m_presentedOverlaySerial = 0;
     std::thread m_thread;
 };
 
@@ -238,6 +280,49 @@ private slots:
         for (int index = 0; index < 20; ++index)
             QVERIFY(server.sendPowerMenu());
         QTRY_COMPARE_WITH_TIMEOUT(powerMenuSpy.count(), 20, 2000);
+    }
+
+    void defersOverlayRenderUntilCompositorBarrier()
+    {
+        EnvironmentGuard runtimeGuard("XDG_RUNTIME_DIR");
+        EnvironmentGuard displayGuard("WAYLAND_DISPLAY");
+        QTemporaryDir runtime;
+        QVERIFY(runtime.isValid());
+        QVERIFY(QFile::setPermissions(runtime.path(),
+                                     QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                         | QFileDevice::ExeOwner));
+        qputenv("XDG_RUNTIME_DIR", QFile::encodeName(runtime.path()));
+        qputenv("WAYLAND_DISPLAY", QByteArrayLiteral("wayland-moko-overlay-test"));
+
+        FakeWaylandServer server;
+        QVERIFY(server.start(qgetenv("WAYLAND_DISPLAY")));
+
+        WindowManager manager;
+        QVERIFY(manager.connected());
+        QCOMPARE(manager.m_protocolVersion, 8U);
+        int scheduled = 0;
+        quint32 scheduledSerial = 0;
+        manager.setShellOverlayRenderScheduler([&](quint32 serial) {
+            ++scheduled;
+            scheduledSerial = serial;
+            manager.markShellOverlayRendered(serial);
+        });
+
+        QSignalSpy presentedSpy(&manager, &WindowManager::shellOverlayPresented);
+        QVERIFY(presentedSpy.isValid());
+
+        for (int cycle = 1; cycle <= 20; ++cycle) {
+            const uint32_t previousSerial = server.pendingOverlaySerial();
+            QVERIFY(manager.presentShellOverlay());
+            QTRY_VERIFY_WITH_TIMEOUT(server.pendingOverlaySerial() != previousSerial, 1000);
+            QCOMPARE(scheduled, cycle - 1);
+
+            QVERIFY(server.sendOverlayPrepared());
+            QTRY_COMPARE_WITH_TIMEOUT(scheduled, cycle, 1000);
+            QCOMPARE(scheduledSerial, server.pendingOverlaySerial());
+            QTRY_COMPARE_WITH_TIMEOUT(presentedSpy.count(), cycle, 1000);
+            QCOMPARE(server.presentedOverlaySerial(), scheduledSerial);
+        }
     }
 };
 

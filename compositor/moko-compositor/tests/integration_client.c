@@ -61,6 +61,8 @@ struct test_state {
     bool shutdown_blackout_presented;
     uint32_t window_manager_version;
     bool power_menu_received;
+    bool shell_overlay_prepared;
+    uint32_t shell_overlay_prepared_serial;
     bool shell_overlay_presented;
     uint32_t shell_overlay_presented_serial;
 };
@@ -304,6 +306,16 @@ static void manager_shell_overlay_presented(void *data,
     state->shell_overlay_presented_serial = serial;
 }
 
+static void manager_shell_overlay_prepared(void *data,
+                                           struct moko_window_manager_v1 *manager,
+                                           uint32_t serial)
+{
+    (void)manager;
+    struct test_state *state = data;
+    state->shell_overlay_prepared = true;
+    state->shell_overlay_prepared_serial = serial;
+}
+
 static const struct moko_window_manager_v1_listener manager_listener = {
     .window = manager_window,
     .window_removed = manager_window_removed,
@@ -316,6 +328,7 @@ static const struct moko_window_manager_v1_listener manager_listener = {
     .gesture_config = manager_gesture_config,
     .power_menu = manager_power_menu,
     .shell_overlay_presented = manager_shell_overlay_presented,
+    .shell_overlay_prepared = manager_shell_overlay_prepared,
 };
 
 static void registry_global(void *data,
@@ -338,7 +351,7 @@ static void registry_global(void *data,
         state->window_manager_version = version;
         state->window_manager = wl_registry_bind(registry, name,
                                                  &moko_window_manager_v1_interface,
-                                                 version < 7 ? version : 7);
+                                                 version < 8 ? version : 8);
         moko_window_manager_v1_add_listener(state->window_manager, &manager_listener, state);
     }
 }
@@ -474,8 +487,8 @@ int main(void)
         fputs("Headless compositor reported unexpected touchpad hardware.\n", stderr);
         goto cleanup;
     }
-    if (state.window_manager_version < 7) {
-        fputs("MOKO compositor did not advertise tracked overlay presentation.\n", stderr);
+    if (state.window_manager_version < 8) {
+        fputs("MOKO compositor did not advertise the overlay commit barrier.\n", stderr);
         goto cleanup;
     }
     moko_window_manager_v1_set_power_key_handling(state.window_manager, 1);
@@ -533,17 +546,25 @@ int main(void)
                 shell.fullscreen_configured);
         goto cleanup;
     }
-    /* Commit the prepared overlay buffer before using the separate control
-     * connection, matching Qt's frame-swapped request ordering. Once the
-     * output is idle, the compositor must raise this buffer, schedule a scene
-     * frame and acknowledge its presentation without requiring another
-     * client commit. */
+    const uint32_t overlay_serial = 0x4d4f4b4f;
+    moko_window_manager_v1_prepare_shell_overlay(state.window_manager, overlay_serial);
+    if (!dispatch_roundtrips(&state, 2)
+        || !state.shell_overlay_prepared
+        || state.shell_overlay_prepared_serial != overlay_serial
+        || state.shell_overlay_presented) {
+        fputs("Compositor did not install the Shell overlay commit barrier.\n", stderr);
+        goto cleanup;
+    }
+
+    /* The version 8 transaction must not raise the Shell until both a later
+     * surface commit and the client's rendered notification have arrived. */
     wl_surface_damage_buffer(shell.surface, 0, 0, TEST_WIDTH, TEST_HEIGHT);
     wl_surface_commit(shell.surface);
-    if (!dispatch_roundtrips(&state, 2))
+    if (!dispatch_roundtrips(&state, 2) || state.shell_overlay_presented) {
+        fputs("Compositor presented the Shell before its rendered notification.\n",
+              stderr);
         goto cleanup;
-    usleep(100000);
-    const uint32_t overlay_serial = 0x4d4f4b4f;
+    }
     moko_window_manager_v1_present_shell_overlay(state.window_manager, overlay_serial);
     for (unsigned int attempt = 0;
          attempt < 100 && !state.shell_overlay_presented;
@@ -554,7 +575,7 @@ int main(void)
     }
     if (!state.shell_overlay_presented
         || state.shell_overlay_presented_serial != overlay_serial) {
-        fputs("Idle output did not present the already committed Shell overlay.\n",
+        fputs("Idle output did not present the commit-barrier Shell overlay.\n",
               stderr);
         goto cleanup;
     }

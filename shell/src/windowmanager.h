@@ -152,6 +152,7 @@ private:
                              quint32 keyboardLayout);
     void handleShutdownBlackoutPresented();
     void handleShellOverlayPresented(quint32 serial);
+    void handleShellOverlayPrepared(quint32 serial);
     void beginShellOverlaySync(quint32 serial);
     void handleShellOverlaySyncDone();
     bool sendShellOverlayPresentation(quint32 serial);

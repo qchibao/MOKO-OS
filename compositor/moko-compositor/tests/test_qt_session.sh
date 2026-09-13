@@ -88,9 +88,13 @@ until grep -q '^MOKO_POWER_MENU state=ready uid=' "$events" 2>/dev/null; do
 done
 
 for marker in \
+  'MOKO_SHELL_OVERLAY state=prepare-requested' \
+  'MOKO_SHELL_OVERLAY state=prepare-accepted' \
+  'MOKO_SHELL_OVERLAY state=compositor-prepared' \
   'MOKO_SHELL_OVERLAY state=rendered' \
-  'MOKO_SHELL_OVERLAY state=qt-synchronized' \
+  'MOKO_SHELL_OVERLAY state=render-fenced' \
   'MOKO_SHELL_OVERLAY state=presentation-requested' \
+  'MOKO_SHELL_OVERLAY state=surface-committed' \
   'MOKO_SHELL_OVERLAY state=shown' \
   'MOKO_SHELL_OVERLAY state=presented' \
   'MOKO_SHELL_OVERLAY state=acknowledged'
@@ -98,14 +102,24 @@ do
   grep -q "^$marker" "$events"
 done
 
+prepare_requested_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=prepare-requested' "$events" | cut -d: -f1)
+prepare_accepted_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=prepare-accepted' "$events" | cut -d: -f1)
+compositor_prepared_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=compositor-prepared' "$events" | cut -d: -f1)
 rendered_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=rendered' "$events" | cut -d: -f1)
-synchronized_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=qt-synchronized' "$events" | cut -d: -f1)
+render_fenced_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=render-fenced' "$events" | cut -d: -f1)
 requested_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=presentation-requested' "$events" | cut -d: -f1)
+committed_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=surface-committed' "$events" | cut -d: -f1)
 presented_line=$(grep -nFm1 'MOKO_SHELL_OVERLAY state=presented' "$events" | cut -d: -f1)
 ready_line=$(grep -nFm1 'MOKO_POWER_MENU state=ready' "$events" | cut -d: -f1)
-if [ "$rendered_line" -ge "$synchronized_line" ] \
-  || [ "$synchronized_line" -ge "$requested_line" ] \
+if [ "$prepare_requested_line" -ge "$prepare_accepted_line" ] \
+  || [ "$prepare_accepted_line" -ge "$compositor_prepared_line" ] \
+  || [ "$compositor_prepared_line" -ge "$committed_line" ] \
+  || [ "$compositor_prepared_line" -ge "$rendered_line" ] \
+  || [ "$rendered_line" -ge "$render_fenced_line" ] \
+  || [ "$render_fenced_line" -ge "$requested_line" ] \
+  || [ "$rendered_line" -ge "$presented_line" ] \
   || [ "$requested_line" -ge "$presented_line" ] \
+  || [ "$committed_line" -ge "$presented_line" ] \
   || [ "$presented_line" -ge "$ready_line" ]; then
   cat "$events" >&2
   printf 'MOKO Power menu presentation barriers completed out of order.\n' >&2

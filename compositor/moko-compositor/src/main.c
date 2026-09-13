@@ -199,6 +199,10 @@ struct moko_server {
     bool shell_overlay_visible;
     struct moko_toplevel *shell_overlay_restore;
     bool shell_overlay_presentation_pending;
+    bool shell_overlay_present_requested;
+    bool shell_overlay_waiting_for_commit;
+    bool shell_overlay_surface_committed;
+    uint32_t shell_overlay_surface_seq;
     uint32_t shell_overlay_presentation_serial;
     struct wl_resource *shell_overlay_presentation_resource;
 
@@ -346,6 +350,10 @@ static void reset_shell_overlay_output_state(struct moko_server *server)
 static void cancel_shell_overlay_presentation(struct moko_server *server)
 {
     server->shell_overlay_presentation_pending = false;
+    server->shell_overlay_present_requested = false;
+    server->shell_overlay_waiting_for_commit = false;
+    server->shell_overlay_surface_committed = false;
+    server->shell_overlay_surface_seq = 0;
     server->shell_overlay_presentation_serial = 0;
     server->shell_overlay_presentation_resource = NULL;
     reset_shell_overlay_output_state(server);
@@ -2017,15 +2025,16 @@ static void announce_shutdown_blackout(struct moko_server *server)
 static void announce_shell_overlay_presented(struct moko_server *server)
 {
     if (!server->shell_overlay_presentation_pending
+        || !server->shell_overlay_present_requested
         || !all_outputs_presented_shell_overlay(server)) {
         return;
     }
 
     const uint32_t serial = server->shell_overlay_presentation_serial;
     struct wl_resource *resource = server->shell_overlay_presentation_resource;
-    server->shell_overlay_presentation_pending = false;
-    server->shell_overlay_presentation_serial = 0;
-    server->shell_overlay_presentation_resource = NULL;
+    /* Retire every phase bit before notifying the Shell. A new overlay
+     * request may arrive as soon as the client dispatches this event. */
+    cancel_shell_overlay_presentation(server);
     report_event("MOKO_SHELL_OVERLAY state=presented serial=%u", serial);
     if (resource != NULL && wl_resource_get_version(resource) >= 7)
         moko_window_manager_v1_send_shell_overlay_presented(resource, serial);
@@ -2042,6 +2051,7 @@ static void output_frame(struct wl_listener *listener, void *data)
     const bool committed = wlr_scene_output_commit(scene_output, NULL);
     bool retry_frame = false;
     if (output->server->shell_overlay_presentation_pending
+        && output->server->shell_overlay_present_requested
         && output->server->shell_overlay_visible
         && !output->shell_overlay_frame_submitted
         && !output->shell_overlay_frame_presented) {
@@ -2374,6 +2384,25 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
                                           geometry.height);
         } else {
             wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+        }
+    }
+
+    struct moko_server *server = toplevel->server;
+    if (toplevel->is_shell && server->shell_overlay_presentation_pending
+        && server->shell_overlay_waiting_for_commit
+        && toplevel->xdg_toplevel->base->surface->current.seq
+            != server->shell_overlay_surface_seq) {
+        server->shell_overlay_waiting_for_commit = false;
+        server->shell_overlay_surface_committed = true;
+        if (server->shell_overlay_present_requested) {
+            report_event("MOKO_SHELL_OVERLAY state=surface-committed serial=%u surface_seq=%u",
+                         server->shell_overlay_presentation_serial,
+                         toplevel->xdg_toplevel->base->surface->current.seq);
+            if (!show_shell_overlay(server)) {
+                report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u",
+                             server->shell_overlay_presentation_serial);
+                cancel_shell_overlay_presentation(server);
+            }
         }
     }
 
@@ -2768,19 +2797,72 @@ static void manager_present_shell_overlay(struct wl_client *client,
         return;
     }
 
-    cancel_shell_overlay_presentation(server);
-    server->shell_overlay_presentation_pending = true;
-    server->shell_overlay_presentation_serial = serial;
-    server->shell_overlay_presentation_resource = resource;
-    reset_shell_overlay_output_state(server);
+    const bool commit_barrier = wl_resource_get_version(resource) >= 8;
+    if (commit_barrier) {
+        if (!server->shell_overlay_presentation_pending
+            || server->shell_overlay_presentation_resource != resource
+            || server->shell_overlay_presentation_serial != serial) {
+            report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u",
+                         serial);
+            return;
+        }
+        server->shell_overlay_present_requested = true;
+    } else {
+        cancel_shell_overlay_presentation(server);
+        server->shell_overlay_presentation_pending = true;
+        server->shell_overlay_present_requested = true;
+        server->shell_overlay_waiting_for_commit = false;
+        server->shell_overlay_presentation_serial = serial;
+        server->shell_overlay_presentation_resource = resource;
+        reset_shell_overlay_output_state(server);
+    }
     report_event("MOKO_SHELL_OVERLAY state=presentation-requested serial=%u", serial);
-    /* The trusted Shell waits for a sync callback on its Qt Wayland display
-     * before this separate control request is sent. Its prepared menu buffer
-     * is therefore already processed when we raise and track the Shell. */
+    if (commit_barrier && server->shell_overlay_waiting_for_commit) {
+        if (shell->xdg_toplevel->base->surface->current.seq
+            == server->shell_overlay_surface_seq) {
+            schedule_all_output_frames(server);
+            return;
+        }
+        server->shell_overlay_waiting_for_commit = false;
+        server->shell_overlay_surface_committed = true;
+    }
+    if (commit_barrier && server->shell_overlay_surface_committed)
+        report_event("MOKO_SHELL_OVERLAY state=surface-committed serial=%u surface_seq=%u",
+                     serial,
+                     shell->xdg_toplevel->base->surface->current.seq);
+    /* Version 7 clients synchronize their Qt display before this request.
+     * Version 8 reaches this point only after a post-prepare surface commit. */
     if (!show_shell_overlay(server)) {
         report_event("MOKO_SHELL_OVERLAY state=presentation-rejected serial=%u", serial);
         cancel_shell_overlay_presentation(server);
     }
+}
+
+static void manager_prepare_shell_overlay(struct wl_client *client,
+                                          struct wl_resource *resource,
+                                          uint32_t serial)
+{
+    (void)client;
+    struct moko_server *server = wl_resource_get_user_data(resource);
+    struct moko_toplevel *shell = server->shell_toplevel;
+    if (shell == NULL || !shell->mapped || serial == 0) {
+        report_event("MOKO_SHELL_OVERLAY state=prepare-rejected serial=%u", serial);
+        return;
+    }
+
+    cancel_shell_overlay_presentation(server);
+    server->shell_overlay_presentation_pending = true;
+    server->shell_overlay_present_requested = false;
+    server->shell_overlay_waiting_for_commit = true;
+    server->shell_overlay_surface_seq = shell->xdg_toplevel->base->surface->current.seq;
+    server->shell_overlay_presentation_serial = serial;
+    server->shell_overlay_presentation_resource = resource;
+    reset_shell_overlay_output_state(server);
+    report_event("MOKO_SHELL_OVERLAY state=prepare-accepted serial=%u surface_seq=%u",
+                 serial,
+                 server->shell_overlay_surface_seq);
+    moko_window_manager_v1_send_shell_overlay_prepared(resource, serial);
+    wl_display_flush_clients(server->display);
 }
 
 static void manager_prepare_shutdown(struct wl_client *client,
@@ -2828,6 +2910,7 @@ static const struct moko_window_manager_v1_interface window_manager_implementati
     .prepare_shutdown = manager_prepare_shutdown,
     .set_power_key_handling = manager_set_power_key_handling,
     .present_shell_overlay = manager_present_shell_overlay,
+    .prepare_shell_overlay = manager_prepare_shell_overlay,
 };
 
 static void manager_resource_destroy(struct wl_resource *resource)
@@ -3002,7 +3085,7 @@ int main(int argc, char **argv)
 
     server.window_manager_global = wl_global_create(server.display,
                                                     &moko_window_manager_v1_interface,
-                                                    7,
+                                                    8,
                                                     &server,
                                                     bind_window_manager);
     if (server.window_manager_global == NULL) {

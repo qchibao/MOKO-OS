@@ -1024,3 +1024,46 @@ inhibitor, disk-safety policy, installer state or frozen MOKO AI capability.
 Rollback: revert this scoped synchronization commit. The prior compositor
 presentation protocol and shutdown blackout remain available, but the UEFI
 cross-connection race would return.
+
+### Power-menu compositor commit-barrier follow-up (2026-09-14)
+
+The long Control Center, Input and usability QEMU scenario exposed a liveness
+failure in the version 7 cross-connection fix. The Shell reached
+`MOKO_SHELL_OVERLAY state=rendered serial=1`, then waited indefinitely for the
+Qt-owned `wl_display_sync()` callback. The MOKO control connection remained
+healthy, but it cannot dispatch a callback owned by Qt's separate Wayland
+connection, and relying on the platform plugin to service that callback while
+the fullscreen Shell is lowered and otherwise idle was not a bounded contract.
+
+Protocol version 8 replaces that dependency with a two-phase compositor commit
+barrier:
+
+- the Shell sends `prepare_shell_overlay(serial)` on the MOKO control
+  connection;
+- the compositor records the current Shell surface sequence and replies with
+  `shell_overlay_prepared(serial)` without raising the Shell;
+- only then does the Shell request a fresh Qt frame;
+- the Shell sends the existing `present_shell_overlay(serial)` after that
+  frame's `AfterSwapStage` render job;
+- the compositor raises the Shell only when it has observed both the matching
+  present request and a surface commit newer than the recorded sequence;
+- the existing per-output presentation acknowledgement remains the only event
+  that marks the menu ready.
+
+The later commit and present request may arrive in either order because the Qt
+and MOKO protocol sockets are independent. Both orderings are accepted, while
+neither event alone can expose the Shell. Completing or cancelling a
+transaction clears every phase flag, serial, resource and output-frame marker.
+Version 7 clients retain their previous synchronization path.
+
+Validation before the clean ISO rebuild: compositor CTest `5/5`, Shell CTest
+`12/12`, frozen AI CTest `3/3`, native apps CTest `15/15`, static boot and disk
+safety checks, Browser network, and the real threaded Qt multi-window session
+all pass. The fake Wayland test completes 20 consecutive v8 transactions, and
+the compositor integration test proves that neither a post-prepare surface
+commit nor a present request can raise the Shell without the other.
+
+Rollback: revert this scoped protocol-v8 follow-up. Protocol v7 and the existing
+shutdown blackout remain available, but the Qt callback liveness stall would
+return. This change does not affect boot ordering, disk discovery, mount policy,
+installer state, privileges, power actions or the frozen MOKO AI boundary.

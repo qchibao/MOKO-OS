@@ -243,7 +243,7 @@ grep -Fq 'markShellOverlayRendered(serial)' "$shell_main_cpp"
 grep -Fq 'wl_display_sync(m_native->qtDisplay)' "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'wl_display_flush(m_native->qtDisplay)' "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'MOKO_SHELL_OVERLAY state=qt-synchronized serial=%1' "$ROOT/shell/src/windowmanager.cpp"
-grep -Fq "'MOKO_SHELL_OVERLAY state=qt-synchronized'" \
+grep -Fq "'MOKO_SHELL_OVERLAY state=compositor-prepared'" \
   "$ROOT/compositor/moko-compositor/tests/test_qt_session.sh"
 grep -Fq 'MOKO_POWER_MENU state=ready uid=1000' <<<"$desktop_shutdown"
 grep -Fq 'capture_power_menu_frame' <<<"$desktop_shutdown"
@@ -268,15 +268,25 @@ if [[ $(grep -Fc 'schedule_all_output_frames(server);' <<<"$shell_overlay") -lt 
   exit 1
 fi
 protocol="$ROOT/compositor/moko-compositor/protocols/moko-window-control-v1.xml"
-grep -Fq '<interface name="moko_window_manager_v1" version="7">' "$protocol"
+grep -Fq '<interface name="moko_window_manager_v1" version="8">' "$protocol"
 grep -Fq '<request name="present_shell_overlay" since="7">' "$protocol"
 grep -Fq '<event name="shell_overlay_presented" since="7">' "$protocol"
+grep -Fq '<request name="prepare_shell_overlay" since="8">' "$protocol"
+grep -Fq '<event name="shell_overlay_prepared" since="8">' "$protocol"
 overlay_request=$(sed -n \
   '/^static void manager_present_shell_overlay/,/^}/p' "$compositor_source")
 grep -Fq 'server->shell_overlay_presentation_pending = true;' <<<"$overlay_request"
 grep -Fq 'show_shell_overlay(server)' <<<"$overlay_request"
-if grep -Fq 'shell_overlay_waiting_for_commit' "$compositor_source"; then
-  echo "Tracked Shell overlay must not wait for an impossible post-request commit." >&2
+overlay_prepare=$(sed -n \
+  '/^static void manager_prepare_shell_overlay/,/^}/p' "$compositor_source")
+grep -Fq 'server->shell_overlay_waiting_for_commit = true;' <<<"$overlay_prepare"
+grep -Fq 'moko_window_manager_v1_send_shell_overlay_prepared' <<<"$overlay_prepare"
+overlay_commit=$(sed -n '/^static void toplevel_commit/,/^}/p' "$compositor_source")
+grep -Fq 'server->shell_overlay_present_requested' <<<"$overlay_commit"
+grep -Fq 'server->shell_overlay_waiting_for_commit' <<<"$overlay_commit"
+grep -Fq 'show_shell_overlay(server)' <<<"$overlay_commit"
+if grep -Fq 'show_shell_overlay(server)' <<<"$overlay_prepare"; then
+  echo "Compositor raises the Shell before the version 8 commit barrier." >&2
   exit 1
 fi
 overlay_frame=$(sed -n '/^static void output_frame/,/^static void output_present/p' \
