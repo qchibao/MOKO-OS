@@ -1051,6 +1051,9 @@ static void set_shell_overlay(struct moko_server *server, bool visible)
         wlr_scene_node_reparent(&shell->scene_tree->node, &server->scene->tree);
         wlr_scene_node_raise_to_top(&shell->scene_tree->node);
         focus_toplevel(shell);
+        /* Reparenting can leave the output idle when no client buffer changed.
+         * Force a frame so the newly raised Shell scene reaches the scanout. */
+        schedule_all_output_frames(server);
         report_event("MOKO_SHELL_OVERLAY state=shown");
         return;
     }
@@ -1068,6 +1071,7 @@ static void set_shell_overlay(struct moko_server *server, bool visible)
         focus_toplevel(restore);
     else
         focus_fallback(server, shell);
+    schedule_all_output_frames(server);
     report_event("MOKO_SHELL_OVERLAY state=hidden");
 }
 

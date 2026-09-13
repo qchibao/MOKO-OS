@@ -222,6 +222,13 @@ if grep -Fq 'set_shell_overlay(server, true);' <<<"$power_request"; then
   echo "Compositor raises the Shell before its Power menu scene is selected." >&2
   exit 1
 fi
+shell_overlay=$(sed -n \
+  '/^static void set_shell_overlay(struct moko_server \*server, bool visible)$/,/^}/p' \
+  "$compositor_source")
+if [[ $(grep -Fc 'schedule_all_output_frames(server);' <<<"$shell_overlay") -lt 2 ]]; then
+  echo "Shell overlay show/hide must schedule compositor output frames." >&2
+  exit 1
+fi
 
 shutdown_guard="$ROOT/image/live-build/config/includes.chroot/usr/local/libexec/moko-shutdown-blackout-guard"
 shutdown_guard_unit="$ROOT/image/live-build/config/includes.chroot/etc/systemd/system/moko-shutdown-blackout-guard.service"
