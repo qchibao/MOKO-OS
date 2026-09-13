@@ -212,6 +212,8 @@ fi
 grep -Fq 'wl_display_prepare_read(m_native->display)' <<<"$dispatch_wayland"
 grep -Fq 'wl_display_read_events(m_native->display)' <<<"$dispatch_wayland"
 grep -Fq 'wl_display_cancel_read(m_native->display)' <<<"$dispatch_wayland"
+grep -Fq 'm_waylandDispatchTimer.start()' "$ROOT/shell/src/windowmanager.cpp"
+grep -Fq '&QTimer::timeout' "$ROOT/shell/src/windowmanager.cpp"
 grep -Fq 'mokoSessionLifecycle.beginShutdown()' "$shell_main_qml"
 grep -Fq 'function onShutdownBlackoutReady()' "$shell_main_qml"
 grep -Fq 'mokoSessionLifecycle.notifyPowerActionRequested()' "$shell_main_qml"

@@ -195,6 +195,7 @@ const moko_window_manager_v1_listener managerListener = {
 
 constexpr int shutdownEventPumpIntervalMs = 20;
 constexpr int shutdownEventPumpAttemptLimit = 200;
+constexpr int waylandDispatchFallbackIntervalMs = 50;
 
 void writeLiveEvent(const QString &message)
 {
@@ -217,6 +218,10 @@ WindowManager::WindowManager(QObject *parent)
     , m_powerKeyInhibitor(std::make_unique<PowerKeyInhibitor>())
 {
     m_native->owner = this;
+    m_waylandDispatchTimer.setInterval(waylandDispatchFallbackIntervalMs);
+    m_waylandDispatchTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_waylandDispatchTimer, &QTimer::timeout,
+            this, &WindowManager::dispatchWayland);
     connect(m_powerKeyInhibitor.get(), &PowerKeyInhibitor::activeChanged,
             this, &WindowManager::updatePowerKeyHandling);
     connectWayland();
@@ -260,6 +265,9 @@ bool WindowManager::connectWayland()
                                      QSocketNotifier::Read,
                                      this);
     connect(m_notifier, &QSocketNotifier::activated, this, &WindowManager::dispatchWayland);
+    // The custom control connection must keep progressing even if a loaded Qt
+    // event loop delays or misses a socket-notifier activation.
+    m_waylandDispatchTimer.start();
     emit connectedChanged();
     m_powerKeyInhibitor->setEnabled(powerKeyProtocolAvailable());
     updatePowerKeyHandling();
@@ -681,10 +689,10 @@ void WindowManager::dispatchWayland()
     if (m_native->display == nullptr)
         return;
 
-    // QSocketNotifier already told us that the fd is readable. Do not use
-    // wl_display_dispatch() here: it may consume the one queued event and then
-    // block waiting for a second event, freezing the Qt GUI thread. Follow the
-    // non-blocking prepare/read/dispatch sequence instead.
+    // This runs from both the socket notifier and a periodic fallback. Do not
+    // use wl_display_dispatch(): it may consume one queued event and then block
+    // waiting for another, freezing the Qt GUI thread. Follow the non-blocking
+    // prepare/read/dispatch sequence instead.
     if (wl_display_dispatch_pending(m_native->display) < 0) {
         disconnectWayland();
         return;
@@ -721,6 +729,7 @@ void WindowManager::dispatchWayland()
 
 void WindowManager::disconnectWayland()
 {
+    m_waylandDispatchTimer.stop();
     if (m_notifier != nullptr) {
         m_notifier->setEnabled(false);
         delete m_notifier;

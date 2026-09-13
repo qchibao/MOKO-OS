@@ -21,14 +21,20 @@ set(MOKO_WINDOW_PROTOCOL_CODE
     ${MOKO_WINDOW_PROTOCOL_DIR}/moko-window-control-v1-protocol.c)
 set(MOKO_WINDOW_PROTOCOL_HEADER
     ${MOKO_WINDOW_PROTOCOL_DIR}/moko-window-control-v1-client-protocol.h)
+set(MOKO_WINDOW_PROTOCOL_SERVER_HEADER
+    ${MOKO_WINDOW_PROTOCOL_DIR}/moko-window-control-v1-server-protocol.h)
 
 add_custom_command(
-    OUTPUT ${MOKO_WINDOW_PROTOCOL_CODE} ${MOKO_WINDOW_PROTOCOL_HEADER}
+    OUTPUT ${MOKO_WINDOW_PROTOCOL_CODE}
+           ${MOKO_WINDOW_PROTOCOL_HEADER}
+           ${MOKO_WINDOW_PROTOCOL_SERVER_HEADER}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${MOKO_WINDOW_PROTOCOL_DIR}
     COMMAND ${WAYLAND_SCANNER} private-code
             ${MOKO_WINDOW_PROTOCOL_XML} ${MOKO_WINDOW_PROTOCOL_CODE}
     COMMAND ${WAYLAND_SCANNER} client-header
             ${MOKO_WINDOW_PROTOCOL_XML} ${MOKO_WINDOW_PROTOCOL_HEADER}
+    COMMAND ${WAYLAND_SCANNER} server-header
+            ${MOKO_WINDOW_PROTOCOL_XML} ${MOKO_WINDOW_PROTOCOL_SERVER_HEADER}
     DEPENDS ${MOKO_WINDOW_PROTOCOL_XML}
     VERBATIM
 )
@@ -112,6 +118,8 @@ install(TARGETS moko-shell
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    find_package(Threads REQUIRED)
+    pkg_check_modules(WAYLAND_SERVER REQUIRED IMPORTED_TARGET wayland-server)
 
     add_test(NAME moko-shell-smoke COMMAND moko-shell --smoke-test --windowed)
     set_tests_properties(moko-shell-smoke PROPERTIES
@@ -220,4 +228,30 @@ if(BUILD_TESTING)
     target_link_libraries(moko-session-lifecycle-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
     add_test(NAME moko-session-lifecycle-tests COMMAND moko-session-lifecycle-tests)
     set_tests_properties(moko-session-lifecycle-tests PROPERTIES TIMEOUT 10)
+
+    qt_add_executable(moko-window-manager-dispatch-tests
+        tests/test_windowmanager_dispatch.cpp
+        src/powerkeyinhibitor.cpp
+        src/powerkeyinhibitor.h
+        src/windowmanager.cpp
+        src/windowmanager.h
+        ${MOKO_WINDOW_PROTOCOL_CODE}
+        ${MOKO_WINDOW_PROTOCOL_HEADER}
+        ${MOKO_WINDOW_PROTOCOL_SERVER_HEADER}
+    )
+    target_include_directories(moko-window-manager-dispatch-tests PRIVATE
+        src
+        ${MOKO_WINDOW_PROTOCOL_DIR}
+    )
+    target_link_libraries(moko-window-manager-dispatch-tests PRIVATE
+        Qt6::Core
+        Qt6::DBus
+        Qt6::Test
+        Threads::Threads
+        PkgConfig::WAYLAND_CLIENT
+        PkgConfig::WAYLAND_SERVER
+    )
+    add_test(NAME moko-window-manager-dispatch-tests
+        COMMAND moko-window-manager-dispatch-tests)
+    set_tests_properties(moko-window-manager-dispatch-tests PROPERTIES TIMEOUT 10)
 endif()

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QList>
 #include <QString>
+#include <QTimer>
 
 #include <functional>
 #include <memory>
@@ -121,6 +122,7 @@ signals:
 
 private:
     friend struct WindowManagerCallbacks;
+    friend class WindowManagerDispatchTest;
 
     struct NativeState;
     struct WindowInfo;
@@ -152,6 +154,7 @@ private:
     std::unique_ptr<PowerKeyInhibitor> m_powerKeyInhibitor;
     QList<WindowInfo> m_windows;
     QSocketNotifier *m_notifier = nullptr;
+    QTimer m_waylandDispatchTimer;
     int m_revision = 0;
     bool m_connected = false;
     quint32 m_protocolVersion = 0;
