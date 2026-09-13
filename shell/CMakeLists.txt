@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS DBus Quick QuickControls2)
+find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
@@ -108,6 +109,7 @@ target_link_libraries(moko-shell PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     PkgConfig::WAYLAND_CLIENT
+    Threads::Threads
     moko-ai-ui
 )
 
@@ -118,7 +120,6 @@ install(TARGETS moko-shell
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
-    find_package(Threads REQUIRED)
     pkg_check_modules(WAYLAND_SERVER REQUIRED IMPORTED_TARGET wayland-server)
 
     add_test(NAME moko-shell-smoke COMMAND moko-shell --smoke-test --windowed)

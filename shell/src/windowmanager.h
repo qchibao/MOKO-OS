@@ -5,9 +5,12 @@
 #include <QString>
 #include <QTimer>
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <thread>
 
+class QEvent;
 class QSocketNotifier;
 class PowerKeyInhibitor;
 
@@ -128,8 +131,11 @@ private:
     struct WindowInfo;
 
     void dispatchWayland();
+    bool event(QEvent *event) override;
     bool connectWayland();
     void disconnectWayland();
+    void startWaylandDispatchWakeup();
+    void stopWaylandDispatchWakeup();
     void applySavedDesktopSettings();
     void updateWindow(quint32 id, const QString &appId, const QString &title, quint32 state);
     void removeWindow(quint32 id);
@@ -155,6 +161,9 @@ private:
     QList<WindowInfo> m_windows;
     QSocketNotifier *m_notifier = nullptr;
     QTimer m_waylandDispatchTimer;
+    std::thread m_waylandDispatchWakeThread;
+    std::atomic_bool m_waylandDispatchWakeStop = false;
+    std::atomic_bool m_waylandDispatchWakePending = false;
     int m_revision = 0;
     bool m_connected = false;
     quint32 m_protocolVersion = 0;

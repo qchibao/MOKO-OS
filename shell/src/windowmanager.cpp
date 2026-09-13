@@ -4,6 +4,8 @@
 #include "powerkeyinhibitor.h"
 
 #include <QDir>
+#include <QCoreApplication>
+#include <QEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QSettings>
@@ -12,6 +14,7 @@
 #include <QtMath>
 
 #include <cerrno>
+#include <chrono>
 #include <poll.h>
 #include <unistd.h>
 #include <wayland-client.h>
@@ -196,6 +199,13 @@ const moko_window_manager_v1_listener managerListener = {
 constexpr int shutdownEventPumpIntervalMs = 20;
 constexpr int shutdownEventPumpAttemptLimit = 200;
 constexpr int waylandDispatchFallbackIntervalMs = 50;
+constexpr int waylandDispatchWakePollIntervalMs = 50;
+
+QEvent::Type waylandDispatchWakeEventType()
+{
+    static const auto type = static_cast<QEvent::Type>(QEvent::registerEventType());
+    return type;
+}
 
 void writeLiveEvent(const QString &message)
 {
@@ -268,6 +278,7 @@ bool WindowManager::connectWayland()
     // The custom control connection must keep progressing even if a loaded Qt
     // event loop delays or misses a socket-notifier activation.
     m_waylandDispatchTimer.start();
+    startWaylandDispatchWakeup();
     emit connectedChanged();
     m_powerKeyInhibitor->setEnabled(powerKeyProtocolAvailable());
     updatePowerKeyHandling();
@@ -727,8 +738,63 @@ void WindowManager::dispatchWayland()
     }
 }
 
+bool WindowManager::event(QEvent *event)
+{
+    if (event->type() != waylandDispatchWakeEventType())
+        return QObject::event(event);
+
+    m_waylandDispatchWakePending.store(false, std::memory_order_release);
+    dispatchWayland();
+    return true;
+}
+
+void WindowManager::startWaylandDispatchWakeup()
+{
+    stopWaylandDispatchWakeup();
+    if (m_native->display == nullptr)
+        return;
+
+    const int waylandFd = wl_display_get_fd(m_native->display);
+    const QEvent::Type wakeEventType = waylandDispatchWakeEventType();
+    m_waylandDispatchWakeStop.store(false, std::memory_order_release);
+    m_waylandDispatchWakePending.store(false, std::memory_order_release);
+    m_waylandDispatchWakeThread = std::thread([this, waylandFd, wakeEventType] {
+        pollfd descriptor = {
+            .fd = waylandFd,
+            .events = POLLIN,
+            .revents = 0,
+        };
+        while (!m_waylandDispatchWakeStop.load(std::memory_order_acquire)) {
+            descriptor.revents = 0;
+            const int ready = ::poll(&descriptor, 1, waylandDispatchWakePollIntervalMs);
+            if (ready <= 0
+                || (descriptor.revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)) == 0) {
+                continue;
+            }
+            if (!m_waylandDispatchWakePending.exchange(true, std::memory_order_acq_rel)) {
+                QCoreApplication::postEvent(
+                    this, new QEvent(wakeEventType), Qt::HighEventPriority);
+            }
+            while (m_waylandDispatchWakePending.load(std::memory_order_acquire)
+                   && !m_waylandDispatchWakeStop.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+    });
+}
+
+void WindowManager::stopWaylandDispatchWakeup()
+{
+    m_waylandDispatchWakeStop.store(true, std::memory_order_release);
+    if (m_waylandDispatchWakeThread.joinable())
+        m_waylandDispatchWakeThread.join();
+    m_waylandDispatchWakePending.store(false, std::memory_order_release);
+    QCoreApplication::removePostedEvents(this, waylandDispatchWakeEventType());
+}
+
 void WindowManager::disconnectWayland()
 {
+    stopWaylandDispatchWakeup();
     m_waylandDispatchTimer.stop();
     if (m_notifier != nullptr) {
         m_notifier->setEnabled(false);

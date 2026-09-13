@@ -212,7 +212,7 @@ class WindowManagerDispatchTest : public QObject
     Q_OBJECT
 
 private slots:
-    void receivesEventWhenSocketNotifierIsDelayed()
+    void receivesEventWhenQtDispatchSourcesAreDelayed()
     {
         EnvironmentGuard runtimeGuard("XDG_RUNTIME_DIR");
         EnvironmentGuard displayGuard("WAYLAND_DISPLAY");
@@ -231,11 +231,13 @@ private slots:
         QVERIFY(manager.connected());
         QVERIFY(manager.m_notifier != nullptr);
         manager.m_notifier->setEnabled(false);
+        manager.m_waylandDispatchTimer.stop();
 
         QSignalSpy powerMenuSpy(&manager, &WindowManager::powerMenuRequested);
         QVERIFY(powerMenuSpy.isValid());
-        QVERIFY(server.sendPowerMenu());
-        QTRY_COMPARE_WITH_TIMEOUT(powerMenuSpy.count(), 1, 2000);
+        for (int index = 0; index < 20; ++index)
+            QVERIFY(server.sendPowerMenu());
+        QTRY_COMPARE_WITH_TIMEOUT(powerMenuSpy.count(), 20, 2000);
     }
 };
 
