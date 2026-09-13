@@ -445,7 +445,7 @@ request_desktop_shutdown() {
     "MOKO_POWER_KEY state=menu-requested delivered=1" 15 \
     "The compositor did not open the MOKO Power menu after a five-second Power hold."
   if ! wait_for_serial_since "$marker" \
-      "MOKO_POWER_MENU state=requested uid=1000" 15 \
+      "MOKO_POWER_MENU state=requested uid=1000" "$POWER_MENU_TIMEOUT_SECONDS" \
       "MOKO Shell did not present the requested Power menu."; then
     POWER_MENU_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-power-menu-failure.png"
     capture_frame "/artifacts/$POWER_MENU_FAILURE_SCREENSHOT_NAME" \
@@ -1179,10 +1179,29 @@ for run in $(seq 1 "$RUNS"); do
     monitor "screendump /artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SOUND_SCREENSHOT_NAME")" -gt 10000
     marker=$(serial_line_count)
-    control_center_panel_click 1228 230
-    wait_for_serial_since "$marker" \
-      "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 30 \
-      "Control Center did not change the real PipeWire output mute state."
+    # Audio telemetry can precede the corresponding QML frame by several
+    # seconds under TCG. Keep exercising the visible switch until the real
+    # wpctl-backed action is observed, rather than accepting backend state
+    # alone or failing on one click delivered to the previous frame.
+    output_mute_changed=0
+    sleep 5
+    for _ in 1 2 3; do
+      control_center_panel_click 1228 230
+      if wait_for_serial_since "$marker" \
+          "MOKO_CONTROL_ACTION action=output_mute value=[01] ok=1 uid=1000" 12 \
+          "Control Center output mute action is still pending."; then
+        output_mute_changed=1
+        break
+      fi
+    done
+    if [[ "$output_mute_changed" != 1 ]]; then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "Control Center did not change the real PipeWire output mute state." >&2
+      CONTROL_CENTER_MUTE_FAILURE_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center-mute-failure.png"
+      capture_frame "/artifacts/$CONTROL_CENTER_MUTE_FAILURE_SCREENSHOT_NAME" \
+        "$CONTROL_CENTER_MUTE_FAILURE_SCREENSHOT_NAME"
+      exit 1
+    fi
     CONTROL_CENTER_SCREENSHOT_NAME="$ARTIFACT_PREFIX-boot-$run-control-center.png"
     monitor "screendump /artifacts/$CONTROL_CENTER_SCREENSHOT_NAME -f png"
     test "$(docker exec "$CONTAINER" stat -c %s "/artifacts/$CONTROL_CENTER_SCREENSHOT_NAME")" -gt 10000
