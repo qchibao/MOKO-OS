@@ -14,10 +14,10 @@ Updated: 2026-09-14
 | MOKO-008 MOKO AI system action contract | DONE (validated) | Unprivileged D-Bus daemon, allowlisted action layer and provider-backed Shell UI pass real system-summary and app-launch tests; 3/3 cold-boot regression passes on ISO SHA-256 `4c1a00c43bf0060198b998c6978d7cf178d0eac0b72673572beab50a8ac4fb9f`. |
 | MOKO-009 Hardware diagnostics | DONE (validated) | Native read-only diagnostics, privacy-safe JSON/text exports and Launcher/Settings/AI integration pass in QEMU; 3/3 cold boots pass on ISO SHA-256 `9c6608a10bbb705a09c62caa0a31d4be38a514df6d550f796146329cf799749e`. |
 | MOKO-010 Live USB readiness | DONE (validated in QEMU) | The MacBook 2015 serial false-failure is fixed without weakening disk safety. Two clean builds are identical; BIOS `3/3`, UEFI, Safe Graphics, Diagnostics and shutdown pass on SHA-256 `0427dc95224f582184ca3a61f54b2a1750a5308b2edec41c72b0da0dd5da1483`. Physical MacBook retest remains pending. |
-| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Physical hotfix H1-H8 implementation and automated QEMU gates are complete. Final clean/reproducible artifact generation and physical MacBook Pro 2015 validation remain required before completion. |
+| MOKO-011 v0.1.1 Hardware & Usability Preview | IN PROGRESS | Physical hotfix H1-H8 implementation and the final QEMU gate are complete. A clean reproducible release artifact and physical MacBook Pro 2015 validation remain required before completion. |
 
 ## Current release target
-A reproducible `MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` that reaches the MOKO Hardware & Usability Preview in QEMU, preserves disk safety and supports the validated multi-window, system-control, Browser, AI and suspend/resume workflows. The remaining gate is physical validation on the Intel MacBook Pro 2015.
+A reproducible `MOKO-OS-v0.1.1-dev-amd64.hybrid.iso` that reaches the MOKO Hardware & Usability Preview in QEMU, preserves disk safety and supports the validated multi-window, system-control, Browser, AI and suspend/resume workflows. The remaining automated step is the clean two-build comparison; the final gate is physical validation on the Intel MacBook Pro 2015.
 
 ## v0.1.1 physical hotfix
 
@@ -41,8 +41,8 @@ compositor raises the Shell only after both the later surface commit and the
 matching present request, then retains the existing output-presentation ACK as
 the final authority. Version 7 compatibility remains available. Static checks,
 compositor `5/5`, Shell `12/12`, AI `3/3`, native apps `15/15`, and the real
-threaded Qt session pass. A clean ISO rebuild and repeated BIOS/UEFI framebuffer
-gates are pending.
+threaded Qt session pass. The current ISO then passed repeated BIOS and UEFI
+framebuffer gates; only the final clean reproducibility builds remain pending.
 
 ### Physical bug backlog from the Intel MacBook Pro 2015 test
 
@@ -53,17 +53,17 @@ pessimistic:
 |---|---|---|
 | 1 | Settings -> System -> Display freezes | nonblocking page-scoped polling fix added; physical retest pending |
 | 2 | Wi-Fi connects, then drops; no working network | async discovery/connectivity validation added; physical retest pending |
-| 3 | Three-finger move works but the pointer does not follow | code fix committed `786a93c`; compile- and unit-verified, **not** verified in a running session, **not** in any ISO yet |
+| 3 | Three-finger move works but the pointer does not follow | code fix `786a93c` is included in the current ISO; QEMU has no touchpad, so physical retest remains required |
 | 4 | MOKO loading screen takes ~2 min and appears twice; target <10 s boot | partially addressed - see "Boot-time work" below |
-| 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | compositor/logind implementation and component tests pass; ISO and physical retest pending |
+| 5 | Power key does not power off; a ~5 s long press should offer Sleep / Shut down / Restart | compositor/logind path, QEMU five-second hold, menu, poweroff and black shutdown pass; physical key retest pending |
 
 On #3: the fix is confined to three gesture handlers in
 `compositor/moko-compositor/src/main.c`, with regression coverage and a
 test/rollback note in `tasks/MOKO-011-hardware-usability.md` under "Phase 3
 addendum". The headless harness sets `WLR_LIBINPUT_NO_DEVICES=1`, so no
 synthetic swipe can be injected and the drag itself still needs the physical
-re-test. Build #2 was cut **before** this commit, so shipping it requires a
-build #3.
+re-test. The current release-gate ISO was built after this commit and contains
+the fix.
 
 On #4: `10 s` is not achievable for a Debian-live squashfs USB image. It must
 read ~1.2 GB over USB and bring up the kernel, initrd, systemd, live-config,
@@ -90,12 +90,13 @@ accepted power action is pending, allowing the existing delayed shutdown
 inhibitor and compositor blackout acknowledgement to keep the display black
 until poweroff. Failures leave the menu open and show a consumer-facing error.
 
-Debian 13 validation passes: compositor CTest `5/5`, Shell CTest `9/9`, AI
+Debian 13 validation passes: compositor CTest `5/5`, Shell CTest `12/12`, AI
 CTest `3/3`, native apps CTest `15/15`, static boot/disk-safety tests, Browser
 network, Qt multi-window session, QML renders and the all-black shutdown pixel
 gate. The fake-logind test verifies the exact inhibitor scope/mode, bounded
-reboot/poweroff methods and the failure path. A new ISO and physical MacBook
-power-key test are still pending.
+reboot/poweroff methods and the failure path. The current ISO passes the real
+QEMU power-menu path in BIOS and UEFI; the physical MacBook power-key test is
+still pending.
 
 Rollback: revert the scoped power-key commit or boot Safe Graphics/Cage. Older
 Shell/compositor protocol versions remain compatible, and failure to acquire
@@ -105,16 +106,28 @@ contract changes.
 
 ## Physical hotfix automated gate
 
-- Debian 13 component suite: compositor `4/4`, Shell `8/8`, existing AI `3/3`
-  and native apps `15/15` passed; Browser network and Qt multi-window sessions
-  also passed.
-- Three independent BIOS desktop boots and three UEFI desktop boots passed disk
-  safety, graphical health, zero greetd restarts and clean shutdown.
+- Debian 13 component suite: compositor `5/5`, Shell `12/12`, frozen AI `3/3`
+  and native apps `15/15` passed; Browser network and the real threaded Qt
+  multi-window session also passed.
+- Current release-gate ISO: source commit `d15fa8367052127fb8c7b4f650b29d37abc31f8a`,
+  SHA-256 `7a7df004af51b7614f50018c67804e0c04471944559f36d682be7620ab0401b1`.
+- BIOS artifact `moko-iso-smoke-20260914T090819Z` passed `3/3`; UEFI artifact
+  `moko-iso-smoke-20260914T092325Z` passed `3/3`. Every run reported disk
+  safety pass, hardware graphics, six input events, zero greetd restarts and
+  two all-black shutdown captures with `bright_pixels=0`.
 - AI/Terminal, real multi-window state, Control Center, input/usability,
   Browser HTTPS/JavaScript/download/temporary `.deb` install, Safe Graphics,
-  direct and Launcher Diagnostics, and QEMU suspend/resume passed.
+  direct and Launcher Diagnostics passed in isolated graphical sessions.
+- Standard-VGA suspend/resume artifact `moko-iso-smoke-20260914T090047Z`
+  passed with Browser mapped, HTTPS/JavaScript working before and after wake,
+  AI/provider connected, compositor healthy, NetworkManager present and
+  PipeWire recovered.
+- Test-harness checkpoint `813c825` is pushed. It preserves every product
+  assertion while allowing delayed Browser telemetry and recording optional
+  pre-suspend service availability truthfully.
 - MOKO-011 stays `IN PROGRESS` until the locked physical checklist passes on
-  the Intel MacBook Pro 2015. MOKO-012 remains disabled.
+  the Intel MacBook Pro 2015. A clean two-build reproducibility check is still
+  required, and MOKO-012 remains disabled.
 
 ## Boot-time work (built, QEMU boot-tested, not yet on physical hardware)
 

@@ -196,17 +196,25 @@ MOKO-011 complete. Do not enable the installer during that validation.
 
 ## Physical hotfix release gate
 
-The H1-H8 physical hotfix automated gate completed on 2026-09-09. Run long
+The H1-H8 physical hotfix automated gate was revalidated on 2026-09-14. Run long
 pointer-driven workflows in isolated boots; parallel TCG guests can starve each
 other before firmware starts and are not counted as product failures.
 
 The clean gate passed the boot/shutdown presentation checks, disk-safety
-serial-sink regression, compositor `4/4`, Shell `8/8`, unchanged AI `3/3`, apps
+serial-sink regression, compositor `5/5`, Shell `12/12`, frozen AI `3/3`, apps
 `15/15`, Browser network and Qt multi-window tests. QEMU passed three BIOS and
 three UEFI desktop boots plus Control Center, input/usability, AI/Terminal,
 Files/Settings multi-window, Browser HTTPS/JavaScript/download/temporary `.deb`
 installation, Safe Graphics, direct and Launcher Diagnostics, and standard-VGA
 suspend/resume.
+
+The last contiguous cold-boot artifacts are
+`out/moko-iso-smoke-20260914T090819Z-bios-desktop-boot-{1,2,3}` and
+`out/moko-iso-smoke-20260914T092325Z-uefi-desktop-boot-{1,2,3}`. The validated
+standard-VGA resume artifact is
+`out/moko-iso-smoke-20260914T090047Z-bios-desktop-std-boot-1`. These runs used
+the clean product image from commit `d15fa8367052127fb8c7b4f650b29d37abc31f8a`,
+SHA-256 `7a7df004af51b7614f50018c67804e0c04471944559f36d682be7620ab0401b1`.
 
 For the resume gate use the existing restricted cleanup mode after every guest
 and framebuffer assertion succeeds:
@@ -215,6 +223,8 @@ and framebuffer assertion succeeds:
 MOKO_QEMU_VIDEO_DEVICE=std MOKO_QEMU_EXIT_ACTION=quit \
   MOKO_RESUME_TEST=1 MOKO_LAUNCH_QUERY=browser \
   MOKO_LAUNCH_APP_ID=org.moko.Browser MOKO_REQUIRE_APP_READY=1 \
+  MOKO_BOOT_TIMEOUT=480 MOKO_SHELL_READY_TIMEOUT=240 \
+  MOKO_SCREENSHOT_TIMEOUT=240 MOKO_POWER_MENU_TIMEOUT=120 \
   ./scripts/test-iso-docker.sh
 ```
 

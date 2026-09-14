@@ -1067,3 +1067,42 @@ Rollback: revert this scoped protocol-v8 follow-up. Protocol v7 and the existing
 shutdown blackout remain available, but the Qt callback liveness stall would
 return. This change does not affect boot ordering, disk discovery, mount policy,
 installer state, privileges, power actions or the frozen MOKO AI boundary.
+
+## Final automated revalidation before reproducible rebuild (2026-09-14)
+
+The current release-gate ISO was built cleanly from product commit
+`d15fa8367052127fb8c7b4f650b29d37abc31f8a` and has SHA-256
+`7a7df004af51b7614f50018c67804e0c04471944559f36d682be7620ab0401b1`.
+Later commits through `813c825` change only the QEMU interaction harness. They
+do not change the Live image runtime, boot, disk, compositor or application
+payload.
+
+- BIOS artifact prefix `out/moko-iso-smoke-20260914T090819Z-bios-desktop`
+  passed `3/3`. Shell-ready times were 155220, 147380 and 145430 ms under TCG.
+- UEFI artifact prefix `out/moko-iso-smoke-20260914T092325Z-uefi-desktop`
+  passed `3/3`. Shell-ready times were 162590, 133600 and 191410 ms under TCG.
+- All six boots reported `MOKO_DISK_SAFETY result=pass`,
+  `unexpected_block_mounts=0`, hardware graphics, six input events,
+  `greetd_restarts=0`, a rendered Power menu and two shutdown captures with
+  `bright_pixels=0`.
+- Standard-VGA resume artifact
+  `out/moko-iso-smoke-20260914T090047Z-bios-desktop-std-boot-1` passed. Browser
+  remained mapped, HTTPS and JavaScript passed before and after wake, and
+  `MOKO_RESUME_HEALTH result=pass` covered compositor, frozen AI/provider,
+  NetworkManager, PipeWire and the input protocol.
+- Earlier isolated gates on this same ISO passed AI-to-Terminal PTY, Cage Safe
+  Graphics with Files, direct and Launcher Hardware Diagnostics exports, and
+  Settings-to-Diagnostics. The other H1-H8 functional artifacts remain recorded
+  in this task and `STATUS.md`.
+
+The 60-second Browser launch telemetry deadline covers an observed delayed
+`state=running` event without removing that required event. The pre-suspend
+baseline accepts truthful optional-service availability (`0` or `1`), while the
+post-resume gate still requires PipeWire audio, Browser, compositor, AI/provider
+and NetworkManager recovery. This is test-only and does not weaken disk safety
+or runtime behavior.
+
+The remaining automated release work is two clean builds from the documentation
+checkpoint followed by `scripts/compare-iso-builds.sh`. MOKO-011 remains in
+progress until the locked Intel MacBook Pro 2015 checklist passes. MOKO-012 and
+internal-disk installation remain disabled.
