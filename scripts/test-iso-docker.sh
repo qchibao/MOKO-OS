@@ -364,6 +364,20 @@ pointer_move() {
   qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$absolute_x}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$absolute_y}}]}}"
 }
 
+pointer_scroll_down() {
+  local x=$1
+  local y=$2
+  local steps=$3
+  pointer_move "$x" "$y"
+  sleep 1
+  for _ in $(seq 1 "$steps"); do
+    qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"wheel-down"}}]}}'
+    sleep 0.2
+    qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"wheel-down"}}]}}'
+    sleep 0.2
+  done
+}
+
 pointer_double_click() {
   local x=$1
   local y=$2
@@ -1637,10 +1651,15 @@ for run in $(seq 1 "$RUNS"); do
         echo "MOKO_SETTINGS_OPEN_HARDWARE requires org.moko.Settings." >&2
         exit 1
       }
-      pointer_click 100 481
-      sleep 2
+      # Scroll the centered Settings sidebar to the final consumer sections;
+      # the pre-hotfix harness clicked a full-screen coordinate outside it.
+      pointer_scroll_down 244 480 8
+      sleep 3
+      monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-settings-filter.png -f png"
+      pointer_click 244 507
+      sleep 5
       monitor "screendump /artifacts/$ARTIFACT_PREFIX-boot-$run-settings-hardware.png -f png"
-      pointer_click 770 695
+      pointer_click 770 550
       settings_deadline=$((SECONDS + 45))
       while ! grep -Fq "MOKO_SETTINGS_ACTION action=open_hardware_diagnostics state=accepted uid=1000" "$SERIAL_PATH"; do
         if (( SECONDS >= settings_deadline )); then
