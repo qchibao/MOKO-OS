@@ -265,6 +265,13 @@ qmp() {
   qmp_request "$1" >/dev/null
 }
 
+qmp_key_press() {
+  local key=$1
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":true,\"key\":{\"type\":\"qcode\",\"data\":\"$key\"}}}]}}"
+  sleep 0.15
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":false,\"key\":{\"type\":\"qcode\",\"data\":\"$key\"}}}]}}"
+}
+
 qmp_power_key() {
   local down=$1
   qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":$down,\"key\":{\"type\":\"qcode\",\"data\":\"power\"}}}]}}"
@@ -411,6 +418,26 @@ send_text() {
     esac
     monitor "sendkey $key"
     sleep 0.08
+  done
+}
+
+send_qmp_text() {
+  local value=$1
+  local delay=${2:-0.15}
+  local character key
+  local -i index
+  for ((index = 0; index < ${#value}; index++)); do
+    character=${value:index:1}
+    case "$character" in
+      [a-z0-9]) key=$character ;;
+      " ") key=spc ;;
+      *)
+        echo "Unsupported QMP text-entry character: $character" >&2
+        return 1
+        ;;
+    esac
+    qmp_key_press "$key"
+    sleep "$delay"
   done
 }
 
@@ -1378,37 +1405,49 @@ for run in $(seq 1 "$RUNS"); do
     done
     grep -F "MOKO_AI_UI state=ready provider=local-stub uid=1000" "$SERIAL_PATH" | tail -1
 
-    monitor "sendkey ctrl-alt-a"
-    sleep 2
-    monitor "sendkey ctrl-a"
-    sleep 0.5
-    # Absorb a possible first-key focus transition; the provider trims whitespace.
-    monitor "sendkey spc"
-    sleep 0.5
-    for ((index = 0; index < ${#AI_PROMPT}; index++)); do
-      key=${AI_PROMPT:index:1}
-      if [[ "$key" == " " ]]; then
-        key=spc
-      fi
-      monitor "sendkey $key"
-      sleep 0.2
-    done
     marker=$(serial_line_count)
-    monitor "sendkey ret"
-
+    monitor "sendkey meta_l-a"
     wait_for_serial_since "$marker" \
-      "MOKO_AI_UI state=processing provider=local-stub uid=1000" 30 \
-      "MOKO AI UI did not enter its processing state."
+      "MOKO_GLOBAL_ACTION action=2" 20 \
+      "The compositor did not dispatch the MOKO AI global action."
+    wait_for_serial_since "$marker" \
+      "MOKO_SHELL_OVERLAY state=shown" 20 \
+      "The compositor did not expose the MOKO AI overlay."
 
-    ai_response_deadline=$((SECONDS + 45))
-    while ! grep -Fq "MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" "$SERIAL_PATH"; do
-      if (( SECONDS >= ai_response_deadline )); then
-        tail -120 "$SERIAL_PATH" >&2
-        echo "MOKO AI UI did not receive the expected successful response." >&2
-        exit 1
-      fi
+    # Let the overlay finish its first frame before moving keyboard focus into
+    # the prompt. Slow TCG guests can otherwise consume input during activation.
+    sleep 5
+    ai_response_ok=0
+    for _ in 1 2 3; do
+      marker=$(serial_line_count)
+      pointer_click 1090 682
+      sleep 3
+      # Absorb a possible first-key focus transition; the provider trims it.
+      qmp_key_press spc
       sleep 1
+      send_qmp_text "$AI_PROMPT" 0.2
+      # Keep Enter behind all preceding key releases on slow TCG guests.
+      sleep 5
+      qmp_key_press ret
+      if ! wait_for_serial_since_quiet "$marker" \
+          "MOKO_AI_UI state=processing provider=local-stub uid=1000" 10; then
+        continue
+      fi
+      if wait_for_serial_since_quiet "$marker" \
+          "MOKO_AI_UI state=response action=" 60 \
+          && awk -v start="$marker" \
+            -v pattern="MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" \
+            'NR > start && index($0, pattern) { found = 1 } END { exit !found }' \
+            "$SERIAL_PATH"; then
+        ai_response_ok=1
+        break
+      fi
     done
+    if [[ "$ai_response_ok" != 1 ]]; then
+      tail -140 "$SERIAL_PATH" >&2
+      echo "MOKO AI UI did not return the expected successful response after three input attempts." >&2
+      exit 1
+    fi
     grep -F "MOKO_AI_UI state=response action=$AI_EXPECT_ACTION ok=1 uid=1000" "$SERIAL_PATH" | tail -1
 
     if [[ -n "$AI_EXPECT_APP_ID" ]]; then
