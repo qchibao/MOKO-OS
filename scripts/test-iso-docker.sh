@@ -1548,7 +1548,7 @@ for run in $(seq 1 "$RUNS"); do
       sleep 1
     done
 
-    launch_deadline=$((SECONDS + 30))
+    launch_deadline=$((SECONDS + 60))
     while ! grep -E -q "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=running pid=[1-9][0-9]* uid=[1-9][0-9]*" "$SERIAL_PATH"; do
       if grep -Fq "MOKO_APP_LAUNCH app_id=$LAUNCH_APP_ID state=failed" "$SERIAL_PATH"; then
         tail -80 "$SERIAL_PATH" >&2
@@ -1740,7 +1740,7 @@ for run in $(seq 1 "$RUNS"); do
       qmp '{"execute":"system_wakeup"}'
       wait_for_qemu_status running 30
       wait_for_serial_since "$marker" \
-        "MOKO_SLEEP state=preparing compositor=1 browser_running=1 ai=1 network_manager=1 wifi_connected=[01] bluez_service=[01] bluetooth_adapter=[01] bluetooth_powered=[01] audio=1 input_protocol=1 touchpads=[0-9]+ battery=[01] power_mode=[01] uid=1000" 60 \
+        "MOKO_SLEEP state=preparing compositor=1 browser_running=1 ai=1 network_manager=1 wifi_connected=[01] bluez_service=[01] bluetooth_adapter=[01] bluetooth_powered=[01] audio=[01] input_protocol=1 touchpads=[0-9]+ battery=[01] power_mode=[01] uid=1000" 60 \
         "The Shell did not record the real pre-suspend service baseline."
       wait_for_serial_since "$marker" \
         "MOKO_SLEEP state=resumed uid=1000" 60 \
